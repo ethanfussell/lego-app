@@ -2,30 +2,78 @@ from fastapi import APIRouter, HTTPException, Query, status
 from typing import Optional, List
 from app.data.sets import SETS
 from app.schemas.lego_set import LegoSet, LegoSetCreate, LegoSetUpdate
+from app.data.reviews_stats import rating_stats_for_set
 
 router = APIRouter()
 
+def _matches_query(s: dict, q: str) -> bool:
+    if not q:
+        return True
+    tokens = [t.strip().lower() for t in q.split() if t.strip()]
+    # Build a simple “haystack” of fields we want to search
+    fields = [
+        s.get("name", "").lower(),
+        s.get("set_num", "").lower(),
+        (s.get("theme") or "").lower(),
+        str(s.get("year") or ""),
+    ]
+    # Every token must appear in at least one field
+    return all(any(tok in f for f in fields) for tok in tokens)
+
+def _field(val) -> str:
+    # Safely turn any value (including None/int) into a lowercase string
+    return str(val or "").lower()
+
+def _matches_query(s: dict, q: str) -> bool:
+    if not q:
+        return True
+    tokens = [t.strip().lower() for t in q.split() if t.strip()]
+    fields = [
+        _field(s.get("name")),
+        _field(s.get("set_num")),
+        _field(s.get("theme")),
+        _field(s.get("year")),
+    ]
+    # Every token must appear in at least one field
+    return all(any(tok in f for f in fields) for tok in tokens)
+
+@router.get("/", response_model=List[LegoSet])
+
 @router.get("/", response_model=List[LegoSet])
 def list_sets(
-    q: Optional[str] = Query(None, description="Search text (matches name)"),
+    q: Optional[str] = Query(None, description="Search across name, set number, theme, or year"),
     theme: Optional[str] = Query(None, description="Filter by theme"),
     year: Optional[int] = Query(None, description="Filter by year"),
+    piece_min: Optional[int] = Query(None, description="Minimum piece count"),
+    piece_max: Optional[int] = Query(None, description="Maximum piece count"),
 ):
     items = SETS
+
     if q:
-        ql = q.lower()
-        items = [s for s in items if ql in s["name"].lower()]
+        items = [s for s in items if _matches_query(s, q)]
+
     if theme:
         items = [s for s in items if s.get("theme") == theme]
     if year is not None:
         items = [s for s in items if s.get("year") == year]
-    return items
+    if piece_min is not None:
+        items = [s for s in items if (s.get("pieces") or 0) >= piece_min]
+    if piece_max is not None:
+        items = [s for s in items if (s.get("pieces") or 0) <= piece_max]
 
+    enriched = []
+    for s in items:
+        avg, count = rating_stats_for_set(s["set_num"])
+        enriched.append({**s, "rating_avg": avg, "rating_count": count})
+    return enriched
+    
 @router.get("/{set_num}", response_model=LegoSet)
 def get_set(set_num: str):
     for s in SETS:
         if s["set_num"] == set_num:
-            return s
+            # include rating stats when returning one set
+            avg, count = rating_stats_for_set(s["set_num"])
+            return {**s, "rating_avg": avg, "rating_count": count}
     raise HTTPException(status_code=404, detail="Set not found")
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=LegoSet)

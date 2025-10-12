@@ -7,6 +7,8 @@ class LegoSet(BaseModel):
     pieces: Optional[int] = None
     theme: Optional[str] = None
     year: Optional[int] = None
+    rating_avg: Optional[float] = None
+    rating_count: Optional[int] = None
 
 class LegoSetCreate(BaseModel):
     set_num: str
