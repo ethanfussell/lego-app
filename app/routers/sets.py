@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from typing import Optional, List
 from app.data.sets import SETS
-from app.schemas.lego_set import LegoSet, LegoSetCreate
+from app.schemas.lego_set import LegoSet, LegoSetCreate, LegoSetUpdate
 
 router = APIRouter()
 
@@ -53,3 +53,25 @@ def delete_set(set_num: str):
     del SETS[idx]
     # 204 No Content: nothing else to return
     return
+
+@router.put("/{set_num}", response_model=LegoSet)
+def update_set(set_num: str, payload: LegoSetUpdate):
+    """
+    Full update (PUT) of a set. set_num is immutable.
+    Returns the updated object or 404 if not found.
+    """
+    # find existing
+    idx = next((i for i, s in enumerate(SETS) if s["set_num"] == set_num), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    # replace with new data, keeping the ID the same
+    updated = {
+        "set_num": set_num,
+        "name": payload.name,
+        "pieces": payload.pieces,
+        "theme": payload.theme,
+        "year": payload.year,
+    }
+    SETS[idx] = updated
+    return updated
