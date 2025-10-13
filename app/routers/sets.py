@@ -1,27 +1,71 @@
-from fastapi import APIRouter, HTTPException, Query, status
 from typing import Optional, List
+from fastapi import APIRouter, HTTPException, Query, status, Response
+from pydantic import conint
 from app.data.sets import SETS
 from app.schemas.lego_set import LegoSet, LegoSetCreate, LegoSetUpdate
 from app.data.reviews_stats import rating_stats_for_set
 
 router = APIRouter()
 
-def _matches_query(s: dict, q: str) -> bool:
-    if not q:
-        return True
-    tokens = [t.strip().lower() for t in q.split() if t.strip()]
-    # Build a simple “haystack” of fields we want to search
-    fields = [
-        s.get("name", "").lower(),
-        s.get("set_num", "").lower(),
-        (s.get("theme") or "").lower(),
-        str(s.get("year") or ""),
-    ]
-    # Every token must appear in at least one field
-    return all(any(tok in f for f in fields) for tok in tokens)
+import re
 
-def _field(val) -> str:
-    # Safely turn any value (including None/int) into a lowercase string
+def _s(val) -> str:
+    return str(val if val is not None else "").lower()
+
+_token_re = re.compile(r"\S+")
+
+def _parse_tokens(q: str):
+    """
+    Split query into text tokens and optional numeric filters like 4000+
+    Returns: (tokens: list[str], filters: dict)
+    """
+    if not q:
+        return [], {}
+    tokens = [t.lower() for t in _token_re.findall(q)]
+    filt = {}
+    for t in tokens[:]:  # iterate over a copy so we can remove filter tokens
+        m = re.fullmatch(r"(\d{3,5})\+", t)  # e.g., 4000+
+        if m:
+            filt["piece_min"] = int(m.group(1))
+            tokens.remove(t)
+    return tokens, filt
+
+def _matches_any_field(s: dict, tok: str) -> bool:
+    fields = [
+        _s(s.get("name")),
+        _s(s.get("set_num")),
+        _s(s.get("theme")),
+        _s(s.get("year")),
+    ]
+    return any(tok in f for f in fields)
+
+def _all_tokens_match(s: dict, tokens: list[str]) -> bool:
+    return all(_matches_any_field(s, tok) for tok in tokens)
+
+def _score_relevance(s: dict, tokens: list[str]) -> tuple:
+    """Higher is better; simple weighted signals for relevance."""
+    name = _s(s.get("name"))
+    set_num = _s(s.get("set_num"))
+    theme = _s(s.get("theme"))
+    year = _s(s.get("year"))
+
+    exact_set = sum(1 for t in tokens if t == set_num)
+    name_starts = sum(1 for t in tokens if name.startswith(t))
+    name_contains = sum(1 for t in tokens if t in name)
+    theme_contains = sum(1 for t in tokens if t in theme)
+    year_exact = sum(1 for t in tokens if t == year)
+
+    score = (
+        exact_set * 1000
+        + name_starts * 50
+        + name_contains * 20
+        + theme_contains * 10
+        + year_exact * 30
+    )
+    return (score, s.get("pieces") or 0, name)
+# ==== END SEARCH HELPERS ====
+
+def _field(val):  # already added earlier for search helpers
     return str(val or "").lower()
 
 def _matches_query(s: dict, q: str) -> bool:
@@ -34,38 +78,76 @@ def _matches_query(s: dict, q: str) -> bool:
         _field(s.get("theme")),
         _field(s.get("year")),
     ]
-    # Every token must appear in at least one field
     return all(any(tok in f for f in fields) for tok in tokens)
 
 @router.get("/", response_model=List[LegoSet])
-
-@router.get("/", response_model=List[LegoSet])
 def list_sets(
-    q: Optional[str] = Query(None, description="Search across name, set number, theme, or year"),
-    theme: Optional[str] = Query(None, description="Filter by theme"),
-    year: Optional[int] = Query(None, description="Filter by year"),
-    piece_min: Optional[int] = Query(None, description="Minimum piece count"),
-    piece_max: Optional[int] = Query(None, description="Maximum piece count"),
+    q: Optional[str] = Query(None, description="Search by name, set number, theme, piece count, or year"),
+    sort: Optional[str] = Query(None, description="rating | pieces | year | name | relevance"),
+    order: Optional[str] = Query(None, description="ascending | descending"),
+    page: conint(ge=1) = Query(1, description="Page number (1-based)"),
+    limit: conint(ge=1, le=100) = Query(10, description="Page size (1–100)"),
+    response: Response = None,
 ):
     items = SETS
 
-    if q:
-        items = [s for s in items if _matches_query(s, q)]
+    # --- universal search parsing ---
+    tokens, extra_filters = _parse_tokens(q or "")
 
-    if theme:
-        items = [s for s in items if s.get("theme") == theme]
-    if year is not None:
-        items = [s for s in items if s.get("year") == year]
+    # text tokens (multi-word, partial) across name/set_num/theme/year
+    if tokens:
+        items = [s for s in items if _all_tokens_match(s, tokens)]
+
+    # numeric convenience filter (e.g., '4000+')
+    piece_min = extra_filters.get("piece_min")
     if piece_min is not None:
         items = [s for s in items if (s.get("pieces") or 0) >= piece_min]
-    if piece_max is not None:
-        items = [s for s in items if (s.get("pieces") or 0) <= piece_max]
 
+    # --- sorting: default to relevance if no explicit sort ---
+    allowed = {"rating", "pieces", "year", "name", "relevance", None}
+    if sort not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'. Allowed: rating, pieces, year, name, relevance")
+
+    if sort is None:
+        sort = "relevance"  # default
+    if order is None:
+        order = "desc" if sort in {"rating", "pieces", "year", "relevance"} else "asc"
+    reverse = order == "desc"
+
+    if sort == "rating":
+        def rating_key(s):
+            avg, count = rating_stats_for_set(s["set_num"])
+            return (avg, count, _s(s.get("name")))
+        items = sorted(items, key=rating_key, reverse=reverse)
+    elif sort == "pieces":
+        items = sorted(items, key=lambda s: (s.get("pieces") is None, s.get("pieces") or 0, _s(s.get("name"))), reverse=reverse)
+    elif sort == "year":
+        items = sorted(items, key=lambda s: (s.get("year") is None, s.get("year") or 0, _s(s.get("name"))), reverse=reverse)
+    elif sort == "name":
+        items = sorted(items, key=lambda s: _s(s.get("name")), reverse=reverse)
+    elif sort == "relevance":
+        # Only meaningful when tokens exist; otherwise falls back to a stable name sort feel
+        if tokens:
+            items = sorted(items, key=lambda s: _score_relevance(s, tokens), reverse=True)
+        else:
+            items = sorted(items, key=lambda s: _s(s.get("name")))
+
+    # --- enrichment (ratings) ---
     enriched = []
     for s in items:
         avg, count = rating_stats_for_set(s["set_num"])
         enriched.append({**s, "rating_avg": avg, "rating_count": count})
-    return enriched
+
+    # --- pagination ---
+    total = len(enriched)
+    start = (page - 1) * limit
+    end = start + limit
+    page_items = enriched[start:end]
+
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+
+    return page_items
     
 @router.get("/{set_num}", response_model=LegoSet)
 def get_set(set_num: str):
