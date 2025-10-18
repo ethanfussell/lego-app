@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import sets as sets_router
 from app.routers import reviews as reviews_router
 from app.routers import collections as collections_router
+from app.routers import lists as lists_router
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
     app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
     app.include_router(collections_router.router, tags=["collections"])
+    app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
 
     return app
 

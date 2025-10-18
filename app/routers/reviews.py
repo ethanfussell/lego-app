@@ -57,6 +57,7 @@ def list_reviews(
         # tie-break by recency
         rows.sort(key=lambda r: (r.get("likes_count") or 0, r["created_at"]), reverse=reverse)
 
+
     # ---- pagination ----
     total = len(rows)
     start = (page - 1) * limit
