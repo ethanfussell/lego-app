@@ -1,48 +1,63 @@
+# app/data/sets.py
 import os
-import requests
 import json
+import time
+from pathlib import Path
+import requests
 
-# Define the cache file path
-CACHE_FILE = os.path.join(os.path.dirname(__file__), "sets_cache.json")
+# Where we cache downloaded sets
+CACHE_FILE = Path(__file__).with_name("sets_cache.json")
 
-# Rebrickable API details
+# Rebrickable API
 API_URL = "https://rebrickable.com/api/v3/lego/sets/"
-API_KEY = os.getenv("REBRICKABLE_API_KEY")  # Store your API key in an environment variable
+API_KEY = os.getenv("REBRICKABLE_API_KEY")
+HEADERS = {"Authorization": f"key {API_KEY}"} if API_KEY else {}
 
-def fetch_all_lego_sets():
-    """Fetch all LEGO sets from the Rebrickable API and save to a local file."""
+def fetch_all_lego_sets(page_size: int = 1000, throttle: float = 0.2) -> None:
+    """
+    Fetch all sets from Rebrickable and save them into sets_cache.json.
+    - Reads API key from REBRICKABLE_API_KEY
+    - Paginates until 'next' is None
+    - Maps fields into our app's shape
+    """
     if not API_KEY:
-        raise ValueError("Rebrickable API key is missing. Set the REBRICKABLE_API_KEY environment variable.")
+        raise ValueError("Missing REBRICKABLE_API_KEY environment variable.")
 
-    headers = {"Authorization": f"key {API_KEY}"}
-    sets = []
-    page = 1
+    url = f"{API_URL}?page=1&page_size={page_size}"
+    all_sets = []
 
-    while True:
-        response = requests.get(API_URL, headers=headers, params={"page": page})
-        if response.status_code == 200:
-            data = response.json()
-            sets.extend([
-                {
-                    "set_num": item["set_num"],
-                    "name": item["name"],
-                    "pieces": item["num_parts"],
-                    "theme": item.get("theme", "Unknown"),  # Use .get() to avoid KeyError
-                    "year": item["year"],
-                }
-                for item in data["results"]
-            ])
-            if not data["next"]:  # Check if there's another page
-                break
-            page += 1
-        else:
-            print(f"Error fetching data: {response.status_code}, {response.text}")
-            break
+    while url:
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Rebrickable {resp.status_code}: {resp.text}")
 
-    # Save the data to the cache file
-    with open(CACHE_FILE, "w") as f:
-        json.dump(sets, f, indent=4)
-    print(f"Fetched {len(sets)} LEGO sets and saved to {CACHE_FILE}")
+        data = resp.json()
+
+        # ---- map Rebrickable fields into our schema ----
+        for item in data.get("results", []):
+            set_num = item.get("set_num")            # e.g. "10305-1"
+            # Optional: store a plain number for easier searching like "10305"
+            set_num_plain = set_num.split("-")[0] if set_num else None
+
+            all_sets.append({
+                "set_num": set_num,
+                "set_num_plain": set_num_plain,
+                "name": item.get("name"),
+                "year": item.get("year"),
+                "pieces": item.get("num_parts"),
+                # Rebrickable returns theme_id; name needs a separate lookup.
+                "theme": None,
+                "image_url": item.get("set_img_url"),
+            })
+
+        # Next page (Rebrickable gives a full URL or None)
+        url = data.get("next")
+        # be polite to the API
+        time.sleep(throttle)
+
+    # Save cache
+    CACHE_FILE.write_text(json.dumps(all_sets, indent=2, ensure_ascii=False))
+    print(f"Fetched {len(all_sets)} sets → {CACHE_FILE}")
 
 if __name__ == "__main__":
     fetch_all_lego_sets()
