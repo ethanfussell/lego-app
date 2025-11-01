@@ -1,207 +1,136 @@
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query, status, Response
-from pydantic import conint
-from app.data.sets import SETS
-from app.schemas.lego_set import LegoSet, LegoSetCreate, LegoSetUpdate
-from app.data.reviews_stats import rating_stats_for_set
+# app/routers/sets.py
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple
+from fastapi import APIRouter, HTTPException, Query, Response
+
+from app.data.sets import load_cached_sets, get_set_by_num
 
 router = APIRouter()
 
-import re
 
-def _s(val) -> str:
-    return str(val if val is not None else "").lower()
-
-_token_re = re.compile(r"\S+")
-
-def _parse_tokens(q: str):
+# --------- helpers (local; no circular imports) ---------
+def _rating_stats_for_set(set_num: str) -> Tuple[float, int]:
     """
-    Split query into text tokens and optional numeric filters like 4000+
-    Returns: (tokens: list[str], filters: dict)
+    Compute (avg_rating, count) for a set by set_num from the in-memory REVIEWS list,
+    if available. Returns (0.0, 0) if no reviews or if the reviews store isn’t present.
     """
-    if not q:
-        return [], {}
-    tokens = [t.lower() for t in _token_re.findall(q)]
-    filt = {}
-    for t in tokens[:]:  # iterate over a copy so we can remove filter tokens
-        m = re.fullmatch(r"(\d{3,5})\+", t)  # e.g., 4000+
-        if m:
-            filt["piece_min"] = int(m.group(1))
-            tokens.remove(t)
-    return tokens, filt
+    try:
+        # Lazy import avoids circular import at module load time
+        from app.data.reviews import REVIEWS  # type: ignore
+    except Exception:
+        return (0.0, 0)
 
-def _matches_any_field(s: dict, tok: str) -> bool:
-    fields = [
-        _s(s.get("name")),
-        _s(s.get("set_num")),
-        _s(s.get("theme")),
-        _s(s.get("year")),
-    ]
-    return any(tok in f for f in fields)
+    rows = [r for r in REVIEWS if (r.get("set_num") or "").lower() == set_num.lower()]
+    if not rows:
+        return (0.0, 0)
 
-def _all_tokens_match(s: dict, tokens: list[str]) -> bool:
-    return all(_matches_any_field(s, tok) for tok in tokens)
+    ratings = [r.get("rating") for r in rows if isinstance(r.get("rating"), (int, float))]
+    if not ratings:
+        return (0.0, 0)
 
-def _score_relevance(s: dict, tokens: list[str]) -> tuple:
-    """Higher is better; simple weighted signals for relevance."""
-    name = _s(s.get("name"))
-    set_num = _s(s.get("set_num"))
-    theme = _s(s.get("theme"))
-    year = _s(s.get("year"))
+    avg = sum(ratings) / len(ratings)
+    return (round(avg, 2), len(ratings))
 
-    exact_set = sum(1 for t in tokens if t == set_num)
-    name_starts = sum(1 for t in tokens if name.startswith(t))
-    name_contains = sum(1 for t in tokens if t in name)
-    theme_contains = sum(1 for t in tokens if t in theme)
-    year_exact = sum(1 for t in tokens if t == year)
 
-    score = (
-        exact_set * 1000
-        + name_starts * 50
-        + name_contains * 20
-        + theme_contains * 10
-        + year_exact * 30
-    )
-    return (score, s.get("pieces") or 0, name)
-# ==== END SEARCH HELPERS ====
-
-def _field(val):  # already added earlier for search helpers
-    return str(val or "").lower()
-
-def _matches_query(s: dict, q: str) -> bool:
+def _matches_query(s: Dict[str, Any], q: str) -> bool:
+    """Case-insensitive match against name, theme, set_num, set_num_plain."""
+    q = q.strip().lower()
     if not q:
         return True
-    tokens = [t.strip().lower() for t in q.split() if t.strip()]
-    fields = [
-        _field(s.get("name")),
-        _field(s.get("set_num")),
-        _field(s.get("theme")),
-        _field(s.get("year")),
-    ]
-    return all(any(tok in f for f in fields) for tok in tokens)
+    name = (s.get("name") or "").lower()
+    theme = (s.get("theme") or "").lower()
+    set_num = (s.get("set_num") or "").lower()
+    plain = (s.get("set_num_plain") or "").lower()
+    return (q in name) or (q in theme) or (q in set_num) or (q == plain)
 
-@router.get("/", response_model=List[LegoSet])
-def list_sets(
-    q: Optional[str] = Query(None, description="Search by name, set number, theme, piece count, or year"),
-    sort: Optional[str] = Query(None, description="rating | pieces | year | name | relevance"),
-    order: Optional[str] = Query(None, description="ascending | descending"),
-    page: conint(ge=1) = Query(1, description="Page number (1-based)"),
-    limit: conint(ge=1, le=100) = Query(10, description="Page size (1–100)"),
-    response: Response = None,
-):
-    items = SETS
 
-    # --- universal search parsing ---
-    tokens, extra_filters = _parse_tokens(q or "")
-
-    # text tokens (multi-word, partial) across name/set_num/theme/year
-    if tokens:
-        items = [s for s in items if _all_tokens_match(s, tokens)]
-
-    # numeric convenience filter (e.g., '4000+')
-    piece_min = extra_filters.get("piece_min")
-    if piece_min is not None:
-        items = [s for s in items if (s.get("pieces") or 0) >= piece_min]
-
-    # --- sorting: default to relevance if no explicit sort ---
-    allowed = {"rating", "pieces", "year", "name", "relevance", None}
-    if sort not in allowed:
-        raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'. Allowed: rating, pieces, year, name, relevance")
-
-    if sort is None:
-        sort = "relevance"  # default
-    if order is None:
-        order = "desc" if sort in {"rating", "pieces", "year", "relevance"} else "asc"
-    reverse = order == "desc"
-
+def _sort_key(sort: str):
+    """
+    Return a key function for sorting. For 'rating', we sort by (avg, count).
+    """
+    if sort == "name":
+        return lambda r: (r.get("name") or "").lower()
+    if sort == "year":
+        return lambda r: (r.get("year") or 0)
+    if sort == "pieces":
+        return lambda r: (r.get("pieces") or 0)
     if sort == "rating":
-        def rating_key(s):
-            avg, count = rating_stats_for_set(s["set_num"])
-            return (avg, count, _s(s.get("name")))
-        items = sorted(items, key=rating_key, reverse=reverse)
-    elif sort == "pieces":
-        items = sorted(items, key=lambda s: (s.get("pieces") is None, s.get("pieces") or 0, _s(s.get("name"))), reverse=reverse)
-    elif sort == "year":
-        items = sorted(items, key=lambda s: (s.get("year") is None, s.get("year") or 0, _s(s.get("name"))), reverse=reverse)
-    elif sort == "name":
-        items = sorted(items, key=lambda s: _s(s.get("name")), reverse=reverse)
-    elif sort == "relevance":
-        # Only meaningful when tokens exist; otherwise falls back to a stable name sort feel
-        if tokens:
-            items = sorted(items, key=lambda s: _score_relevance(s, tokens), reverse=True)
-        else:
-            items = sorted(items, key=lambda s: _s(s.get("name")))
+        # attach synthetic keys on the fly; caller ensures _rating fields exist
+        return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
+    # default (name)
+    return lambda r: (r.get("name") or "").lower()
 
-    # --- enrichment (ratings) ---
-    enriched = []
-    for s in items:
-        avg, count = rating_stats_for_set(s["set_num"])
-        enriched.append({**s, "rating_avg": avg, "rating_count": count})
 
-    # --- pagination ---
+# --------- routes ---------
+@router.get("/sets")
+def list_sets(
+    response: Response,
+    q: Optional[str] = Query(None, description="Search across name, theme, set number"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(20, ge=1, le=100, description="Page size"),
+    sort: str = Query("name", description="Sort by: name | year | pieces | rating"),
+    order: Optional[str] = Query(None, description="asc | desc (optional; defaults chosen per sort)"),
+):
+    """
+    List sets from the local cache with simple search, sorting, and pagination.
+    Also includes rating summary (avg, count) if the reviews store is available.
+    """
+    sets = load_cached_sets()
+
+    # filter
+    if q:
+        sets = [s for s in sets if _matches_query(s, q)]
+
+    # enrich with rating stats (only the slice we’ll paginate, for speed)
+    # if you want exact global sorting by rating, compute for all first
+    enriched: List[Dict[str, Any]] = []
+    for s in sets:
+        avg, count = _rating_stats_for_set(s.get("set_num") or "")
+        s2 = dict(s)
+        s2["_avg_rating"] = avg
+        s2["_rating_count"] = count
+        enriched.append(s2)
+
+    # validate sort
+    allowed_sorts = {"name", "year", "pieces", "rating"}
+    if sort not in allowed_sorts:
+        raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'. Allowed: {', '.join(sorted(allowed_sorts))}")
+
+    # default order: name asc, year asc, pieces asc, rating desc
+    if order is None:
+        order = "desc" if sort == "rating" else "asc"
+    reverse = (order == "desc")
+
+    enriched.sort(key=_sort_key(sort), reverse=reverse)
+
+    # pagination
     total = len(enriched)
     start = (page - 1) * limit
     end = start + limit
-    page_items = enriched[start:end]
+    page_rows = enriched[start:end]
 
-    if response is not None:
-        response.headers["X-Total-Count"] = str(total)
+    # strip synthetic keys from response
+    for r in page_rows:
+        r["rating_avg"] = r.pop("_avg_rating", 0.0)
+        r["rating_count"] = r.pop("_rating_count", 0)
 
-    return page_items
-    
-@router.get("/{set_num}", response_model=LegoSet)
+    response.headers["X-Total-Count"] = str(total)
+    return page_rows
+
+
+@router.get("/sets/{set_num}")
 def get_set(set_num: str):
-    for s in SETS:
-        if s["set_num"] == set_num:
-            # include rating stats when returning one set
-            avg, count = rating_stats_for_set(s["set_num"])
-            return {**s, "rating_avg": avg, "rating_count": count}
-    raise HTTPException(status_code=404, detail="Set not found")
-
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=LegoSet)
-def create_set(payload: LegoSetCreate):
-    # prevent duplicates by set_num
-    if any(s["set_num"] == payload.set_num for s in SETS):
-        raise HTTPException(status_code=400, detail="Set number already exists")
-
-    obj = payload.model_dump()  # dict
-    SETS.append(obj)
-    return obj
-
-@router.delete("/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_set(set_num: str):
     """
-    Remove a set by set_num.
-    Returns 204 on success, 404 if not found.
+    Return a single set by set number (accepts '10305' or '10305-1').
+    Includes rating summary if reviews exist.
     """
-    # Find the index of the item to delete
-    idx = next((i for i, s in enumerate(SETS) if s["set_num"] == set_num), None)
-    if idx is None:
+    s = get_set_by_num(set_num)
+    if not s:
         raise HTTPException(status_code=404, detail="Set not found")
 
-    # Remove it from our in-memory list
-    del SETS[idx]
-    # 204 No Content: nothing else to return
-    return
-
-@router.put("/{set_num}", response_model=LegoSet)
-def update_set(set_num: str, payload: LegoSetUpdate):
-    """
-    Full update (PUT) of a set. set_num is immutable.
-    Returns the updated object or 404 if not found.
-    """
-    # find existing
-    idx = next((i for i, s in enumerate(SETS) if s["set_num"] == set_num), None)
-    if idx is None:
-        raise HTTPException(status_code=404, detail="Set not found")
-
-    # replace with new data, keeping the ID the same
-    updated = {
-        "set_num": set_num,
-        "name": payload.name,
-        "pieces": payload.pieces,
-        "theme": payload.theme,
-        "year": payload.year,
-    }
-    SETS[idx] = updated
-    return updated
+    avg, count = _rating_stats_for_set(s.get("set_num") or "")
+    out = dict(s)
+    out["rating_avg"] = avg
+    out["rating_count"] = count
+    return out
