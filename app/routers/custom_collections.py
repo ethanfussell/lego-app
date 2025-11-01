@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from typing import List
 from datetime import datetime
 
-from app.data.collections import OWNED, WISHLIST
+from app.data.custom_collections import OWNED, WISHLIST
 from app.data.sets import SETS
 from app.schemas.collection import CollectionCreate, CollectionItem
 

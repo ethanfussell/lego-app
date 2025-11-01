@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import sets as sets_router
 from app.routers import reviews as reviews_router
-from app.routers import collections as collections_router
+from app.routers import custom_collections as collections_router
 from app.routers import lists as lists_router
 
 from fastapi import Request
