@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LEGO Search</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f7fa;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .controls {
+            max-width: 900px;
+            margin: 0 auto 20px auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .search-bar {
+            display: flex;
+            flex: 1 1 280px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 6px 0 0 6px;
+            border: 1px solid #ccc;
+            outline: none;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: 16px;
+            border: none;
+            background: #1a73e8;
+            color: white;
+            cursor: pointer;
+            border-radius: 0 6px 6px 0;
+        }
+
+        button:hover {
+            background: #155fbe;
+        }
+
+        .sort-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+
+        .sort-bar label {
+            font-size: 14px;
+            color: #333;
+        }
+
+        .sort-bar select {
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        #results {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .set-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            gap: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        }
+
+        .set-card img {
+            width: 120px;
+            border-radius: 6px;
+            object-fit: cover;
+        }
+
+        .set-info {
+            flex-grow: 1;
+        }
+
+        .loading {
+            text-align: center;
+            font-size: 18px;
+        }
+
+        .error {
+            text-align: center;
+            color: red;
+            font-size: 18px;
+        }
+
+        .meta {
+            font-size: 13px;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>LEGO Set Search</h1>
+
+    <div class="controls">
+        <div class="search-bar">
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search by name, theme, or set number..."
+            />
+            <button type="button" onclick="searchSets()">Search</button>
+        </div>
+
+        <div class="sort-bar">
+            <label for="sortSelect">Sort by:</label>
+            <select id="sortSelect">
+                <!-- value format: sortField|order -->
+                <option value="name|asc">Name (A–Z)</option>
+                <option value="year|desc">Release Date (Newest)</option>
+                <option value="year|asc">Release Date (Oldest)</option>
+                <option value="pieces|desc">Piece Count (High → Low)</option>
+                <option value="pieces|asc">Pieces (Low → High)</option>
+                <option value="rating|desc">Rating (Highest)</option>
+                <option value="rating|asc">Rating (Lowest)</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        async function searchSets() {
+            const query = document.getElementById("searchInput").value.trim();
+            const sortValue = document.getElementById("sortSelect").value;
+            const resultsDiv = document.getElementById("results");
+
+            // sortValue looks like "name|asc" or "rating|desc"
+            const [sort, order] = sortValue.split("|");
+
+            if (!query) {
+                resultsDiv.innerHTML = "<p class='error'>Please enter a search term.</p>";
+                return;
+            }
+
+            resultsDiv.innerHTML = "<p class='loading'>Searching...</p>";
+
+            try {
+                const url =
+                    `http://127.0.0.1:8000/sets` +
+                    `?q=${encodeURIComponent(query)}` +
+                    `&sort=${encodeURIComponent(sort)}` +
+                    `&order=${encodeURIComponent(order)}`;
+
+                console.log("Fetching:", url);
+
+                const response = await fetch(url);
+                console.log("Status:", response.status);
+
+                if (!response.ok) {
+                    throw new Error("API error: " + response.status);
+                }
+
+                const data = await response.json();
+                console.log("Raw response data:", data);
+
+                const items = Array.isArray(data)
+                    ? data
+                    : (Array.isArray(data.items) ? data.items : []);
+
+                if (!items.length) {
+                    resultsDiv.innerHTML = "<p class='error'>No results found.</p>";
+                    return;
+                }
+
+                resultsDiv.innerHTML = items.map(set => `
+                    <div class="set-card">
+                        <img src="${set.image_url || ''}"
+                             alt="Set Image"
+                             onerror="this.style.display='none'" />
+                        <div class="set-info">
+                            <h3>${set.name || "Unnamed set"}</h3>
+                            <p><strong>Set #:</strong> ${set.set_num || "N/A"}</p>
+                            <p><strong>Year:</strong> ${set.year ?? "Unknown"}</p>
+                            <p><strong>Pieces:</strong> ${set.pieces ?? "Unknown"}</p>
+                            <p class="meta">
+                                ⭐ Rating: ${set.rating_avg ?? "N/A"}
+                                (${set.rating_count ?? 0} review${(set.rating_count || 0) === 1 ? "" : "s"})
+                            </p>
+                        </div>
+                    </div>
+                `).join("");
+
+            } catch (err) {
+                console.error("Error during search:", err);
+                resultsDiv.innerHTML =
+                    "<p class='error'>Something went wrong. Is the backend running on 127.0.0.1:8000?</p>";
+            }
+        }
+
+        // Allow pressing Enter to search
+        document.getElementById("searchInput").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                searchSets();
+            }
+        });
+    </script>
+
+</body>
+</html>
