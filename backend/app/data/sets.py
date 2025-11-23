@@ -30,7 +30,34 @@ if not API_KEY:
 HEADERS = {"Authorization": f"key {API_KEY}"}
 
 
-# ----- Theme helpers -----
+# ===== IP / FRANCHISE DETECTION =====
+
+IP_KEYWORDS = [
+    ("Star Wars", ["star wars"]),
+    ("Marvel", ["marvel", "avengers", "iron man", "spider-man", "spiderman"]),
+    ("DC", ["batman", "dc comics", "gotham"]),
+    ("Harry Potter", ["harry potter", "hogwarts"]),
+    ("Disney", ["disney", "frozen", "moana", "encanto", "princess"]),
+    ("Minecraft", ["minecraft"]),
+    ("Super Mario", ["mario", "super mario"]),
+    # add more as you like
+]
+
+
+def infer_ip(name: str, theme_name: Optional[str] = None) -> Optional[str]:
+    """
+    Try to infer a more user-friendly IP/franchise (Star Wars, Marvel, etc.)
+    using the set name + theme name.
+    """
+    text = f"{name} {theme_name or ''}".lower()
+    for label, keywords in IP_KEYWORDS:
+        if any(k in text for k in keywords):
+            return label
+    return None
+
+
+# ===== Theme helpers =====
+
 def fetch_all_themes(throttle: float = 0.2) -> Dict[int, str]:
     """
     Fetch all themes from Rebrickable and return a map {theme_id: theme_name}.
@@ -61,7 +88,8 @@ def fetch_all_themes(throttle: float = 0.2) -> Dict[int, str]:
     return theme_map
 
 
-# ----- Set helpers -----
+# ===== Set helpers =====
+
 def _is_normal_lego_set(item: Dict[str, Any]) -> bool:
     """
     Filter out MOCs, books, gear, etc.
@@ -78,21 +106,29 @@ def _is_normal_lego_set(item: Dict[str, Any]) -> bool:
 
 
 def _map_set(item: Dict[str, Any], theme_map: Dict[int, str]) -> Dict[str, Any]:
-    """Convert a Rebrickable set record into our app's format."""
+    """
+    Map a raw Rebrickable set dict to our internal shape.
+    Uses theme_id → theme name from theme_map.
+    """
     set_num = item.get("set_num")  # e.g. "10305-1"
     set_num_plain = set_num.split("-")[0] if set_num else None
 
     theme_id = item.get("theme_id")
     theme_name = theme_map.get(theme_id) if isinstance(theme_id, int) else None
 
+    name = item.get("name") or ""
+
+    # infer franchise/IP from name + theme_name
+    ip = infer_ip(name, theme_name)
+
     return {
         "set_num": set_num,
         "set_num_plain": set_num_plain,
-        "name": item.get("name"),
+        "name": name,
         "year": item.get("year"),
         "pieces": item.get("num_parts"),
-        "theme_id": theme_id,
-        "theme": theme_name,  # <-- THIS is what your frontend will now see
+        "theme": theme_name,     # raw theme from Rebrickable (e.g. Seasonal)
+        "ip": ip or theme_name,  # what we’ll actually *show* in the UI
         "image_url": item.get("set_img_url"),
     }
 
@@ -102,7 +138,8 @@ def _save_cache(rows: List[Dict[str, Any]]) -> None:
     CACHE_FILE.write_text(json.dumps(rows, indent=2, ensure_ascii=False))
 
 
-# ----- Public functions -----
+# ===== Public functions =====
+
 def fetch_all_lego_sets(page_size: int = 1000, throttle: float = 0.2) -> List[Dict[str, Any]]:
     """
     Fetch all LEGO sets from Rebrickable and cache them locally.
@@ -131,6 +168,7 @@ def fetch_all_lego_sets(page_size: int = 1000, throttle: float = 0.2) -> List[Di
         for item in data.get("results", []):
             if not _is_normal_lego_set(item):
                 continue
+            # NOTE: pass theme_map here
             all_sets.append(_map_set(item, theme_map))
 
         url = data.get("next")
@@ -176,11 +214,12 @@ def get_set_by_num(set_num: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-# ----- Manual Testing (Terminal entrypoint) -----
+# ===== Manual Testing (Terminal entrypoint) =====
+
 if __name__ == "__main__":
     # Rebuild cache (themes + sets), then show a few samples.
     fetch_all_lego_sets(page_size=1000, throttle=0.2)
     print(f"🧱 Cached sets: {cache_count()}")
     sample = load_cached_sets()[:5]
     for s in sample:
-        print(f"→ {s['set_num']}: {s['name']}  [theme={s['theme']}]")
+        print(f"→ {s['set_num']}: {s['name']}  [theme={s['theme']}]  [ip={s.get('ip')}]")
