@@ -18,26 +18,20 @@
             margin-bottom: 25px;
         }
 
-        .controls {
-            max-width: 900px;
-            margin: 0 auto 20px auto;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: space-between;
-            align-items: center;
-        }
-
         .search-bar {
             display: flex;
-            flex: 1 1 280px;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
         }
 
         input[type="text"] {
-            width: 100%;
+            width: 350px;
             padding: 10px;
             font-size: 16px;
-            border-radius: 6px 0 0 6px;
+            border-radius: 6px;
             border: 1px solid #ccc;
             outline: none;
         }
@@ -49,35 +43,45 @@
             background: #1a73e8;
             color: white;
             cursor: pointer;
-            border-radius: 0 6px 6px 0;
+            border-radius: 6px;
         }
 
         button:hover {
             background: #155fbe;
         }
 
-        .sort-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex: 0 0 auto;
+        .lego-select {
+            padding: 8px 32px 8px 12px;
+            font-size: 14px;
+            border-radius: 999px;
+            border: 1px solid #d0d5dd;
+            background-color: #ffffff;
+            outline: none;
+
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #555 50%),
+                linear-gradient(135deg, #555 50%, transparent 50%);
+            background-position:
+                calc(100% - 18px) 50%,
+                calc(100% - 13px) 50%;
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
         }
 
-        .sort-bar label {
-            font-size: 14px;
-            color: #333;
-        }
-
-        .sort-bar select {
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid #ccc;
-            font-size: 14px;
+        .lego-select:focus {
+            border-color: #ffcf00;
+            box-shadow: 0 0 0 2px rgba(255, 207, 0, 0.35);
         }
 
         #results {
             max-width: 900px;
             margin: 0 auto;
+            margin-bottom: 20px;
         }
 
         .set-card {
@@ -111,10 +115,26 @@
             font-size: 18px;
         }
 
-        .meta {
-            font-size: 13px;
-            color: #666;
-            margin-top: 4px;
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .pagination button {
+            border-radius: 6px;
+        }
+
+        .pagination-info {
+            font-size: 14px;
+            color: #333;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: default;
         }
     </style>
 </head>
@@ -122,107 +142,203 @@
 
     <h1>LEGO Set Search</h1>
 
-    <div class="controls">
-        <div class="search-bar">
-            <input
-                type="text"
-                id="searchInput"
-                placeholder="Search by name, theme, or set number..."
-            />
-            <button type="button" onclick="searchSets()">Search</button>
-        </div>
+    <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Search by name or set number..." />
+        <button type="button" onclick="searchSets(1)">Search</button>
 
-        <div class="sort-bar">
-            <label for="sortSelect">Sort by:</label>
-            <select id="sortSelect">
-                <!-- value format: sortField|order -->
-                <option value="name|asc">Name (A–Z)</option>
-                <option value="year|desc">Release Date (Newest)</option>
-                <option value="year|asc">Release Date (Oldest)</option>
-                <option value="pieces|desc">Piece Count (High → Low)</option>
-                <option value="pieces|asc">Pieces (Low → High)</option>
-                <option value="rating|desc">Rating (Highest)</option>
-                <option value="rating|asc">Rating (Lowest)</option>
-            </select>
-        </div>
+        <select id="sortSelect" class="lego-select">
+            <option value="relevance">Relevance</option>
+            <option value="pieces_desc">Pieces (high → low)</option>
+            <option value="pieces_asc">Pieces (low → high)</option>
+            <option value="rating_desc">Rating (high → low)</option>
+            <option value="rating_asc">Rating (low → high)</option>
+            <option value="year_desc">Year (new → old)</option>
+            <option value="year_asc">Year (old → new)</option>
+        </select>
     </div>
 
     <div id="results"></div>
 
+    <div id="paginationControls" class="pagination" style="display: none;">
+        <button id="prevBtn" type="button" onclick="prevPage()">Previous</button>
+        <span id="pageInfo" class="pagination-info"></span>
+        <button id="nextBtn" type="button" onclick="nextPage()">Next</button>
+    </div>
+
     <script>
-        async function searchSets() {
-            const query = document.getElementById("searchInput").value.trim();
-            const sortValue = document.getElementById("sortSelect").value;
+        const PAGE_SIZE = 20;
+        let currentPage = 1;
+        let totalCount = 0;
+        let lastQuery = "";
+    
+        async function searchSets(page = 1) {
+            const queryInput = document.getElementById("searchInput");
+            const sortSelect = document.getElementById("sortSelect");
             const resultsDiv = document.getElementById("results");
-
-            // sortValue looks like "name|asc" or "rating|desc"
-            const [sort, order] = sortValue.split("|");
-
-            if (!query) {
+    
+            const query = queryInput.value.trim();
+            const sortValue = sortSelect.value;
+    
+            // New search → remember query
+            if (page === 1) {
+                lastQuery = query;
+            }
+    
+            if (!lastQuery) {
                 resultsDiv.innerHTML = "<p class='error'>Please enter a search term.</p>";
+                document.getElementById("paginationControls").style.display = "none";
                 return;
             }
-
+    
             resultsDiv.innerHTML = "<p class='loading'>Searching...</p>";
-
+    
+            const params = new URLSearchParams();
+            params.set("q", lastQuery);
+            params.set("page", page);
+            params.set("limit", PAGE_SIZE);
+    
+            // Map dropdown → backend sort/order
+            let sort = null;
+            let order = null;
+    
+            switch (sortValue) {
+                case "pieces_desc":
+                    sort = "pieces"; order = "desc"; break;
+                case "pieces_asc":
+                    sort = "pieces"; order = "asc"; break;
+                case "rating_desc":
+                    sort = "rating"; order = "desc"; break;
+                case "rating_asc":
+                    sort = "rating"; order = "asc"; break;
+                case "year_desc":
+                    sort = "year"; order = "desc"; break;
+                case "year_asc":
+                    sort = "year"; order = "asc"; break;
+                case "relevance":
+                default:
+                    // let backend default to "relevance"
+                    break;
+            }
+    
+            if (sort) params.set("sort", sort);
+            if (order) params.set("order", order);
+    
+            const url = `http://127.0.0.1:8000/sets?${params.toString()}`;
+            console.log("Fetching:", url);
+    
             try {
-                const url =
-                    `http://127.0.0.1:8000/sets` +
-                    `?q=${encodeURIComponent(query)}` +
-                    `&sort=${encodeURIComponent(sort)}` +
-                    `&order=${encodeURIComponent(order)}`;
-
-                console.log("Fetching:", url);
-
                 const response = await fetch(url);
                 console.log("Status:", response.status);
-
+    
                 if (!response.ok) {
                     throw new Error("API error: " + response.status);
                 }
-
+    
+                // Try to read X-Total-Count (may be hidden by CORS)
+                const headerCount = response.headers.get("X-Total-Count");
+                console.log("Raw X-Total-Count header:", headerCount);
+    
                 const data = await response.json();
                 console.log("Raw response data:", data);
-
+    
                 const items = Array.isArray(data)
                     ? data
                     : (Array.isArray(data.items) ? data.items : []);
-
+    
                 if (!items.length) {
                     resultsDiv.innerHTML = "<p class='error'>No results found.</p>";
+                    document.getElementById("paginationControls").style.display = "none";
                     return;
                 }
-
+    
+                currentPage = page;
+    
+                // If header is visible, use it
+                if (headerCount) {
+                    totalCount = parseInt(headerCount, 10);
+                } else {
+                    // Fallback: approximate from what we know
+                    if (items.length < PAGE_SIZE) {
+                        // last page: total is everything up to here
+                        totalCount = (currentPage - 1) * PAGE_SIZE + items.length;
+                    } else {
+                        // we know there's at least one more page
+                        totalCount = currentPage * PAGE_SIZE + 1;
+                    }
+                }
+    
                 resultsDiv.innerHTML = items.map(set => `
                     <div class="set-card">
-                        <img src="${set.image_url || ''}"
-                             alt="Set Image"
-                             onerror="this.style.display='none'" />
+                        <img src="${set.image_url || ''}" alt="Set Image" onerror="this.style.display='none'" />
                         <div class="set-info">
                             <h3>${set.name || "Unnamed set"}</h3>
                             <p><strong>Set #:</strong> ${set.set_num || "N/A"}</p>
                             <p><strong>Year:</strong> ${set.year ?? "Unknown"}</p>
                             <p><strong>Pieces:</strong> ${set.pieces ?? "Unknown"}</p>
-                            <p class="meta">
-                                ⭐ Rating: ${set.rating_avg ?? "N/A"}
-                                (${set.rating_count ?? 0} review${(set.rating_count || 0) === 1 ? "" : "s"})
-                            </p>
+                            <p><strong>Rating:</strong> ${set.rating_avg ?? "N/A"} (${set.rating_count ?? 0} ratings)</p>
                         </div>
                     </div>
                 `).join("");
-
+    
+                updatePaginationControls(items.length);
+    
             } catch (err) {
                 console.error("Error during search:", err);
-                resultsDiv.innerHTML =
-                    "<p class='error'>Something went wrong. Is the backend running on 127.0.0.1:8000?</p>";
+                resultsDiv.innerHTML = "<p class='error'>Something went wrong. Is the backend running?</p>";
+                document.getElementById("paginationControls").style.display = "none";
             }
         }
-
-        // Allow pressing Enter to search
+    
+        function updatePaginationControls(lastPageItemCount) {
+            const controls = document.getElementById("paginationControls");
+            const pageInfo = document.getElementById("pageInfo");
+            const prevBtn = document.getElementById("prevBtn");
+            const nextBtn = document.getElementById("nextBtn");
+    
+            if (!lastPageItemCount) {
+                controls.style.display = "none";
+                return;
+            }
+    
+            const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    
+            controls.style.display = "flex";
+    
+            if (totalCount && totalCount > 0) {
+                pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${totalCount} results)`;
+            } else {
+                // If we can't see the header, just show the page #
+                pageInfo.textContent = `Page ${currentPage}`;
+            }
+    
+            prevBtn.disabled = currentPage <= 1;
+            // if we got fewer than PAGE_SIZE items, we know this is the last page
+            nextBtn.disabled = lastPageItemCount < PAGE_SIZE;
+        }
+    
+        function nextPage() {
+            const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+            if (currentPage < totalPages) {
+                searchSets(currentPage + 1);
+            }
+        }
+    
+        function prevPage() {
+            if (currentPage > 1) {
+                searchSets(currentPage - 1);
+            }
+        }
+    
+        // Enter key triggers a fresh search on page 1
         document.getElementById("searchInput").addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
-                searchSets();
+                searchSets(1);
             }
+        });
+    
+        // Changing sort re-runs search on page 1
+        document.getElementById("sortSelect").addEventListener("change", () => {
+            searchSets(1);
         });
     </script>
 
