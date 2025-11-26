@@ -2,23 +2,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.data import sets as sets_data
+from app.routers import sets as sets_router
 
 client = TestClient(app)
 
 
 def _use_sets(monkeypatch, rows):
     """
-    Helper: replace load_cached_sets() with a fixed list for this test.
+    Patch router.load_cached_sets so /sets uses our fake data instead
+    of the giant real cache.
     """
-    monkeypatch.setattr(sets_data, "load_cached_sets", lambda: rows)
+    monkeypatch.setattr(sets_router, "load_cached_sets", lambda: rows)
 
 
 @pytest.fixture
 def search_sets():
     """
     Small fake dataset to test search behavior + relevance ranking.
-    Note the names & themes are chosen to exercise our _matches_query + _relevance_score.
     """
     return [
         {
@@ -66,7 +66,7 @@ def test_search_by_name(monkeypatch, search_sets):
     """
     _use_sets(monkeypatch, search_sets)
 
-    resp = client.get("/sets", params={"q": "castle"})
+    resp = client.get("/sets", params={"q": "castle", "limit": 50})
     assert resp.status_code == 200
 
     data = resp.json()
@@ -84,7 +84,7 @@ def test_search_by_theme(monkeypatch, search_sets):
     """
     _use_sets(monkeypatch, search_sets)
 
-    resp = client.get("/sets", params={"q": "space"})
+    resp = client.get("/sets", params={"q": "space", "limit": 50})
     assert resp.status_code == 200
 
     data = resp.json()

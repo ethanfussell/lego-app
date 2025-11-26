@@ -2,14 +2,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.data import sets as sets_data
+from app.routers import sets as sets_router
 from app.data import reviews as reviews_data
 
 client = TestClient(app)
 
 
 def _use_sets(monkeypatch, rows):
-    monkeypatch.setattr(sets_data, "load_cached_sets", lambda: rows)
+    """
+    IMPORTANT: patch the router's load_cached_sets, not the data module.
+    """
+    monkeypatch.setattr(sets_router, "load_cached_sets", lambda: rows)
 
 
 @pytest.fixture
@@ -69,6 +72,9 @@ def test_rating_fields_in_list(monkeypatch, rated_sets, reviews_for_ratings):
     data = resp.json()
     # Convert into dict keyed by set_num for easier checks
     by_num = {s["set_num"]: s for s in data}
+
+    assert "1000-1" in by_num
+    assert "1001-1" in by_num
 
     a = by_num["1000-1"]
     b = by_num["1001-1"]
