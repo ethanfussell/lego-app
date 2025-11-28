@@ -2,12 +2,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# If you have these routers already, keep these imports.
-# If one of them doesn't exist yet, you can temporarily comment that line out.
 from app.routers import sets as sets_router
 from app.routers import reviews as reviews_router
 from app.routers import custom_collections as collections_router
 from app.routers import lists as lists_router
+from app.routers import auth as auth_router   # 👈 NEW
 
 app = FastAPI(title="LEGO API")
 
@@ -38,3 +37,6 @@ app.include_router(collections_router.router, tags=["collections"])
 
 # Custom lists (e.g. /lists/...)
 app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
+
+# 👇 NEW: auth endpoints like /auth/login, /auth/me, etc.
+app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
