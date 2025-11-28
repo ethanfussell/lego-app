@@ -114,6 +114,36 @@ def list_summaries_for_user(username: str):
     """All lists owned by a user (summaries). PUBLIC view."""
     return [_summarize(l) for l in LISTS if l["owner"] == username]
 
+@router.get("/public")
+def list_public_lists(
+    owner: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=100, description="Max lists to return"),
+    offset: int = Query(0, ge=0, description="Skip this many lists"),
+):
+    """
+    Public feed of lists.
+
+    - Only includes lists where is_public=True (or missing → treated as True)
+    - Sorted by updated_at (newest first)
+    - Optional filter by owner
+    - Basic pagination with limit + offset
+    """
+    # 1) start with only public lists
+    lists = [l for l in LISTS if l.get("is_public", True)]
+
+    # 2) optional owner filter
+    if owner:
+        lists = [l for l in lists if l["owner"] == owner]
+
+    # 3) sort by updated_at descending
+    lists.sort(key=lambda l: l["updated_at"], reverse=True)
+
+    # 4) apply offset + limit
+    sliced = lists[offset : offset + limit]
+
+    # 5) summarize
+    return [_summarize(l) for l in sliced]
+
 @router.get("/me", response_model=List[ListSummary])
 def list_my_lists(current_user: User = Depends(get_current_user)):
     """
