@@ -1,11 +1,14 @@
-# app/routers/collections.py
-from fastapi import APIRouter, HTTPException, Query, status
+# app/routers/custom_collections.py
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from typing import List
 from datetime import datetime
 
 from app.data.custom_collections import OWNED, WISHLIST
 from app.data.sets import get_set_by_num
 from app.schemas.collection import CollectionCreate, CollectionItem
+
+# 🔐 import your fake auth helpers
+from app.core.auth import User, get_current_user
 
 router = APIRouter()
 
@@ -25,41 +28,65 @@ def _remove_item(store: List[dict], username: str, set_num: str) -> bool:
     return False
 
 # -------- Owned --------
-@router.post("/collections/owned", status_code=status.HTTP_201_CREATED, response_model=CollectionItem)
-def add_owned(payload: CollectionCreate):
+@router.post(
+    "/collections/owned",
+    status_code=status.HTTP_201_CREATED,
+    response_model=CollectionItem,
+)
+def add_owned(
+    payload: CollectionCreate,
+    current_user: User = Depends(get_current_user),   # 🔐 who is doing this?
+):
+    username = current_user.username                  # ignore payload.username
+
     if not _set_exists(payload.set_num):
         raise HTTPException(status_code=404, detail="Set not found")
-    if _has_item(OWNED, payload.username, payload.set_num):
+    if _has_item(OWNED, username, payload.set_num):
         raise HTTPException(status_code=400, detail="Already in owned")
+
     item = {
-        "username": payload.username,
+        "username": username,
         "set_num": payload.set_num,
         "type": "owned",
         "created_at": datetime.utcnow(),
     }
     OWNED.append(item)
     # optional: ensure it's not lingering in wishlist
-    _remove_item(WISHLIST, payload.username, payload.set_num)
+    _remove_item(WISHLIST, username, payload.set_num)
     return item
 
-@router.delete("/collections/owned/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/collections/owned/{set_num}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def remove_owned(
     set_num: str,
-    username: str = Query(..., description="Username to remove from owned"),
+    current_user: User = Depends(get_current_user),   # 🔐 only owner can remove
 ):
+    username = current_user.username
     if not _remove_item(OWNED, username, set_num):
         raise HTTPException(status_code=404, detail="Not in owned")
     return
 
 # -------- Wishlist --------
-@router.post("/collections/wishlist", status_code=status.HTTP_201_CREATED, response_model=CollectionItem)
-def add_wishlist(payload: CollectionCreate):
+@router.post(
+    "/collections/wishlist",
+    status_code=status.HTTP_201_CREATED,
+    response_model=CollectionItem,
+)
+def add_wishlist(
+    payload: CollectionCreate,
+    current_user: User = Depends(get_current_user),
+):
+    username = current_user.username
+
     if not _set_exists(payload.set_num):
         raise HTTPException(status_code=404, detail="Set not found")
-    if _has_item(WISHLIST, payload.username, payload.set_num):
+    if _has_item(WISHLIST, username, payload.set_num):
         raise HTTPException(status_code=400, detail="Already in wishlist")
+
     item = {
-        "username": payload.username,
+        "username": username,
         "set_num": payload.set_num,
         "type": "wishlist",
         "created_at": datetime.utcnow(),
@@ -67,20 +94,49 @@ def add_wishlist(payload: CollectionCreate):
     WISHLIST.append(item)
     return item
 
-@router.delete("/collections/wishlist/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/collections/wishlist/{set_num}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def remove_wishlist(
     set_num: str,
-    username: str = Query(..., description="Username to remove from wishlist"),
+    current_user: User = Depends(get_current_user),
 ):
+    username = current_user.username
     if not _remove_item(WISHLIST, username, set_num):
         raise HTTPException(status_code=404, detail="Not in wishlist")
     return
 
-# -------- Listing by user --------
+# -------- Listing by user (PUBLIC READ) --------
 @router.get("/users/{username}/owned", response_model=List[CollectionItem])
 def list_owned(username: str):
+    """
+    Public view: anyone can see a user's owned sets.
+    """
     return [i for i in OWNED if i["username"] == username]
 
 @router.get("/users/{username}/wishlist", response_model=List[CollectionItem])
 def list_wishlist(username: str):
+    """
+    Public view: anyone can see a user's wishlist.
+    """
+    return [i for i in WISHLIST if i["username"] == username]
+
+
+# -------- "Me" views (current user) --------
+@router.get("/me/owned", response_model=List[CollectionItem])
+def list_my_owned(current_user: User = Depends(get_current_user)):
+    """
+    Owned sets for the *current* logged-in user.
+    """
+    username = current_user.username
+    return [i for i in OWNED if i["username"] == username]
+
+
+@router.get("/me/wishlist", response_model=List[CollectionItem])
+def list_my_wishlist(current_user: User = Depends(get_current_user)):
+    """
+    Wishlist sets for the *current* logged-in user.
+    """
+    username = current_user.username
     return [i for i in WISHLIST if i["username"] == username]

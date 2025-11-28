@@ -1,12 +1,15 @@
-# backend/app/main.py
+# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# 🔐 auth router (fake login + /auth/me)
+from app.core import auth as auth_router
+
+# Other routers
 from app.routers import sets as sets_router
 from app.routers import reviews as reviews_router
 from app.routers import custom_collections as collections_router
 from app.routers import lists as lists_router
-from app.routers import auth as auth_router   # 👈 NEW
 
 app = FastAPI(title="LEGO API")
 
@@ -26,6 +29,9 @@ def root():
     return {"status": "ok", "message": "LEGO API is running"}
 
 # --- Routers ---
+# Auth (login + current user)
+app.include_router(auth_router.router)
+
 # Sets search + detail
 app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
 
@@ -37,6 +43,3 @@ app.include_router(collections_router.router, tags=["collections"])
 
 # Custom lists (e.g. /lists/...)
 app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
-
-# 👇 NEW: auth endpoints like /auth/login, /auth/me, etc.
-app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
