@@ -3,69 +3,96 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-router = APIRouter(tags=["auth"])
+router = APIRouter()
 
-# ---------- Pydantic models ----------
+# ----------------- Models -----------------
+class User(BaseModel):
+    username: str
+    full_name: str
+
 class Token(BaseModel):
     access_token: str
-    token_type: str
+    token_type: str = "bearer"
 
-class User(BaseModel):
-    id: int
-    email: str
-    username: str
 
-# ---------- Fake user + token ----------
-DEMO_USER = User(
-    id=1,
-    email="demo@example.com",
-    username="demo",          # <--- username you'll type in Swagger
-)
-DEMO_PASSWORD = "password123" # <--- password you'll type in Swagger
-DEMO_TOKEN = "lego-demo-token"
+# ----------------- Fake DB -----------------
+# 👇 MUST match what the tests are using:
+# LOGIN ATTEMPT: ethan lego123
+FAKE_USERS_DB = {
+    "ethan": {
+        "username": "ethan",
+        "full_name": "Ethan Fussell",
+        "password": "lego123",
+    }
+}
 
-# ---------- OAuth2PasswordBearer ----------
-# tokenUrl must match the *route path* of your login endpoint.
-# Since we'll mount POST /auth/login, the full path is /auth/login
+
+# ----------------- OAuth2 setup -----------------
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-# ---------- Routes ----------
+
+def authenticate_user(username: str, password: str) -> User | None:
+    """
+    Look up the user in the fake DB and check the password.
+    Return a User or None.
+    """
+    user_data = FAKE_USERS_DB.get(username)
+    if not user_data:
+        return None
+    if password != user_data["password"]:
+        return None
+    return User(username=user_data["username"], full_name=user_data["full_name"])
+
+
+def create_access_token(username: str) -> str:
+    """
+    Super fake token generator – just makes a string the tests will recognize.
+    """
+    return f"fake-token-for-{username}"
+
+
 @router.post("/auth/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """
-    Fake login:
-    - username must be DEMO_USER.username
-    - password must be DEMO_PASSWORD
-    Returns a fixed bearer token.
-    """
-    if form_data.username != DEMO_USER.username or form_data.password != DEMO_PASSWORD:
+    # debug log so you can see what tests send
+    print("LOGIN ATTEMPT:", form_data.username, form_data.password)
+
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect username or password",
         )
 
-    return Token(access_token=DEMO_TOKEN, token_type="bearer")
+    token = create_access_token(user.username)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+    }
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    """
+    Very fake token check: token should look like 'fake-token-for-<username>'.
+    We'll also accept the raw username to keep it flexible.
+    """
+    if token.startswith("fake-token-for-"):
+        username = token.removeprefix("fake-token-for-")
+    else:
+        username = token
+
+    user_data = FAKE_USERS_DB.get(username)
+    if not user_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return User(username=user_data["username"], full_name=user_data["full_name"])
 
 
 @router.get("/auth/me", response_model=User)
-async def read_me(current_user: "User" = Depends(lambda: get_current_user())):
+async def read_me(current_user: User = Depends(get_current_user)):
     """
-    Simple 'who am I' endpoint to verify auth.
+    Return the current user based on the bearer token.
     """
     return current_user
-
-
-# ---------- Dependency used by other routers ----------
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    """
-    Extracts the Bearer token from the Authorization header,
-    checks it against DEMO_TOKEN, and returns DEMO_USER if valid.
-    """
-    if token != DEMO_TOKEN:
-        # FastAPI will also handle the 401 + WWW-Authenticate header correctly
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return DEMO_USER

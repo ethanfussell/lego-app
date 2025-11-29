@@ -15,8 +15,7 @@ class ListItem(BaseModel):
     added_at: datetime
 
 class ListCreate(BaseModel):
-    owner: str
-    name: str
+    title: str
     description: Optional[str] = None
     is_public: bool = True
 
@@ -28,18 +27,18 @@ class ListUpdate(BaseModel):
 
 class ListSummary(BaseModel):
     id: int
+    title: str          
     owner: str
-    name: str
-    description: Optional[str] = None
-    is_public: bool
+    is_public: bool = True
+    items_count: int
     created_at: datetime
     updated_at: datetime
-    items_count: int
+    description: Optional[str] = None
 
 class UserList(BaseModel):
     id: int
     owner: str
-    name: str
+    title: str
     description: Optional[str] = None
     is_public: bool
     created_at: datetime
