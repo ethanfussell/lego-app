@@ -20,6 +20,14 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // ----- NAV SEARCH STATE -----
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Optional: later we'll use these for real backend search
+  // const [searchResults, setSearchResults] = useState([]);
+  // const [searchLoading, setSearchLoading] = useState(false);
+  // const [searchError, setSearchError] = useState(null);
+
   // -------------------------------
   // GLOBAL UI STATE
   // -------------------------------
@@ -60,6 +68,34 @@ function App() {
   const [wishlist, setWishlist] = useState([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState(null);
+
+  // ----- DERIVED "MY LISTS" INCLUDING OWNED/WISHLIST -----
+  // This is just for the UI. We are *not* changing the backend.
+  // We pretend Owned + Wishlist are "special lists" and then
+  // append the real custom lists from /lists/me.
+  const combinedMyLists = [
+    {
+      id: "collection-owned",
+      title: "Owned",
+      description: "All sets you have marked as Owned.",
+      items_count: owned.length,
+      is_public: true,
+      is_collection: true,
+    },
+    {
+      id: "collection-wishlist",
+      title: "Wishlist",
+      description: "All sets you have added to your Wishlist.",
+      items_count: wishlist.length,
+      is_public: true,
+      is_collection: true,
+    },
+    // Real custom lists from the backend
+    ...myLists.map((l) => ({
+      ...l,
+      is_collection: false,
+    })),
+  ];
 
   // Load Owned + Wishlist whenever token changes
   useEffect(() => {
@@ -272,8 +308,25 @@ async function loadCollections(currentToken) {
   function handleLogout() {
     setToken(null);
     setMyLists([]);
+    setOwned([]);
+    setWishlist([]);
+    setCollectionsError(null);
+    setCollectionsLoading(false);
   }
 
+  function handleSearchSubmit(event) {
+    event.preventDefault(); // stop full page reload
+
+    const q = searchQuery.trim();
+    if (!q) return; // ignore empty search
+
+    // For now, just log it. We'll hook this to the backend later.
+    console.log("Searching for set:", q);
+
+    // Example: later we might switch to a "search" page or
+    // call /sets/search on the backend.
+  }
+  
   // -------------------------------
   // WHAT THE USER ACTUALLY SEES
   // -------------------------------
@@ -285,6 +338,7 @@ async function loadCollections(currentToken) {
     <nav
       style={{
         display: "flex",
+        alignItems: "center",
         gap: "1rem",
         padding: "1rem",
         borderBottom: "1px solid #ddd",
@@ -314,6 +368,39 @@ async function loadCollections(currentToken) {
       >
         🔐 Login / My Lists
       </button>
+
+      {/* SEARCH BAR in the nav */}
+      <form
+        onSubmit={handleSearchSubmit}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          marginLeft: "1rem",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search sets (e.g. 10305)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            padding: "0.4rem 0.6rem",
+            borderRadius: "4px",
+            border: "1px solid #ccc",
+            minWidth: "180px",
+          }}
+        />
+        <button
+          type="submit"
+          style={{
+            padding: "0.4rem 0.8rem",
+            cursor: "pointer",
+          }}
+        >
+          Search
+        </button>
+      </form>
 
       {/* LOGOUT on the right, only when logged in */}
       {token && (
@@ -413,8 +500,8 @@ async function loadCollections(currentToken) {
             {/* If we DO have a token, show account UI */}
             {token && (
               <div style={{ marginTop: "1.5rem" }}>
-                {/* 👇 Quick add box, only useful once logged in */}
-                <QuickCollectionsAdd
+                                {/* 👇 Quick add box, only useful once logged in */}
+                                <QuickCollectionsAdd
                   token={token}
                   onCollectionsChanged={() => loadCollections(token)}
                 />
@@ -505,8 +592,7 @@ async function loadCollections(currentToken) {
                             width: "100%",
                             padding: "0.5rem",
                             borderRadius: "4px",
-                            border: "1px solid " +
-                              "#ccc",
+                            border: "1px solid #ccc",
                             minHeight: "60px",
                           }}
                           placeholder="Describe this list..."
@@ -548,132 +634,59 @@ async function loadCollections(currentToken) {
                     </form>
                   </section>
                 )}
-                {/* ---------- MY COLLECTIONS (OWNED + WISHLIST) ---------- */}
-                  <section style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
-                    <h2>My Collections</h2>
 
-                    {collectionsLoading && <p>Loading your collections…</p>}
-                    {collectionsError && (
-                      <p style={{ color: "red" }}>Error: {collectionsError}</p>
-                    )}
-
-                    {!collectionsLoading && !collectionsError && (
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: "1rem",
-                          marginTop: "0.5rem",
-                        }}
-                      >
-                        {/* Owned */}
-                        <div
-                          style={{
-                            flex: "1 1 240px",
-                            border: "1px solid #ddd",
-                            borderRadius: "8px",
-                            padding: "1rem",
-                          }}
-                        >
-                          <h3>Owned</h3>
-                          <p>
-                            Sets in Owned: <strong>{owned.length}</strong>
-                          </p>
-
-                          {owned.length === 0 && (
-                            <p style={{ color: "#666" }}>
-                              You haven&apos;t marked any sets as Owned yet.
-                            </p>
-                          )}
-
-                          {owned.length > 0 && (
-                            <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
-                              {owned.map((item) => (
-                                <li key={item.set_num}>
-                                  {item.set_num}{" "}
-                                  <span style={{ color: "#888" }}>
-                                    ({item.type}){/* will be "owned" */}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-
-                        {/* Wishlist */}
-                        <div
-                          style={{
-                            flex: "1 1 240px",
-                            border: "1px solid #ddd",
-                            borderRadius: "8px",
-                            padding: "1rem",
-                          }}
-                        >
-                          <h3>Wishlist</h3>
-                          <p>
-                            Sets in Wishlist: <strong>{wishlist.length}</strong>
-                          </p>
-
-                          {wishlist.length === 0 && (
-                            <p style={{ color: "#666" }}>
-                              You haven&apos;t added any sets to your Wishlist yet.
-                            </p>
-                          )}
-
-                          {wishlist.length > 0 && (
-                            <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
-                              {wishlist.map((item) => (
-                                <li key={item.set_num}>
-                                  {item.set_num}{" "}
-                                  <span style={{ color: "#888" }}>
-                                    ({item.type}){/* will be "wishlist" */}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </section>
-
-                {/* ---------- MY LISTS DISPLAY ---------- */}
+                {/* ---------- MY LISTS DISPLAY (Owned + Wishlist + Custom) ---------- */}
                 {myListsLoading && <p>Loading your lists…</p>}
 
                 {myListsError && (
                   <p style={{ color: "red" }}>Error: {myListsError}</p>
                 )}
 
-                {!myListsLoading && !myListsError && myLists.length === 0 && (
-                  <p>You don&apos;t have any lists yet.</p>
-                )}
+                {!myListsLoading && !myListsError && (
+                  <>
+                    {/* If literally everything is empty */}
+                    {combinedMyLists.length === 0 && (
+                      <p>You don&apos;t have any lists yet.</p>
+                    )}
 
-                {!myListsLoading && !myListsError && myLists.length > 0 && (
-                  <ul style={{ listStyle: "none", padding: 0 }}>
-                    {myLists.map((list) => (
-                      <li
-                        key={list.id}
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: "8px",
-                          padding: "1rem",
-                          marginBottom: "1rem",
-                        }}
-                      >
-                        <h3>{list.title}</h3>
-                        {list.description && <p>{list.description}</p>}
-                        <p>
-                          Sets in list: <strong>{list.items_count}</strong>
-                        </p>
-                        <p>
-                          Visibility:{" "}
-                          <strong>
-                            {list.is_public ? "Public" : "Private"}
-                          </strong>
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
+                    {combinedMyLists.length > 0 && (
+                      <ul style={{ listStyle: "none", padding: 0 }}>
+                        {combinedMyLists.map((list) => (
+                          <li
+                            key={list.id}
+                            style={{
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              padding: "1rem",
+                              marginBottom: "1rem",
+                            }}
+                          >
+                            <h3>
+                              {list.title}{" "}
+                              {list.is_collection && (
+                                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                                </span>
+                              )}
+                            </h3>
+
+                            {list.description && <p>{list.description}</p>}
+
+                            <p>
+                              Sets in list:{" "}
+                              <strong>{list.items_count}</strong>
+                            </p>
+
+                            <p>
+                              Visibility:{" "}
+                              <strong>
+                                {list.is_public ? "Public" : "Private"}
+                              </strong>
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
 
                 {/* Little status message under everything */}
