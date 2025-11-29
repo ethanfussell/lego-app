@@ -40,7 +40,11 @@ app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
 app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
 
 # Owned / wishlist collections
-app.include_router(collections_router.router, tags=["collections"])
+app.include_router(
+    collections_router.router,
+    prefix="/collections",
+    tags=["collections"],
+)
 
 # Custom lists (e.g. /lists/...)
 app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
