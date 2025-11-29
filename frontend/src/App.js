@@ -1,13 +1,10 @@
-// We are importing 3 things from React itself:
-//
-// 1. React → the main React engine
-// 2. useState → lets us store values (like lists, loading, errors)
-// 3. useEffect → lets us run code automatically when the page loads
+// We import React + two hooks from React:
+// - useState → lets us store values and re-render when they change
+// - useEffect → lets us run side-effect code (like fetching from the API)
 import React, { useEffect, useState } from "react";
-import Login from "./Login";
+import Login from "./Login"; // our login form component
 
-// This is just your backend URL saved to a variable
-// So if it ever changes, you only change it here
+// Your backend base URL
 const API_BASE = "http://localhost:8000";
 
 function App() {
@@ -15,66 +12,101 @@ function App() {
   // STATE VARIABLES (storage)
   // -------------------------------
 
-  // Holds the array of public lists from the backend
+  // Public lists (from GET /lists/public)
   const [lists, setLists] = useState([]);
 
-  // True while we're loading data from the API
+  // Loading + error for the PUBLIC lists
   const [loading, setLoading] = useState(true);
-
-  // Holds any error message if the API fails
   const [error, setError] = useState(null);
 
-  // Controls which "page" we are viewing in the UI
-  // "public" → show public lists
-  // "login"  → show login form
+  // Which "page" the user is on: "public" or "login"
   const [page, setPage] = useState("public");
 
-  // Store the token once we log in
+  // 🔐 Token we get after logging in successfully
   const [token, setToken] = useState(null);
 
-  // -------------------------------
-  // AUTOMATIC API CALL ON PAGE LOAD
-  // -------------------------------
+  // "My Lists" data (from GET /lists/me, requires token)
+  const [myLists, setMyLists] = useState([]);
+  const [myListsLoading, setMyListsLoading] = useState(false);
+  const [myListsError, setMyListsError] = useState(null);
 
+  // -------------------------------
+  // 1) FETCH PUBLIC LISTS ON PAGE LOAD
+  // -------------------------------
   useEffect(() => {
-    // This function talks to your FastAPI backend
     async function fetchPublicLists() {
       try {
-        // Turn on loading
         setLoading(true);
         setError(null);
 
-        // Call your backend
         const resp = await fetch(`${API_BASE}/lists/public`);
 
-        // If the backend returns an error code, stop
         if (!resp.ok) {
           throw new Error(`Request failed with status ${resp.status}`);
         }
 
-        // Convert the JSON response into real JS objects
         const data = await resp.json();
-
-        // Store that data into our "lists" variable
         setLists(data);
       } catch (err) {
-        // If anything breaks, store the error message
         console.error("Error fetching public lists:", err);
         setError(err.message);
       } finally {
-        // Turn off loading no matter what
         setLoading(false);
       }
     }
 
-    // Actually run the function we just defined
+    // Run once on first render
     fetchPublicLists();
-  }, []); // [] means "run this once when the page first loads"
+  }, []);
+
+  // -------------------------------
+  // 2) FETCH "MY LISTS" WHEN WE HAVE A TOKEN
+  // -------------------------------
+  useEffect(() => {
+    // If user is NOT logged in, don't do anything
+    if (!token) {
+      setMyLists([]);
+      return;
+    }
+
+    async function fetchMyLists() {
+      try {
+        setMyListsLoading(true);
+        setMyListsError(null);
+
+        // Call the protected endpoint with the Bearer token
+        const resp = await fetch(`${API_BASE}/lists/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`, // 🔑 send the token here
+          },
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Failed to load your lists (status ${resp.status})`);
+        }
+
+        const data = await resp.json();
+        setMyLists(data);
+      } catch (err) {
+        console.error("Error fetching my lists:", err);
+        setMyListsError(err.message);
+      } finally {
+        setMyListsLoading(false);
+      }
+    }
+
+    fetchMyLists();
+  }, [token]); // this runs whenever "token" changes
+
+  // Simple logout function
+  function handleLogout() {
+    setToken(null);
+    setMyLists([]);
+  }
 
   // -------------------------------
   // WHAT THE USER ACTUALLY SEES
   // -------------------------------
-
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
       {/* ==========================
@@ -89,7 +121,7 @@ function App() {
           marginBottom: "1.5rem",
         }}
       >
-        {/* This is the PUBLIC LISTS tab */}
+        {/* PUBLIC LISTS tab */}
         <button
           onClick={() => setPage("public")}
           style={{
@@ -101,7 +133,7 @@ function App() {
           🌍 Public Lists
         </button>
 
-        {/* This is the Login / My Lists tab */}
+        {/* LOGIN / ACCOUNT tab */}
         <button
           onClick={() => setPage("login")}
           style={{
@@ -118,12 +150,13 @@ function App() {
           MAIN PAGE CONTENT
          ========================== */}
       <div style={{ padding: "1.5rem" }}>
-        {/* ---------- PUBLIC LISTS PAGE ---------- */}
+        {/* -------- PUBLIC PAGE -------- */}
         {page === "public" && (
           <>
             <h1>LEGO Lists App</h1>
             <p style={{ color: "#666" }}>
-              This page is pulling data directly from your FastAPI backend.
+              This page is pulling data directly from your FastAPI backend
+              (GET <code>/lists/public</code>).
             </p>
 
             {/* Show loading message */}
@@ -165,7 +198,6 @@ function App() {
                       <strong>{list.is_public ? "Public" : "Private"}</strong>
                     </p>
 
-                    {/* Only show description if it exists */}
                     {list.description && <p>{list.description}</p>}
                   </li>
                 ))}
@@ -174,28 +206,101 @@ function App() {
           </>
         )}
 
-        {/* ---------- LOGIN PAGE ---------- */}
+        {/* -------- LOGIN / MY ACCOUNT PAGE -------- */}
         {page === "login" && (
           <div>
             <h1>Account</h1>
-            {/* Pass a callback to save the token in App state */}
-            <Login
-              onLoginSuccess={(accessToken) => {
-                setToken(accessToken);
-                // For now, just log it and stay on this page
-                console.log("Logged in! Token:", accessToken);
-              }}
-            />
 
+            {/* If we DON'T have a token yet, show the Login form */}
+            {!token && (
+              <>
+                <p style={{ color: "#666" }}>
+                  Log in with your fake user (ethan / lego123).
+                </p>
+                <Login
+                  onLoginSuccess={(accessToken) => {
+                    setToken(accessToken);
+                    console.log("Logged in! Token:", accessToken);
+                  }}
+                />
+              </>
+            )}
+
+            {/* If we DO have a token, show "My Lists" + Logout */}
             {token && (
-              <p style={{ marginTop: "1rem", color: "green" }}>
-                Logged in! Token stored in state.
+              <div style={{ marginTop: "1.5rem" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  <h2>My Lists</h2>
+                  <button
+                    onClick={handleLogout}
+                    style={{
+                      padding: "0.25rem 0.75rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Log out
+                  </button>
+                </div>
+
+                {/* Loading / error / empty / lists states for MY lists */}
+                {myListsLoading && <p>Loading your lists…</p>}
+
+                {myListsError && (
+                  <p style={{ color: "red" }}>Error: {myListsError}</p>
+                )}
+
+                {!myListsLoading && !myListsError && myLists.length === 0 && (
+                  <p>You don&apos;t have any lists yet.</p>
+                )}
+
+                {!myListsLoading && !myListsError && myLists.length > 0 && (
+                  <ul style={{ listStyle: "none", padding: 0 }}>
+                    {myLists.map((list) => (
+                      <li
+                        key={list.id}
+                        style={{
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                          marginBottom: "1rem",
+                        }}
+                      >
+                        <h3>{list.title}</h3>
+                        {list.description && <p>{list.description}</p>}
+                        <p>
+                          Sets in list: <strong>{list.items_count}</strong>
+                        </p>
+                        <p>
+                          Visibility:{" "}
+                          <strong>
+                            {list.is_public ? "Public" : "Private"}
+                          </strong>
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Little status message under everything */}
+            {token && !myListsLoading && !myListsError && (
+              <p style={{ marginTop: "0.5rem", color: "green" }}>
+                Logged in: token stored in React state and used for
+                <code> /lists/me</code>.
               </p>
             )}
           </div>
         )}
-      </div> /* ✅ close the padding div */
-    </div>   /* ✅ close the outer wrapper div */
+      </div>
+    </div>
   );
 }
 
