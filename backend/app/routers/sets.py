@@ -53,7 +53,7 @@ def _matches_query(s: Dict[str, Any], q: str) -> bool:
 def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
     """
     Return a similarity score (0.0–1.0) between the query and
-    a set's name / theme / ip using difflib.SequenceMatcher.
+    a set's name / ip / theme using difflib.SequenceMatcher.
     Higher = more similar.
     """
     q = (q or "").strip().lower()
@@ -62,8 +62,8 @@ def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
 
     candidates = [
         (s.get("name") or "").lower(),
-        (s.get("theme") or "").lower(),
         (s.get("ip") or "").lower(),
+        (s.get("theme") or "").lower(),
     ]
 
     best = 0.0
@@ -71,22 +71,6 @@ def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
         if not text:
             continue
         ratio = SequenceMatcher(None, q, text).ratio()
-        if ratio > best:
-            best = ratio
-    return best
-
-    # things we want to match against
-    candidates = [
-        (s.get("name") or "").lower(),
-        (s.get("ip") or "").lower(),
-        (s.get("theme") or "").lower(),
-    ]
-
-    best = 0.0
-    for text in candidates:
-        if not text:
-            continue
-        ratio = difflib.SequenceMatcher(None, q, text).ratio()
         if ratio > best:
             best = ratio
     return best
@@ -245,6 +229,16 @@ def list_sets(
     response.headers["X-Total-Count"] = str(total)
     return page_rows
 
+def _popularity_boost(set_num: str) -> Tuple[float, int]:
+    """
+    Use existing rating stats as a 'popularity' signal.
+    Higher count → more popular. Average rating as tie-breaker.
+    """
+    avg, count = _rating_stats_for_set(set_num or "")
+    # simple scheme: each review adds 1 point, but cap at 50
+    # (so a set with 100 reviews doesn't dominate everything forever)
+    popularity_score = min(count, 50)
+    return popularity_score, count
 
 # --------- autocomplete endpoint: GET /sets/suggest ---------
 @router.get("/suggest")
@@ -253,36 +247,91 @@ def suggest_sets(
     limit: int = Query(6, ge=1, le=20, description="Max suggestions to return"),
 ):
     """
-    Return fuzzy suggestions for misspelled / partial queries.
-    Used by autocomplete and the 'Did you mean...' UI.
+    Return fuzzy + popularity-aware suggestions for misspelled / partial queries.
+
+    Strategy:
+    1. Strongly prefer "direct" matches: name/theme/set_num containing or
+       starting with the query, or exact set number matches.
+    2. If not enough direct matches, fall back to fuzzy matches.
+    3. Among candidates, boost sets with more reviews so popular sets float up.
     """
-    q = q.strip()
-    if not q:
+    q_clean = (q or "").strip().lower()
+    if not q_clean:
         return []
 
-    sets = load_cached_sets()
+    all_sets = load_cached_sets()
 
-    scored: List[Tuple[float, Dict[str, Any]]] = []
+    candidates: List[Tuple[float, float, int, Dict[str, Any]]] = []
 
-    for s in sets:
+    for s in all_sets:
         name = (s.get("name") or "").lower()
+        theme = (s.get("theme") or "").lower()
+        set_num = (s.get("set_num") or "").lower()
+        plain = (s.get("set_num_plain") or "").lower()
 
-        # If the query is literally inside the name, treat it as a strong match.
-        if q.lower() in name:
-            score = 1.0
-        else:
-            score = _fuzzy_score_for_set(s, q)
+        base_score = 0.0
+        direct_match = False
 
-        # Only keep reasonably close matches
-        if score >= 0.45:
-            scored.append((score, s))
+        # ---------- 1) DIRECT / SUBSTRING MATCHES ----------
+        if plain and plain == q_clean:
+            base_score += 120  # exact plain number match
+            direct_match = True
 
-    # sort best matches first
-    scored.sort(key=lambda t: t[0], reverse=True)
+        if set_num and set_num == q_clean:
+            base_score += 110  # exact full set_num match
+            direct_match = True
 
-    top = [s for score, s in scored[:limit]]
+        if name.startswith(q_clean):
+            base_score += 80   # name begins with query
+            direct_match = True
 
-    # Return a lightweight object (this is what your frontend expects)
+        if q_clean in name:
+            base_score += 60   # query appears somewhere in name
+            direct_match = True
+
+        if q_clean in theme:
+            base_score += 30   # theme contains query
+            direct_match = True
+
+        # ---------- 2) FUZZY FALLBACK ----------
+        # Only run fuzzy scoring if we didn't get any strong direct signal
+        if not direct_match:
+            fuzzy = _fuzzy_score_for_set(s, q_clean)
+            # ignore very weak fuzzy matches
+            if fuzzy < 0.5:
+                continue
+            base_score += fuzzy * 50.0
+
+        # ---------- 3) POPULARITY BOOST ----------
+        pop_score, review_count = _popularity_boost(s.get("set_num") or "")
+        # add popularity to the overall score
+        total_score = base_score + pop_score
+
+        candidates.append((total_score, pop_score, review_count, s))
+
+    if not candidates:
+        return []
+
+    # ---------- 4) SORT BEST FIRST ----------
+    # Sort by:
+    #   1) total_score (relevance + popularity)
+    #   2) popularity (pop_score)
+    #   3) review_count
+    #   4) year (newer first)
+    candidates.sort(
+        key=lambda t: (
+            t[0],                      # total_score
+            t[1],                      # pop_score
+            t[2],                      # review_count
+            (t[3].get("year") or 0),   # year
+        ),
+        reverse=True,
+    )
+
+    top = [s for total, pop, count, s in candidates[:limit]]
+
+    # ---------- 5) LIGHTWEIGHT RESPONSE SHAPE ----------
+    # This is what your frontend expects: set_num, name, ip/theme, year.
     return [
         {
             "set_num": s.get("set_num"),
