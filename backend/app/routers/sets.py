@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query, Response
 from difflib import SequenceMatcher
 
-from app.data.sets import load_cached_sets, get_set_by_num
+from ..data.sets import load_cached_sets, get_set_by_num
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ def _rating_stats_for_set(set_num: str) -> Tuple[float, int]:
     if available. Returns (0.0, 0) if no reviews or if the reviews store isn’t present.
     """
     try:
-        from app.data.reviews import REVIEWS  # type: ignore
+        from ..data.reviews import REVIEWS  # type: ignore
     except Exception:
         return (0.0, 0)
 

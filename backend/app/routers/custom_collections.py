@@ -3,12 +3,12 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
 from datetime import datetime
 
-from app.data.custom_collections import OWNED, WISHLIST
-from app.data.sets import get_set_by_num
-from app.schemas.collection import CollectionCreate, CollectionItem
+from ..data.custom_collections import OWNED, WISHLIST
+from ..data.sets import get_set_by_num
+from ..schemas.collection import CollectionCreate, CollectionItem
 
 # 🔐 fake auth helpers
-from app.core.auth import User, get_current_user
+from ..core.auth import User, get_current_user
 
 router = APIRouter()
 

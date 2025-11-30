@@ -29,3 +29,4 @@ def get_sets(q: Optional[str] = None):
         q_lower = q.lower()
         items = [s for s in items if q_lower in s["name"].lower()]
     return items
+

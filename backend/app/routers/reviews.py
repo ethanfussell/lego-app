@@ -4,9 +4,9 @@ from pydantic import conint, BaseModel
 from typing import List, Optional
 from datetime import datetime
 
-from app.data.sets import get_set_by_num
-from app.data.reviews import REVIEWS
-from app.schemas.review import Review, ReviewCreate, ReviewUpdate, ActorPayload
+from ..data.sets import get_set_by_num
+from ..data.reviews import REVIEWS
+from ..schemas.review import Review, ReviewCreate, ReviewUpdate, ActorPayload
 
 router = APIRouter()
 

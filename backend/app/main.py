@@ -3,14 +3,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # 🔐 auth router (fake login + /auth/me)
-from app.core import auth as auth_router
+from .core import auth as auth_router
 
 # Other routers
-from app.routers import sets as sets_router
-from app.routers import reviews as reviews_router
-from app.routers import custom_collections as collections_router
-from app.routers import lists as lists_router
-from app.routers import users as users_router
+from .routers import sets as sets_router
+from .routers import reviews as reviews_router
+from .routers import custom_collections as collections_router
+from .routers import lists as lists_router
+from .routers import users as users_router
 
 app = FastAPI(title="LEGO API")
 
@@ -51,3 +51,18 @@ app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
 
 # Public user profile
 app.include_router(users_router.router, tags=["users"])
+
+
+# Allow the React dev server (http://localhost:3000) to call this API
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

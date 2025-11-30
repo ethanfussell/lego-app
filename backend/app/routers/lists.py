@@ -3,9 +3,9 @@ from fastapi import APIRouter, HTTPException, status, Query, Depends, Body
 from typing import Optional, List, Dict, Any
 from datetime import datetime, UTC
 
-from app.data.lists import LISTS
-from app.data.sets import get_set_by_num, load_cached_sets
-from app.schemas.list import (
+from ..data.lists import LISTS
+from ..data.sets import get_set_by_num, load_cached_sets
+from ..schemas.list import (
     ListCreate,
     ListUpdate,
     ListSummary,
@@ -15,7 +15,7 @@ from app.schemas.list import (
 )
 
 # 🔐 auth
-from app.core.auth import User, get_current_user
+from ..core.auth import User, get_current_user
 
 router = APIRouter()
 

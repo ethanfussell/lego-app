@@ -9,7 +9,7 @@ Handles fetching LEGO sets from the Rebrickable API and caching them locally.
 - Provides helpers for loading and looking up cached sets
 """
 
-from app.core.env import get_env
+from ..core.env import get_env
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

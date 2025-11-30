@@ -3,14 +3,17 @@
 // - useEffect → run side-effect code (like API calls)
 // - useRef → keep a mutable value between renders (for debounce timer)
 import React, { useEffect, useState, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import Login from "./Login";
 import QuickCollectionsAdd from "./QuickCollectionsAdd";
-import Pagination from"./Pagination";
+import Pagination from "./Pagination";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   // -------------------------------
   // PUBLIC LISTS STATE
   // -------------------------------
@@ -559,6 +562,11 @@ function App() {
   async function handleSearchSubmit(event) {
     event.preventDefault();
     setShowSuggestions(false);
+  
+    // move to the search "page" in both state and URL
+    setPage("search");
+    navigate("/search");
+  
     await runSearch(searchText, searchSort, 1);
   }
 
@@ -621,7 +629,10 @@ function App() {
         }}
       >
         <button
-          onClick={() => setPage("public")}
+          onClick={() => {
+            setPage("public");
+            navigate("/");
+          }}
           style={{
             padding: "0.5rem 1rem",
             cursor: "pointer",
@@ -632,7 +643,10 @@ function App() {
         </button>
 
         <button
-          onClick={() => setPage("login")}
+          onClick={() => {
+            setPage("login");
+            navigate("/login");
+          }}
           style={{
             padding: "0.5rem 1rem",
             cursor: "pointer",

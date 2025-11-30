@@ -2,9 +2,9 @@
 from typing import List, Dict, Any
 from fastapi import APIRouter
 
-from app.data.custom_collections import OWNED, WISHLIST
-from app.data.lists import LISTS
-from app.schemas.user import UserProfile, PublicListSummary
+from ..data.custom_collections import OWNED, WISHLIST
+from ..data.lists import LISTS
+from ..schemas.user import UserProfile, PublicListSummary
 
 router = APIRouter()
 
