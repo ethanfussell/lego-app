@@ -203,14 +203,15 @@ def list_sets(
                 r["_relevance"] = _relevance_score(r, q)
             enriched.sort(
                 key=lambda r: (
-                    r.get("_relevance") or 0,
-                    r.get("_avg_rating") or 0.0,
-                    r.get("_rating_count") or 0,
+                    r.get("_relevance") or 0,          # 1) textual relevance
+                    r.get("_rating_count") or 0,       # 2) popularity (more reviews)
+                    r.get("_avg_rating") or 0.0,       # 3) better-rated as tie-breaker
                 ),
                 reverse=True,
             )
         else:
-            enriched.sort(key=_sort_key("name"), reverse=False)
+            # no query → just sort by name
+            enriched.sort(key=_sort_key("name"), reverse=False) 
     else:
         enriched.sort(key=_sort_key(sort), reverse=reverse)
 

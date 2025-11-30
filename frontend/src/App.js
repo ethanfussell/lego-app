@@ -1,7 +1,7 @@
 // We import React + two hooks:
 // - useState → store values and trigger re-renders
 // - useEffect → run side-effect code (like API calls) at certain times
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Login from "./Login"; // our login form component
 import QuickCollectionsAdd from "./QuickCollectionsAdd";
 
@@ -29,6 +29,18 @@ function App() {
 
   // 🔐 Token we get after logging in successfully
   const [token, setToken] = useState(null);
+
+  // -------------------------------
+  // SEARCH BAR STATE (text + suggestions)
+  // -------------------------------
+  const [searchText, setSearchText] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // For debouncing the API calls
+  const searchDebounceRef = useRef(null);
 
   // -------------------------------
   // "MY LISTS" (AUTHED) STATE
@@ -75,6 +87,116 @@ function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
+  // Current sort option for search results
+  // backend supports: relevance | name | year | pieces | rating
+  const [searchSort, setSearchSort] = useState("relevance");
+
+  // Pagination state for search results
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const searchLimit = 20; // page size to request from backend
+
+  // -------------------------------
+  // SEARCH HANDLERS (input + suggestions)
+  // -------------------------------
+
+  // When the user types in the nav search box
+  function handleSearchChange(e) {
+    const value = e.target.value;
+    setSearchText(value);
+
+    // If they cleared the box, hide suggestions + errors
+    if (value.trim() === "") {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setSuggestionsError(null);
+      return;
+    }
+
+    // Show the dropdown. The debounced effect will actually fetch.
+    setShowSuggestions(true);
+  }
+
+  // When the input loses focus (clicks away, tabs away)
+  function handleSearchBlur() {
+    // Tiny delay so clicks on suggestions still count
+    setTimeout(() => {
+      setShowSuggestions(false);
+    }, 150);
+  }
+
+  // When the user clicks a suggestion from the dropdown
+  function handleSuggestionClick(suggestion) {
+    const term = suggestion.name || suggestion.set_num || "";
+
+    // Put the suggestion into the search box
+    setSearchText(term);
+
+    // Hide dropdown
+    setShowSuggestions(false);
+
+    // Send user to the full search results page for that term
+    setPage("search");
+    setSearchQuery(term);
+  }
+
+    // -------------------------------
+  // SUGGESTIONS EFFECT (debounced)
+  // -------------------------------
+  useEffect(() => {
+    const trimmed = searchText.trim();
+
+    // If input is empty, clear suggestions and stop
+    if (!trimmed) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setSuggestionsError(null);
+      return;
+    }
+
+    // Clear any existing timer so we don't spam the API
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    // Set up a new timer
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        setSuggestionsLoading(true);
+        setSuggestionsError(null);
+
+        const resp = await fetch(
+          `${API_BASE}/sets/suggest?q=${encodeURIComponent(trimmed)}`
+        );
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Suggest failed (${resp.status}): ${text}`);
+        }
+
+        const data = await resp.json();
+
+        // data is already an array of { set_num, name, ip, year }
+        setSuggestions(data);
+        setShowSuggestions(true);
+      } catch (err) {
+        console.error("Error fetching suggestions:", err);
+        setSuggestionsError(err.message || String(err));
+        setSuggestions([]);
+        setShowSuggestions(false);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 250); // 250ms debounce
+
+    // Cleanup if searchText changes again quickly or component unmounts
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [searchText]); // runs whenever searchText changes
+
   // -------------------------------
   // LOAD OWNED + WISHLIST WHEN TOKEN CHANGES
   // -------------------------------
@@ -90,6 +212,8 @@ function App() {
     loadCollections(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]); // re-run whenever token changes
+
+  
 
   // Helper: load Owned + Wishlist for the current user
   async function loadCollections(currentToken) {
@@ -351,35 +475,64 @@ function App() {
     }
   }
 
-  // When user submits the search form in the nav
-  async function handleSearchSubmit(event) {
-    event.preventDefault();
-  
-    const q = searchQuery.trim();
-    if (!q) return;
-  
-    // Switch to search page
+  // Helper: decide default order for each sort key
+  function getOrderForSort(sortKey) {
+    // Typical UX:
+    // - rating / pieces / year: highest / newest first
+    // - relevance: best match first (desc)
+    // - name: A–Z
+    if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") {
+      return "desc";
+    }
+    return "asc";
+  }
+
+  // Core search function: used by both "submit" and "change sort" and pagination
+  async function runSearch(query, sortKey = searchSort, page = 1) {
+    const trimmed = (query || "").trim();
+    if (!trimmed) return;
+
+    // Move to search page and remember the last query + page
     setPage("search");
-  
+    setSearchQuery(trimmed);
+    setSearchPage(page);
+
     try {
       setSearchLoading(true);
       setSearchError(null);
       setSearchResults([]);
-  
-      const resp = await fetch(
-        `${API_BASE}/sets?q=${encodeURIComponent(q)}`
-      );
-  
+
+      const params = new URLSearchParams();
+      params.set("q", trimmed);
+      params.set("sort", sortKey);
+      params.set("order", getOrderForSort(sortKey));
+      params.set("page", String(page));
+      params.set("limit", String(searchLimit));
+
+      const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Search failed (${resp.status}): ${text}`);
       }
-  
+
       const data = await resp.json();
-  
-      // ✅ normalize: data might be an array *or* an object with .results
       const items = Array.isArray(data) ? data : data.results || [];
       setSearchResults(items);
+
+      // Read total count from header if present
+      const totalStr = resp.headers.get("X-Total-Count");
+      if (totalStr) {
+        const totalNum = parseInt(totalStr, 10);
+        if (!Number.isNaN(totalNum)) {
+          setSearchTotal(totalNum);
+        } else {
+          setSearchTotal(items.length);
+        }
+      } else {
+        // fallback if header missing
+        setSearchTotal(items.length);
+      }
     } catch (err) {
       console.error("Error searching sets:", err);
       setSearchError(err.message);
@@ -387,6 +540,45 @@ function App() {
       setSearchLoading(false);
     }
   }
+
+  // When user submits the search form in the nav
+  async function handleSearchSubmit(event) {
+    event.preventDefault();
+
+    // Hide the dropdown suggestions
+    setShowSuggestions(false);
+
+    // Start search from page 1
+    await runSearch(searchText, searchSort, 1);
+  }
+
+  // When the user changes the sort dropdown on the search page
+  async function handleSearchSortChange(e) {
+    const newSort = e.target.value;
+    setSearchSort(newSort);
+
+    // If we don't have an active search yet, just update the state
+    if (!searchQuery.trim()) return;
+
+    // Re-run the search from page 1 with the same query
+    await runSearch(searchQuery, newSort, 1);
+  }
+
+    // Go to the next page of search results
+    async function handleSearchNextPage() {
+      const totalPages = searchTotal > 0
+        ? Math.ceil(searchTotal / searchLimit)
+        : 1;
+  
+      if (searchPage >= totalPages) return; // already on last page
+      await runSearch(searchQuery, searchSort, searchPage + 1);
+    }
+  
+    // Go to the previous page of search results
+    async function handleSearchPrevPage() {
+      if (searchPage <= 1) return;
+      await runSearch(searchQuery, searchSort, searchPage - 1);
+    }
 
   // -------------------------------
   // LOGOUT
@@ -410,88 +602,112 @@ function App() {
       {/* ==========================
           TOP NAVIGATION BAR
          ========================== */}
-      <nav
+  <nav
+    style={{
+      display: "flex",
+      gap: "1rem",
+      padding: "1rem",
+      borderBottom: "1px solid #ddd",
+      marginBottom: "1.5rem",
+      alignItems: "center",
+    }}
+  >
+    {/* PUBLIC LISTS tab */}
+    <button
+      onClick={() => setPage("public")}
+      style={{
+        padding: "0.5rem 1rem",
+        cursor: "pointer",
+        fontWeight: page === "public" ? "bold" : "normal",
+      }}
+    >
+      🌍 Public Lists
+    </button>
+
+    {/* LOGIN / ACCOUNT tab */}
+    <button
+      onClick={() => setPage("login")}
+      style={{
+        padding: "0.5rem 1rem",
+        cursor: "pointer",
+        fontWeight: page === "login" ? "bold" : "normal",
+      }}
+    >
+      🔐 Login / My Lists
+    </button>
+
+    {/* ✅ SEARCH BAR */}
+    <form
+      onSubmit={handleSearchSubmit}
+      style={{ position: "relative", marginLeft: "1rem" }}
+    >
+      <input
+        type="text"
+        placeholder="Search sets..."
+        value={searchText}
+        onChange={handleSearchChange}
+        onBlur={handleSearchBlur}
         style={{
-          display: "flex",
-          gap: "1rem",
-          padding: "1rem",
-          borderBottom: "1px solid #ddd",
-          marginBottom: "1.5rem",
-          alignItems: "center",
+          padding: "0.5rem",
+          borderRadius: "6px",
+          border: "1px solid #ccc",
+          width: "220px",
+        }}
+      />
+
+      {/* ✅ SUGGESTIONS DROPDOWN */}
+      {showSuggestions && suggestions.length > 0 && (
+        <ul
+          style={{
+            position: "absolute",
+            top: "110%",
+            left: 0,
+            right: 0,
+            background: "white",
+            border: "1px solid #ddd",
+            borderRadius: "6px",
+            listStyle: "none",
+            margin: 0,
+            padding: "0.25rem 0",
+            zIndex: 20,
+            maxHeight: "240px",
+            overflowY: "auto",
+          }}
+        >
+          {suggestions.map((s) => (
+            <li
+              key={s.set_num}
+              onMouseDown={() => handleSuggestionClick(s)}
+              style={{
+                padding: "0.5rem 0.75rem",
+                cursor: "pointer",
+                borderBottom: "1px solid #eee",
+              }}
+            >
+              <strong>{s.name}</strong>
+              <div style={{ fontSize: "0.8rem", color: "#666" }}>
+                {s.set_num} • {s.year}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </form>
+
+    {/* ✅ LOGOUT on far right */}
+    {token && (
+      <button
+        onClick={handleLogout}
+        style={{
+          padding: "0.5rem 1rem",
+          cursor: "pointer",
+          marginLeft: "auto",
         }}
       >
-        {/* PUBLIC LISTS tab */}
-        <button
-          onClick={() => setPage("public")}
-          style={{
-            padding: "0.5rem 1rem",
-            cursor: "pointer",
-            fontWeight: page === "public" ? "bold" : "normal",
-          }}
-        >
-          🌍 Public Lists
-        </button>
-
-        {/* LOGIN / ACCOUNT tab */}
-        <button
-          onClick={() => setPage("login")}
-          style={{
-            padding: "0.5rem 1rem",
-            cursor: "pointer",
-            fontWeight: page === "login" ? "bold" : "normal",
-          }}
-        >
-          🔐 Login / My Lists
-        </button>
-
-        {/* SEARCH BAR in the nav */}
-        <form
-          onSubmit={handleSearchSubmit}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            marginLeft: "2rem",
-            flex: 1,
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Search LEGO sets… (e.g. 10305, Disney)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              flex: 1,
-              padding: "0.4rem 0.6rem",
-              borderRadius: "4px",
-              border: "1px solid #ccc",
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: "0.4rem 0.8rem",
-              cursor: "pointer",
-            }}
-          >
-            Search
-          </button>
-        </form>
-
-        {/* LOGOUT on the right, only when logged in */}
-        {token && (
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: "0.5rem 1rem",
-              cursor: "pointer",
-              marginLeft: "auto", // pushes this button to the far right
-            }}
-          >
-            Log out
-          </button>
-        )}
-      </nav>
+        Log out
+      </button>
+    )}
+  </nav>
 
       {/* ==========================
           MAIN PAGE CONTENT
@@ -561,79 +777,191 @@ function App() {
               Showing results for: <strong>{searchQuery}</strong>
             </p>
 
+            {/* Sort dropdown */}
+            <div style={{ margin: "0.5rem 0 1rem 0" }}>
+              <label>
+                Sort by{" "}
+                <select
+                  value={searchSort}
+                  onChange={handleSearchSortChange}
+                  style={{ padding: "0.25rem 0.5rem" }}
+                >
+                  <option value="relevance">Best match</option>
+                  <option value="rating">Rating</option>
+                  <option value="year">Year</option>
+                  <option value="pieces">Pieces</option>
+                  <option value="name">Name (A–Z)</option>
+                </select>
+              </label>
+            </div>
+
             {searchLoading && <p>Searching…</p>}
-            {searchError && <p style={{ color: "red" }}>Error: {searchError}</p>}
+            {searchError && (
+              <p style={{ color: "red" }}>Error: {searchError}</p>
+            )}
 
             {!searchLoading && !searchError && searchResults.length === 0 && (
               <p>No sets found.</p>
             )}
 
             {!searchLoading && !searchError && searchResults.length > 0 && (
-              <ul
-                style={{
-                  listStyle: "none",
-                  padding: 0,
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "1rem",
-                }}
-              >
-                {searchResults.map((set) => (
-                  <li
-                    key={set.set_num}
-                    style={{
-                      border: "1px solid #ddd",
-                      borderRadius: "8px",
-                      padding: "0.75rem",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    {/* ✅ image thumbnail (if backend provides image_url) */}
-                    {set.image_url && (
-                      <img
-                        src={set.image_url}
-                        alt={set.name || set.set_num}
-                        style={{
-                          width: "100%",
-                          height: "180px",
-                          objectFit: "cover",
-                          borderRadius: "4px",
-                        }}
-                      />
+              <>
+                {/* Pagination info + controls */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "0.75rem",
+                    gap: "0.75rem",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  <span>
+                    Page <strong>{searchPage}</strong>
+                    {searchTotal > 0 && (
+                      <>
+                        {" "}
+                        of{" "}
+                        <strong>
+                          {Math.max(
+                            1,
+                            Math.ceil(searchTotal / searchLimit)
+                          )}
+                        </strong>{" "}
+                        · Showing{" "}
+                        <strong>
+                          {(searchPage - 1) * searchLimit + 1}
+                        </strong>{" "}
+                        –{" "}
+                        <strong>
+                          {Math.min(searchPage * searchLimit, searchTotal)}
+                        </strong>{" "}
+                        of <strong>{searchTotal}</strong> results
+                      </>
                     )}
+                  </span>
 
-                    <div>
-                      <h3 style={{ margin: "0 0 0.25rem 0" }}>
-                        {set.name || "Unknown set"}
-                      </h3>
-                      <p style={{ margin: 0, color: "#555" }}>
-                        <strong>{set.set_num}</strong>
-                        {set.year && <> · {set.year}</>}
-                      </p>
-                      {set.theme && (
-                        <p style={{ margin: 0, color: "#777" }}>{set.theme}</p>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      onClick={handleSearchPrevPage}
+                      disabled={searchPage <= 1 || searchLoading}
+                      style={{
+                        padding: "0.35rem 0.7rem",
+                        cursor:
+                          searchPage <= 1 || searchLoading
+                            ? "default"
+                            : "pointer",
+                      }}
+                    >
+                      ← Previous
+                    </button>
+                    <button
+                      onClick={handleSearchNextPage}
+                      disabled={
+                        searchLoading ||
+                        (searchTotal > 0 &&
+                          searchPage >=
+                            Math.ceil(searchTotal / searchLimit))
+                      }
+                      style={{
+                        padding: "0.35rem 0.7rem",
+                        cursor: searchLoading
+                          ? "default"
+                          : "pointer",
+                      }}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+
+                {/* Results grid */}
+                <ul
+                  style={{
+                    listStyle: "none",
+                    padding: 0,
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "1rem",
+                  }}
+                >
+                  {searchResults.map((set) => (
+                    <li
+                      key={set.set_num}
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: "8px",
+                        padding: "0.75rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      {/* Image thumbnail, if provided by backend */}
+                      {set.image_url && (
+                        <img
+                          src={set.image_url}
+                          alt={set.name || set.set_num}
+                          style={{
+                            width: "100%",
+                            height: "180px",
+                            objectFit: "cover",
+                            borderRadius: "4px",
+                          }}
+                        />
                       )}
-                      {set.pieces && (
-                        <p style={{ margin: 0, color: "#777" }}>
-                          {set.pieces} pieces
+
+                      <div>
+                        <h3 style={{ margin: "0 0 0.25rem 0" }}>
+                          {set.name || "Unknown set"}
+                        </h3>
+                        <p style={{ margin: 0, color: "#555" }}>
+                          <strong>{set.set_num}</strong>
+                          {set.year && <> · {set.year}</>}
                         </p>
-                      )}
-                    </div>
+                        {set.theme && (
+                          <p style={{ margin: 0, color: "#777" }}>
+                            {set.theme}
+                          </p>
+                        )}
+                        {set.pieces && (
+                          <p style={{ margin: 0, color: "#777" }}>
+                            {set.pieces} pieces
+                          </p>
+                        )}
+                      </div>
 
-                    {/* You can hook these up later to POST /collections/... */}
-                    {/* <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem" }}>
-                      <button>Mark Owned</button>
-                      <button>Add to Wishlist</button>
-                    </div> */}
-                  </li>
-                ))}
-              </ul>
+                      {/* You can wire these up later if you want */}
+                      {/* 
+                      <div
+                        style={{
+                          marginTop: "0.5rem",
+                          display: "flex",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <button
+                          onClick={() => handleMarkOwned(set.set_num)}
+                        >
+                          Mark Owned
+                        </button>
+                        <button
+                          onClick={() => handleAddWishlist(set.set_num)}
+                        >
+                          Add to Wishlist
+                        </button>
+                      </div>
+                      */}
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         )}
-
+        
         {/* -------- LOGIN / MY ACCOUNT PAGE -------- */}
         {page === "login" && (
           <div>
