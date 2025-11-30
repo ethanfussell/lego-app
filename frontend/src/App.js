@@ -1,8 +1,9 @@
-// We import React + two hooks:
+// We import React + hooks:
 // - useState → store values and trigger re-renders
-// - useEffect → run side-effect code (like API calls) at certain times
+// - useEffect → run side-effect code (like API calls)
+// - useRef → keep a mutable value between renders (for debounce timer)
 import React, { useEffect, useState, useRef } from "react";
-import Login from "./Login"; // our login form component
+import Login from "./Login";
 import QuickCollectionsAdd from "./QuickCollectionsAdd";
 
 // Your backend base URL
@@ -12,22 +13,17 @@ function App() {
   // -------------------------------
   // PUBLIC LISTS STATE
   // -------------------------------
-
-  // Public lists (GET /lists/public)
   const [lists, setLists] = useState([]);
-
-  // Loading + error for the PUBLIC lists
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // -------------------------------
   // GLOBAL UI STATE
   // -------------------------------
-
   // Which "page" the user is on: "public", "login", or "search"
   const [page, setPage] = useState("public");
 
-  // 🔐 Token we get after logging in successfully
+  // Auth token from login
   const [token, setToken] = useState(null);
 
   // -------------------------------
@@ -38,15 +34,11 @@ function App() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
-
-  // For debouncing the API calls
   const searchDebounceRef = useRef(null);
 
   // -------------------------------
   // "MY LISTS" (AUTHED) STATE
   // -------------------------------
-
-  // Lists from GET /lists/me (requires token)
   const [myLists, setMyLists] = useState([]);
   const [myListsLoading, setMyListsLoading] = useState(false);
   const [myListsError, setMyListsError] = useState(null);
@@ -54,17 +46,11 @@ function App() {
   // -------------------------------
   // CREATE-LIST FORM STATE
   // -------------------------------
-
-  // Controlled inputs for the "Create New List" form
   const [newListTitle, setNewListTitle] = useState("");
   const [newListDescription, setNewListDescription] = useState("");
   const [newListIsPublic, setNewListIsPublic] = useState(true);
-
-  // Loading + error for just the "create list" action
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState(null);
-
-  // Whether to show/hide the Create List form on the My Lists page
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   // -------------------------------
@@ -76,69 +62,24 @@ function App() {
   const [collectionsError, setCollectionsError] = useState(null);
 
   // -------------------------------
-  // SEARCH STATE
+  // SEARCH STATE (results page)
   // -------------------------------
-
-  // What the user typed into the search box
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Results from GET /sets/search?q=...
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
-  // Current sort option for search results
   // backend supports: relevance | name | year | pieces | rating
   const [searchSort, setSearchSort] = useState("relevance");
 
   // Pagination state for search results
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
-  const searchLimit = 25; // page size to request from backend
+  const searchLimit = 25; // page size
 
   // -------------------------------
-  // SEARCH HANDLERS (input + suggestions)
+  // Helpers
   // -------------------------------
-
-  // When the user types in the nav search box
-  function handleSearchChange(e) {
-    const value = e.target.value;
-    setSearchText(value);
-
-    // If they cleared the box, hide suggestions + errors
-    if (value.trim() === "") {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      setSuggestionsError(null);
-      return;
-    }
-
-    // Show the dropdown. The debounced effect will actually fetch.
-    setShowSuggestions(true);
-  }
-
-  // When the input loses focus (clicks away, tabs away)
-  function handleSearchBlur() {
-    // Tiny delay so clicks on suggestions still count
-    setTimeout(() => {
-      setShowSuggestions(false);
-    }, 150);
-  }
-
-  // When the user clicks a suggestion from the dropdown
-  function handleSuggestionClick(suggestion) {
-    const term = suggestion.name || suggestion.set_num || "";
-
-    // Put the suggestion into the search box
-    setSearchText(term);
-
-    // Hide dropdown
-    setShowSuggestions(false);
-
-    // Send user to the full search results page for that term
-    setPage("search");
-    setSearchQuery(term);
-  }
 
   function getPageNumbers(current, total) {
     const pages = [];
@@ -167,13 +108,52 @@ function App() {
     return pages;
   }
 
+  function getOrderForSort(sortKey) {
+    // rating / pieces / year: highest / newest first
+    // relevance: best match first
+    // name: A–Z
+    if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") {
+      return "desc";
+    }
+    return "asc";
+  }
+
   // -------------------------------
-  // SUGGESTIONS EFFECT (debounced)
+  // SUGGESTIONS: handlers + debounced effect
   // -------------------------------
+
+  function handleSearchChange(e) {
+    const value = e.target.value;
+    setSearchText(value);
+
+    if (value.trim() === "") {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setSuggestionsError(null);
+      return;
+    }
+
+    setShowSuggestions(true);
+  }
+
+  function handleSearchBlur() {
+    setTimeout(() => {
+      setShowSuggestions(false);
+    }, 150);
+  }
+
+  function handleSuggestionClick(suggestion) {
+    const term = suggestion.name || suggestion.set_num || "";
+    setSearchText(term);
+    setShowSuggestions(false);
+    setPage("search");
+    setSearchQuery(term);
+    // Optionally you could auto-run a search here too if you want
+  }
+
   useEffect(() => {
     const trimmed = searchText.trim();
 
-    // If input is empty, clear suggestions and stop
     if (!trimmed) {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -181,12 +161,10 @@ function App() {
       return;
     }
 
-    // Clear any existing timer so we don't spam the API
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
 
-    // Set up a new timer
     searchDebounceRef.current = setTimeout(async () => {
       try {
         setSuggestionsLoading(true);
@@ -202,8 +180,6 @@ function App() {
         }
 
         const data = await resp.json();
-
-        // data is already an array of { set_num, name, ip, year }
         setSuggestions(data);
         setShowSuggestions(true);
       } catch (err) {
@@ -214,35 +190,29 @@ function App() {
       } finally {
         setSuggestionsLoading(false);
       }
-    }, 250); // 250ms debounce
+    }, 250);
 
-    // Cleanup if searchText changes again quickly or component unmounts
     return () => {
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
       }
     };
-  }, [searchText]); // runs whenever searchText changes
+  }, [searchText]);
 
   // -------------------------------
   // LOAD OWNED + WISHLIST WHEN TOKEN CHANGES
   // -------------------------------
   useEffect(() => {
     if (!token) {
-      // if logged out, clear collections
       setOwned([]);
       setWishlist([]);
       return;
     }
 
-    // if logged in, load from backend
     loadCollections(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]); // re-run whenever token changes
+  }, [token]);
 
-  
-
-  // Helper: load Owned + Wishlist for the current user
   async function loadCollections(currentToken) {
     if (!currentToken) {
       setOwned([]);
@@ -254,11 +224,8 @@ function App() {
       setCollectionsLoading(true);
       setCollectionsError(null);
 
-      // 1) GET /collections/me/owned
       const ownedResp = await fetch(`${API_BASE}/collections/me/owned`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
+        headers: { Authorization: `Bearer ${currentToken}` },
       });
 
       if (!ownedResp.ok) {
@@ -270,11 +237,8 @@ function App() {
       const ownedData = await ownedResp.json();
       setOwned(ownedData);
 
-      // 2) GET /collections/me/wishlist
       const wishlistResp = await fetch(`${API_BASE}/collections/me/wishlist`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
+        headers: { Authorization: `Bearer ${currentToken}` },
       });
 
       if (!wishlistResp.ok) {
@@ -294,7 +258,7 @@ function App() {
   }
 
   // -------------------------------
-  // 1) FETCH PUBLIC LISTS ON PAGE LOAD
+  // PUBLIC LISTS: fetch on load
   // -------------------------------
   useEffect(() => {
     async function fetchPublicLists() {
@@ -318,15 +282,13 @@ function App() {
       }
     }
 
-    // Run once on first render
     fetchPublicLists();
   }, []);
 
   // -------------------------------
-  // 2) FETCH "MY LISTS" WHEN WE HAVE A TOKEN
+  // "MY LISTS": fetch when token changes
   // -------------------------------
   useEffect(() => {
-    // If user is NOT logged in, clear my lists and bail out
     if (!token) {
       setMyLists([]);
       return;
@@ -337,11 +299,8 @@ function App() {
         setMyListsLoading(true);
         setMyListsError(null);
 
-        // Call the protected endpoint with the Bearer token
         const resp = await fetch(`${API_BASE}/lists/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`, // 🔑 send the token here
-          },
+          headers: { Authorization: `Bearer ${token}` },
         });
 
         if (!resp.ok) {
@@ -362,19 +321,16 @@ function App() {
   }, [token]);
 
   // -------------------------------
-  // 3) CREATE NEW LIST HANDLER (FORM)
+  // CREATE NEW LIST
   // -------------------------------
   async function handleCreateList(event) {
-    // Prevent the browser from doing a full page reload on form submit
     event.preventDefault();
 
-    // If somehow we got here without a token, just bail
     if (!token) {
       setCreateError("You must be logged in to create a list.");
       return;
     }
 
-    // Basic validation: title is required
     if (!newListTitle.trim()) {
       setCreateError("Title is required.");
       return;
@@ -384,7 +340,6 @@ function App() {
       setCreateLoading(true);
       setCreateError(null);
 
-      // Build the payload expected by your FastAPI ListCreate schema
       const payload = {
         title: newListTitle.trim(),
         description: newListDescription.trim() || null,
@@ -405,10 +360,8 @@ function App() {
         throw new Error(`Create failed (${resp.status}): ${text}`);
       }
 
-      // This should be the full created list (UserList)
       const created = await resp.json();
 
-      // Convert created list into the same "shape" as items from /lists/me
       const summary = {
         id: created.id,
         title: created.title,
@@ -420,14 +373,12 @@ function App() {
         updated_at: created.updated_at,
       };
 
-      // Put the new list at the top of "My Lists"
       setMyLists((prev) => [summary, ...prev]);
 
-      // Clear form fields
       setNewListTitle("");
       setNewListDescription("");
       setNewListIsPublic(true);
-      setShowCreateForm(false); // hide form after successful create
+      setShowCreateForm(false);
     } catch (err) {
       console.error("Error creating list:", err);
       setCreateError(err.message);
@@ -437,10 +388,8 @@ function App() {
   }
 
   // -------------------------------
-  // 4) SEARCH HANDLERS
+  // COLLECTION MUTATIONS (owned / wishlist)
   // -------------------------------
-
-  // Mark a set as Owned from search results
   async function handleMarkOwned(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
@@ -463,7 +412,6 @@ function App() {
         throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
       }
 
-      // Refresh Owned/Wishlist so UI updates
       await loadCollections(token);
     } catch (err) {
       console.error("Error marking owned:", err);
@@ -471,7 +419,6 @@ function App() {
     }
   }
 
-  // Add a set to Wishlist from search results
   async function handleAddWishlist(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
@@ -494,7 +441,6 @@ function App() {
         throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
       }
 
-      // Refresh Owned/Wishlist so UI updates
       await loadCollections(token);
     } catch (err) {
       console.error("Error adding to wishlist:", err);
@@ -502,27 +448,16 @@ function App() {
     }
   }
 
-  // Helper: decide default order for each sort key
-  function getOrderForSort(sortKey) {
-    // Typical UX:
-    // - rating / pieces / year: highest / newest first
-    // - relevance: best match first (desc)
-    // - name: A–Z
-    if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") {
-      return "desc";
-    }
-    return "asc";
-  }
-
-  // Core search function: used by both "submit" and "change sort" and pagination
-  async function runSearch(query, sortKey = searchSort, page = 1) {
+  // -------------------------------
+  // SEARCH: core function + handlers
+  // -------------------------------
+  async function runSearch(query, sortKey = searchSort, pageNum = 1) {
     const trimmed = (query || "").trim();
     if (!trimmed) return;
 
-    // Move to search page and remember the last query + page
     setPage("search");
     setSearchQuery(trimmed);
-    setSearchPage(page);
+    setSearchPage(pageNum);
 
     try {
       setSearchLoading(true);
@@ -533,7 +468,7 @@ function App() {
       params.set("q", trimmed);
       params.set("sort", sortKey);
       params.set("order", getOrderForSort(sortKey));
-      params.set("page", String(page));
+      params.set("page", String(pageNum));
       params.set("limit", String(searchLimit));
 
       const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
@@ -547,7 +482,6 @@ function App() {
       const items = Array.isArray(data) ? data : data.results || [];
       setSearchResults(items);
 
-      // Read total count from header if present
       const totalStr = resp.headers.get("X-Total-Count");
       if (totalStr) {
         const totalNum = parseInt(totalStr, 10);
@@ -557,7 +491,6 @@ function App() {
           setSearchTotal(items.length);
         }
       } else {
-        // fallback if header missing
         setSearchTotal(items.length);
       }
     } catch (err) {
@@ -568,44 +501,33 @@ function App() {
     }
   }
 
-  // When user submits the search form in the nav
   async function handleSearchSubmit(event) {
     event.preventDefault();
-
-    // Hide the dropdown suggestions
     setShowSuggestions(false);
-
-    // Start search from page 1
     await runSearch(searchText, searchSort, 1);
   }
 
-  // When the user changes the sort dropdown on the search page
   async function handleSearchSortChange(e) {
     const newSort = e.target.value;
     setSearchSort(newSort);
 
-    // If we don't have an active search yet, just update the state
     if (!searchQuery.trim()) return;
 
-    // Re-run the search from page 1 with the same query
     await runSearch(searchQuery, newSort, 1);
   }
 
-    // Go to the next page of search results
-    async function handleSearchNextPage() {
-      const totalPages = searchTotal > 0
-        ? Math.ceil(searchTotal / searchLimit)
-        : 1;
-  
-      if (searchPage >= totalPages) return; // already on last page
-      await runSearch(searchQuery, searchSort, searchPage + 1);
-    }
-  
-    // Go to the previous page of search results
-    async function handleSearchPrevPage() {
-      if (searchPage <= 1) return;
-      await runSearch(searchQuery, searchSort, searchPage - 1);
-    }
+  async function handleSearchNextPage() {
+    const totalPages =
+      searchTotal > 0 ? Math.ceil(searchTotal / searchLimit) : 1;
+
+    if (searchPage >= totalPages) return;
+    await runSearch(searchQuery, searchSort, searchPage + 1);
+  }
+
+  async function handleSearchPrevPage() {
+    if (searchPage <= 1) return;
+    await runSearch(searchQuery, searchSort, searchPage - 1);
+  }
 
   // -------------------------------
   // LOGOUT
@@ -617,132 +539,123 @@ function App() {
     setWishlist([]);
   }
 
+  // -------------------------------
+  // Pagination derived values
+  // -------------------------------
   const totalPages =
     searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
   const pageNumbers = getPageNumbers(searchPage, totalPages);
 
-  // For quick checking in JSX: which sets are already owned / wishlisted
-  const ownedSetNums = new Set(owned.map((i) => i.set_num));
-  const wishlistSetNums = new Set(wishlist.map((i) => i.set_num));
-
   // -------------------------------
-  // WHAT THE USER ACTUALLY SEES
+  // RENDER
   // -------------------------------
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
-      {/* ==========================
-          TOP NAVIGATION BAR
-         ========================== */}
-  <nav
-    style={{
-      display: "flex",
-      gap: "1rem",
-      padding: "1rem",
-      borderBottom: "1px solid #ddd",
-      marginBottom: "1.5rem",
-      alignItems: "center",
-    }}
-  >
-    {/* PUBLIC LISTS tab */}
-    <button
-      onClick={() => setPage("public")}
-      style={{
-        padding: "0.5rem 1rem",
-        cursor: "pointer",
-        fontWeight: page === "public" ? "bold" : "normal",
-      }}
-    >
-      🌍 Public Lists
-    </button>
-
-    {/* LOGIN / ACCOUNT tab */}
-    <button
-      onClick={() => setPage("login")}
-      style={{
-        padding: "0.5rem 1rem",
-        cursor: "pointer",
-        fontWeight: page === "login" ? "bold" : "normal",
-      }}
-    >
-      🔐 Login / My Lists
-    </button>
-
-    {/* ✅ SEARCH BAR */}
-    <form
-      onSubmit={handleSearchSubmit}
-      style={{ position: "relative", marginLeft: "1rem" }}
-    >
-      <input
-        type="text"
-        placeholder="Search sets..."
-        value={searchText}
-        onChange={handleSearchChange}
-        onBlur={handleSearchBlur}
+      {/* ========================== TOP NAV ========================== */}
+      <nav
         style={{
-          padding: "0.5rem",
-          borderRadius: "6px",
-          border: "1px solid #ccc",
-          width: "220px",
-        }}
-      />
-
-      {/* ✅ SUGGESTIONS DROPDOWN */}
-      {showSuggestions && suggestions.length > 0 && (
-        <ul
-          style={{
-            position: "absolute",
-            top: "110%",
-            left: 0,
-            right: 0,
-            background: "white",
-            border: "1px solid #ddd",
-            borderRadius: "6px",
-            listStyle: "none",
-            margin: 0,
-            padding: "0.25rem 0",
-            zIndex: 20,
-            maxHeight: "240px",
-            overflowY: "auto",
-          }}
-        >
-          {suggestions.map((s) => (
-            <li
-              key={s.set_num}
-              onMouseDown={() => handleSuggestionClick(s)}
-              style={{
-                padding: "0.5rem 0.75rem",
-                cursor: "pointer",
-                borderBottom: "1px solid #eee",
-              }}
-            >
-              <strong>{s.name}</strong>
-              <div style={{ fontSize: "0.8rem", color: "#666" }}>
-                {s.set_num} • {s.year}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </form>
-
-    {/* ✅ LOGOUT on far right */}
-    {token && (
-      <button
-        onClick={handleLogout}
-        style={{
-          padding: "0.5rem 1rem",
-          cursor: "pointer",
-          marginLeft: "auto",
+          display: "flex",
+          gap: "1rem",
+          padding: "1rem",
+          borderBottom: "1px solid #ddd",
+          marginBottom: "1.5rem",
+          alignItems: "center",
         }}
       >
-        Log out
-      </button>
-    )}
-  </nav>
+        <button
+          onClick={() => setPage("public")}
+          style={{
+            padding: "0.5rem 1rem",
+            cursor: "pointer",
+            fontWeight: page === "public" ? "bold" : "normal",
+          }}
+        >
+          🌍 Public Lists
+        </button>
 
-      {/* ==========================
-          MAIN PAGE CONTENT
-         ========================== */}
+        <button
+          onClick={() => setPage("login")}
+          style={{
+            padding: "0.5rem 1rem",
+            cursor: "pointer",
+            fontWeight: page === "login" ? "bold" : "normal",
+          }}
+        >
+          🔐 Login / My Lists
+        </button>
+
+        {/* Search bar */}
+        <form
+          onSubmit={handleSearchSubmit}
+          style={{ position: "relative", marginLeft: "1rem" }}
+        >
+          <input
+            type="text"
+            placeholder="Search sets..."
+            value={searchText}
+            onChange={handleSearchChange}
+            onBlur={handleSearchBlur}
+            style={{
+              padding: "0.5rem",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              width: "220px",
+            }}
+          />
+
+          {showSuggestions && suggestions.length > 0 && (
+            <ul
+              style={{
+                position: "absolute",
+                top: "110%",
+                left: 0,
+                right: 0,
+                background: "white",
+                border: "1px solid #ddd",
+                borderRadius: "6px",
+                listStyle: "none",
+                margin: 0,
+                padding: "0.25rem 0",
+                zIndex: 20,
+                maxHeight: "240px",
+                overflowY: "auto",
+              }}
+            >
+              {suggestions.map((s) => (
+                <li
+                  key={s.set_num}
+                  onMouseDown={() => handleSuggestionClick(s)}
+                  style={{
+                    padding: "0.5rem 0.75rem",
+                    cursor: "pointer",
+                    borderBottom: "1px solid #eee",
+                  }}
+                >
+                  <strong>{s.name}</strong>
+                  <div style={{ fontSize: "0.8rem", color: "#666" }}>
+                    {s.set_num} • {s.year}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </form>
+
+        {token && (
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: "0.5rem 1rem",
+              cursor: "pointer",
+              marginLeft: "auto",
+            }}
+          >
+            Log out
+          </button>
+        )}
+      </nav>
+
+      {/* ========================== MAIN CONTENT ========================== */}
       <div style={{ padding: "1.5rem" }}>
         {/* -------- PUBLIC PAGE -------- */}
         {page === "public" && (
@@ -753,18 +666,13 @@ function App() {
               (GET <code>/lists/public</code>).
             </p>
 
-            {/* Show loading message */}
             {loading && <p>Loading public lists…</p>}
-
-            {/* Show error message */}
             {error && <p style={{ color: "red" }}>Error: {error}</p>}
 
-            {/* If everything worked AND there are no lists */}
             {!loading && !error && lists.length === 0 && (
               <p>No public lists yet. Create one in the backend.</p>
             )}
 
-            {/* If everything worked AND we have lists */}
             {!loading && !error && lists.length > 0 && (
               <ul style={{ listStyle: "none", padding: 0 }}>
                 {lists.map((list) => (
@@ -778,20 +686,16 @@ function App() {
                     }}
                   >
                     <h2>{list.title}</h2>
-
                     <p>
                       Owner: <strong>{list.owner}</strong>
                     </p>
-
                     <p>
                       Sets in list: <strong>{list.items_count}</strong>
                     </p>
-
                     <p>
                       Visibility:{" "}
                       <strong>{list.is_public ? "Public" : "Private"}</strong>
                     </p>
-
                     {list.description && <p>{list.description}</p>}
                   </li>
                 ))}
@@ -805,7 +709,7 @@ function App() {
           <div>
             <h1>Search Results</h1>
 
-            {/* Top row: "showing results" + sort dropdown */}
+            {/* Header row: "results for" + sort */}
             <div
               style={{
                 display: "flex",
@@ -815,21 +719,26 @@ function App() {
                 gap: "1rem",
               }}
             >
-              {/* ✅ LEFT SIDE (STACKED) */}
               <div>
                 <p style={{ color: "#666", margin: 0 }}>
                   Search results for: <strong>{searchQuery}</strong>
                 </p>
-
-                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.9rem", color: "#666" }}>
+                <p
+                  style={{
+                    margin: "0.25rem 0 0 0",
+                    fontSize: "0.9rem",
+                    color: "#666",
+                  }}
+                >
                   Showing{" "}
                   <strong>{(searchPage - 1) * searchLimit + 1}</strong> –{" "}
-                  <strong>{Math.min(searchPage * searchLimit, searchTotal)}</strong> of{" "}
-                  <strong>{searchTotal}</strong> products
+                  <strong>
+                    {Math.min(searchPage * searchLimit, searchTotal)}
+                  </strong>{" "}
+                  of <strong>{searchTotal}</strong> results
                 </p>
               </div>
 
-              {/* ✅ RIGHT SIDE (SORT) */}
               <div>
                 <label>
                   Sort by{" "}
@@ -847,6 +756,7 @@ function App() {
                 </label>
               </div>
             </div>
+
             {searchLoading && <p>Searching…</p>}
             {searchError && (
               <p style={{ color: "red" }}>Error: {searchError}</p>
@@ -881,7 +791,6 @@ function App() {
                         gap: "0.5rem",
                       }}
                     >
-                      {/* Image thumbnail, if provided by backend */}
                       {set.image_url && (
                         <img
                           src={set.image_url}
@@ -914,11 +823,29 @@ function App() {
                           </p>
                         )}
                       </div>
+
+                      {/* Later you can re-enable these: */}
+                      {/*
+                      <div
+                        style={{
+                          marginTop: "0.5rem",
+                          display: "flex",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <button onClick={() => handleMarkOwned(set.set_num)}>
+                          Mark Owned
+                        </button>
+                        <button onClick={() => handleAddWishlist(set.set_num)}>
+                          Add to Wishlist
+                        </button>
+                      </div>
+                      */}
                     </li>
                   ))}
                 </ul>
 
-                {/* ---------- BOTTOM PAGINATION CONTROLS ---------- */}
+                {/* Bottom pagination */}
                 <div
                   style={{
                     marginTop: "1.25rem",
@@ -930,7 +857,6 @@ function App() {
                     fontSize: "0.9rem",
                   }}
                 >
-                  {/* Prev / Numbers / Next */}
                   <div
                     style={{
                       display: "flex",
@@ -940,28 +866,50 @@ function App() {
                       flexWrap: "wrap",
                     }}
                   >
-                    {/* Previous */}
                     <button
-                      onClick={handleSearchPrevPage}
-                      disabled={searchPage <= 1 || searchLoading}
-                    >
-                      ← Prev
+                        onClick={handleSearchPrevPage}
+                        disabled={searchPage <= 1 || searchLoading}
+                        style={{
+                          minWidth: "2.5rem",
+                          padding: "0.35rem 0.75rem",
+                          borderRadius: "999px",
+                          border: "1px solid #ccc",
+                          backgroundColor:
+                            searchPage <= 1 || searchLoading ? "#f3f3f3" : "#fff",
+                          color:
+                            searchPage <= 1 || searchLoading ? "#999" : "#333",
+                          cursor:
+                            searchPage <= 1 || searchLoading ? "default" : "pointer",
+                          fontWeight: "500",
+                        }}
+                      >
+                        ← Prev
                     </button>
 
-                    {/* Numbered Pages */}
                     {pageNumbers.map((p, idx) =>
                       p === "..." ? (
-                        <span key={idx}>…</span>
+                        <span key={idx} style={{ padding: "0 0.25rem" }}>
+                          …
+                        </span>
                       ) : (
                         <button
                           key={p}
-                          onClick={() => runSearch(searchQuery, searchSort, p)}
-                          disabled={searchPage === p}
+                          onClick={() => {
+                            if (p !== searchPage) {
+                              runSearch(searchQuery, searchSort, p);
+                            }
+                          }}
                           style={{
-                            fontWeight:
-                              searchPage === p ? "bold" : "normal",
-                            textDecoration:
-                              searchPage === p ? "underline" : "none",
+                            minWidth: "2rem",
+                            padding: "0.35rem 0.65rem",
+                            borderRadius: "999px", // pill shape
+                            border:
+                              p === searchPage ? "1px solid #000" : "1px solid #ccc",
+                            backgroundColor:
+                              p === searchPage ? "#000" : "#fff",
+                            color: p === searchPage ? "#fff" : "#333",
+                            fontWeight: p === searchPage ? "600" : "400",
+                            cursor: p === searchPage ? "default" : "pointer",
                           }}
                         >
                           {p}
@@ -969,13 +917,25 @@ function App() {
                       )
                     )}
 
-                    {/* Next */}
-                    <button
-                      onClick={handleSearchNextPage}
-                      disabled={searchPage >= totalPages || searchLoading}
-                    >
-                      Next →
-                    </button>
+                  <button
+                    onClick={handleSearchNextPage}
+                    disabled={searchPage >= totalPages || searchLoading}
+                    style={{
+                      minWidth: "2.5rem",
+                      padding: "0.35rem 0.75rem",
+                      borderRadius: "999px",
+                      border: "1px solid #ccc",
+                      backgroundColor:
+                        searchPage >= totalPages || searchLoading ? "#f3f3f3" : "#fff",
+                      color:
+                        searchPage >= totalPages || searchLoading ? "#999" : "#333",
+                      cursor:
+                        searchPage >= totalPages || searchLoading ? "default" : "pointer",
+                      fontWeight: "500",
+                    }}
+                  >
+                    Next →
+                  </button>
                   </div>
                 </div>
               </>
@@ -988,7 +948,6 @@ function App() {
           <div>
             <h1>Account</h1>
 
-            {/* If we DON'T have a token yet, show the Login form */}
             {!token && (
               <>
                 <p style={{ color: "#666" }}>
@@ -1003,16 +962,13 @@ function App() {
               </>
             )}
 
-            {/* If we DO have a token, show account UI */}
             {token && (
               <div style={{ marginTop: "1.5rem" }}>
-                {/* 👇 Quick add box, only useful once logged in */}
                 <QuickCollectionsAdd
                   token={token}
                   onCollectionsChanged={() => loadCollections(token)}
                 />
 
-                {/* Header row: title + buttons */}
                 <div
                   style={{
                     display: "flex",
@@ -1025,7 +981,6 @@ function App() {
                   <h2 style={{ margin: 0 }}>My Lists</h2>
 
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    {/* Button to show/hide create form */}
                     <button
                       onClick={() => setShowCreateForm((prev) => !prev)}
                       style={{
@@ -1038,7 +993,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* ---------- CREATE NEW LIST FORM (TOGGLED BY BUTTON) ---------- */}
                 {showCreateForm && (
                   <section
                     style={{
@@ -1055,7 +1009,6 @@ function App() {
                     </p>
 
                     <form onSubmit={handleCreateList}>
-                      {/* Title input */}
                       <div style={{ marginBottom: "0.75rem" }}>
                         <label
                           style={{
@@ -1079,7 +1032,6 @@ function App() {
                         />
                       </div>
 
-                      {/* Description input */}
                       <div style={{ marginBottom: "0.75rem" }}>
                         <label
                           style={{
@@ -1105,7 +1057,6 @@ function App() {
                         />
                       </div>
 
-                      {/* Public / Private toggle */}
                       <div style={{ marginBottom: "0.75rem" }}>
                         <label>
                           <input
@@ -1120,7 +1071,6 @@ function App() {
                         </label>
                       </div>
 
-                      {/* Error + button */}
                       {createError && (
                         <p style={{ color: "red", marginBottom: "0.5rem" }}>
                           {createError}
@@ -1141,7 +1091,6 @@ function App() {
                   </section>
                 )}
 
-                {/* ---------- MY COLLECTIONS (OWNED + WISHLIST) ---------- */}
                 <section
                   style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}
                 >
@@ -1161,7 +1110,6 @@ function App() {
                         marginTop: "0.5rem",
                       }}
                     >
-                      {/* Owned */}
                       <div
                         style={{
                           flex: "1 1 240px",
@@ -1201,7 +1149,6 @@ function App() {
                         )}
                       </div>
 
-                      {/* Wishlist */}
                       <div
                         style={{
                           flex: "1 1 240px",
@@ -1246,9 +1193,7 @@ function App() {
                   )}
                 </section>
 
-                {/* ---------- MY LISTS DISPLAY ---------- */}
                 {myListsLoading && <p>Loading your lists…</p>}
-
                 {myListsError && (
                   <p style={{ color: "red" }}>Error: {myListsError}</p>
                 )}
@@ -1285,7 +1230,6 @@ function App() {
                   </ul>
                 )}
 
-                {/* Little status message under everything */}
                 {!myListsLoading && !myListsError && (
                   <p style={{ marginTop: "0.5rem", color: "green" }}>
                     Logged in: token stored in React state and used for
