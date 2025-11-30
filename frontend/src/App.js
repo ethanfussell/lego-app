@@ -810,15 +810,26 @@ function App() {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center",
+                alignItems: "flex-start",
                 margin: "0.5rem 0 1rem 0",
                 gap: "1rem",
               }}
             >
-              <p style={{ color: "#666", margin: 0 }}>
-                Showing results for: <strong>{searchQuery}</strong>
-              </p>
+              {/* ✅ LEFT SIDE (STACKED) */}
+              <div>
+                <p style={{ color: "#666", margin: 0 }}>
+                  Search results for: <strong>{searchQuery}</strong>
+                </p>
 
+                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.9rem", color: "#666" }}>
+                  Showing{" "}
+                  <strong>{(searchPage - 1) * searchLimit + 1}</strong> –{" "}
+                  <strong>{Math.min(searchPage * searchLimit, searchTotal)}</strong> of{" "}
+                  <strong>{searchTotal}</strong> products
+                </p>
+              </div>
+
+              {/* ✅ RIGHT SIDE (SORT) */}
               <div>
                 <label>
                   Sort by{" "}
@@ -836,7 +847,6 @@ function App() {
                 </label>
               </div>
             </div>
-
             {searchLoading && <p>Searching…</p>}
             {searchError && (
               <p style={{ color: "red" }}>Error: {searchError}</p>
@@ -920,20 +930,6 @@ function App() {
                     fontSize: "0.9rem",
                   }}
                 >
-                  {/* Page info */}
-                  <div>
-                    Page <strong>{searchPage}</strong> of{" "}
-                    <strong>{totalPages}</strong> · Showing{" "}
-                    <strong>
-                      {(searchPage - 1) * searchLimit + 1}
-                    </strong>{" "}
-                    –{" "}
-                    <strong>
-                      {Math.min(searchPage * searchLimit, searchTotal)}
-                    </strong>{" "}
-                    of <strong>{searchTotal}</strong> results
-                  </div>
-
                   {/* Prev / Numbers / Next */}
                   <div
                     style={{
