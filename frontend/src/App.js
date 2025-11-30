@@ -20,19 +20,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ----- NAV SEARCH STATE -----
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Optional: later we'll use these for real backend search
-  // const [searchResults, setSearchResults] = useState([]);
-  // const [searchLoading, setSearchLoading] = useState(false);
-  // const [searchError, setSearchError] = useState(null);
-
   // -------------------------------
   // GLOBAL UI STATE
   // -------------------------------
 
-  // Which "page" the user is on: "public" or "login"
+  // Which "page" the user is on: "public", "login", or "search"
   const [page, setPage] = useState("public");
 
   // 🔐 Token we get after logging in successfully
@@ -63,41 +55,29 @@ function App() {
   // Whether to show/hide the Create List form on the My Lists page
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // ----- COLLECTIONS (Owned / Wishlist) STATE -----
+  // -------------------------------
+  // COLLECTIONS (Owned / Wishlist) STATE
+  // -------------------------------
   const [owned, setOwned] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState(null);
 
-  // ----- DERIVED "MY LISTS" INCLUDING OWNED/WISHLIST -----
-  // This is just for the UI. We are *not* changing the backend.
-  // We pretend Owned + Wishlist are "special lists" and then
-  // append the real custom lists from /lists/me.
-  const combinedMyLists = [
-    {
-      id: "collection-owned",
-      title: "Owned",
-      description: "All sets you have marked as Owned.",
-      items_count: owned.length,
-      is_public: true,
-      is_collection: true,
-    },
-    {
-      id: "collection-wishlist",
-      title: "Wishlist",
-      description: "All sets you have added to your Wishlist.",
-      items_count: wishlist.length,
-      is_public: true,
-      is_collection: true,
-    },
-    // Real custom lists from the backend
-    ...myLists.map((l) => ({
-      ...l,
-      is_collection: false,
-    })),
-  ];
+  // -------------------------------
+  // SEARCH STATE
+  // -------------------------------
 
-  // Load Owned + Wishlist whenever token changes
+  // What the user typed into the search box
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Results from GET /sets/search?q=...
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+
+  // -------------------------------
+  // LOAD OWNED + WISHLIST WHEN TOKEN CHANGES
+  // -------------------------------
   useEffect(() => {
     if (!token) {
       // if logged out, clear collections
@@ -106,60 +86,61 @@ function App() {
       return;
     }
 
-  // if logged in, load from backend
-  loadCollections(token);
-}, [token]); // re-run whenever token changes
+    // if logged in, load from backend
+    loadCollections(token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]); // re-run whenever token changes
 
   // Helper: load Owned + Wishlist for the current user
-async function loadCollections(currentToken) {
-  if (!currentToken) {
-    setOwned([]);
-    setWishlist([]);
-    return;
-  }
-
-  try {
-    setCollectionsLoading(true);
-    setCollectionsError(null);
-
-    // 1) GET /collections/me/owned
-    const ownedResp = await fetch(`${API_BASE}/collections/me/owned`, {
-      headers: {
-        Authorization: `Bearer ${currentToken}`,
-      },
-    });
-
-    if (!ownedResp.ok) {
-      throw new Error(
-        `Failed to load owned sets (status ${ownedResp.status})`
-      );
+  async function loadCollections(currentToken) {
+    if (!currentToken) {
+      setOwned([]);
+      setWishlist([]);
+      return;
     }
 
-    const ownedData = await ownedResp.json();
-    setOwned(ownedData);
+    try {
+      setCollectionsLoading(true);
+      setCollectionsError(null);
 
-    // 2) GET /collections/me/wishlist
-    const wishlistResp = await fetch(`${API_BASE}/collections/me/wishlist`, {
-      headers: {
-        Authorization: `Bearer ${currentToken}`,
-      },
-    });
+      // 1) GET /collections/me/owned
+      const ownedResp = await fetch(`${API_BASE}/collections/me/owned`, {
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+      });
 
-    if (!wishlistResp.ok) {
-      throw new Error(
-        `Failed to load wishlist sets (status ${wishlistResp.status})`
-      );
+      if (!ownedResp.ok) {
+        throw new Error(
+          `Failed to load owned sets (status ${ownedResp.status})`
+        );
+      }
+
+      const ownedData = await ownedResp.json();
+      setOwned(ownedData);
+
+      // 2) GET /collections/me/wishlist
+      const wishlistResp = await fetch(`${API_BASE}/collections/me/wishlist`, {
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+      });
+
+      if (!wishlistResp.ok) {
+        throw new Error(
+          `Failed to load wishlist sets (status ${wishlistResp.status})`
+        );
+      }
+
+      const wishlistData = await wishlistResp.json();
+      setWishlist(wishlistData);
+    } catch (err) {
+      console.error("Error loading collections:", err);
+      setCollectionsError(err.message);
+    } finally {
+      setCollectionsLoading(false);
     }
-
-    const wishlistData = await wishlistResp.json();
-    setWishlist(wishlistData);
-  } catch (err) {
-    console.error("Error loading collections:", err);
-    setCollectionsError(err.message);
-  } finally {
-    setCollectionsLoading(false);
   }
-}
 
   // -------------------------------
   // 1) FETCH PUBLIC LISTS ON PAGE LOAD
@@ -304,29 +285,123 @@ async function loadCollections(currentToken) {
     }
   }
 
-  // Simple logout function
+  // -------------------------------
+  // 4) SEARCH HANDLERS
+  // -------------------------------
+
+  // Mark a set as Owned from search results
+  async function handleMarkOwned(setNum) {
+    if (!token) {
+      alert("Please log in to track your collection.");
+      setPage("login");
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${API_BASE}/collections/owned`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ set_num: setNum }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+      }
+
+      // Refresh Owned/Wishlist so UI updates
+      await loadCollections(token);
+    } catch (err) {
+      console.error("Error marking owned:", err);
+      alert(err.message);
+    }
+  }
+
+  // Add a set to Wishlist from search results
+  async function handleAddWishlist(setNum) {
+    if (!token) {
+      alert("Please log in to track your collection.");
+      setPage("login");
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${API_BASE}/collections/wishlist`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ set_num: setNum }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
+      }
+
+      // Refresh Owned/Wishlist so UI updates
+      await loadCollections(token);
+    } catch (err) {
+      console.error("Error adding to wishlist:", err);
+      alert(err.message);
+    }
+  }
+
+  // When user submits the search form in the nav
+  async function handleSearchSubmit(event) {
+    event.preventDefault();
+  
+    const q = searchQuery.trim();
+    if (!q) return;
+  
+    // Switch to search page
+    setPage("search");
+  
+    try {
+      setSearchLoading(true);
+      setSearchError(null);
+      setSearchResults([]);
+  
+      const resp = await fetch(
+        `${API_BASE}/sets?q=${encodeURIComponent(q)}`
+      );
+  
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Search failed (${resp.status}): ${text}`);
+      }
+  
+      const data = await resp.json();
+  
+      // ✅ normalize: data might be an array *or* an object with .results
+      const items = Array.isArray(data) ? data : data.results || [];
+      setSearchResults(items);
+    } catch (err) {
+      console.error("Error searching sets:", err);
+      setSearchError(err.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  // -------------------------------
+  // LOGOUT
+  // -------------------------------
   function handleLogout() {
     setToken(null);
     setMyLists([]);
     setOwned([]);
     setWishlist([]);
-    setCollectionsError(null);
-    setCollectionsLoading(false);
   }
 
-  function handleSearchSubmit(event) {
-    event.preventDefault(); // stop full page reload
+  // For quick checking in JSX: which sets are already owned / wishlisted
+  const ownedSetNums = new Set(owned.map((i) => i.set_num));
+  const wishlistSetNums = new Set(wishlist.map((i) => i.set_num));
 
-    const q = searchQuery.trim();
-    if (!q) return; // ignore empty search
-
-    // For now, just log it. We'll hook this to the backend later.
-    console.log("Searching for set:", q);
-
-    // Example: later we might switch to a "search" page or
-    // call /sets/search on the backend.
-  }
-  
   // -------------------------------
   // WHAT THE USER ACTUALLY SEES
   // -------------------------------
@@ -335,87 +410,88 @@ async function loadCollections(currentToken) {
       {/* ==========================
           TOP NAVIGATION BAR
          ========================== */}
-    <nav
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "1rem",
-        padding: "1rem",
-        borderBottom: "1px solid #ddd",
-        marginBottom: "1.5rem",
-      }}
-    >
-      {/* PUBLIC LISTS tab */}
-      <button
-        onClick={() => setPage("public")}
-        style={{
-          padding: "0.5rem 1rem",
-          cursor: "pointer",
-          fontWeight: page === "public" ? "bold" : "normal",
-        }}
-      >
-        🌍 Public Lists
-      </button>
-
-      {/* LOGIN / ACCOUNT tab */}
-      <button
-        onClick={() => setPage("login")}
-        style={{
-          padding: "0.5rem 1rem",
-          cursor: "pointer",
-          fontWeight: page === "login" ? "bold" : "normal",
-        }}
-      >
-        🔐 Login / My Lists
-      </button>
-
-      {/* SEARCH BAR in the nav */}
-      <form
-        onSubmit={handleSearchSubmit}
+      <nav
         style={{
           display: "flex",
+          gap: "1rem",
+          padding: "1rem",
+          borderBottom: "1px solid #ddd",
+          marginBottom: "1.5rem",
           alignItems: "center",
-          gap: "0.5rem",
-          marginLeft: "1rem",
         }}
       >
-        <input
-          type="text"
-          placeholder="Search sets (e.g. 10305)"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            padding: "0.4rem 0.6rem",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
-            minWidth: "180px",
-          }}
-        />
+        {/* PUBLIC LISTS tab */}
         <button
-          type="submit"
-          style={{
-            padding: "0.4rem 0.8rem",
-            cursor: "pointer",
-          }}
-        >
-          Search
-        </button>
-      </form>
-
-      {/* LOGOUT on the right, only when logged in */}
-      {token && (
-        <button
-          onClick={handleLogout}
+          onClick={() => setPage("public")}
           style={{
             padding: "0.5rem 1rem",
             cursor: "pointer",
-            marginLeft: "auto", // pushes this button to the far right
+            fontWeight: page === "public" ? "bold" : "normal",
           }}
         >
-          Log out
+          🌍 Public Lists
         </button>
-      )}
-    </nav>
+
+        {/* LOGIN / ACCOUNT tab */}
+        <button
+          onClick={() => setPage("login")}
+          style={{
+            padding: "0.5rem 1rem",
+            cursor: "pointer",
+            fontWeight: page === "login" ? "bold" : "normal",
+          }}
+        >
+          🔐 Login / My Lists
+        </button>
+
+        {/* SEARCH BAR in the nav */}
+        <form
+          onSubmit={handleSearchSubmit}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginLeft: "2rem",
+            flex: 1,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Search LEGO sets… (e.g. 10305, Disney)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "0.4rem 0.6rem",
+              borderRadius: "4px",
+              border: "1px solid #ccc",
+            }}
+          />
+          <button
+            type="submit"
+            style={{
+              padding: "0.4rem 0.8rem",
+              cursor: "pointer",
+            }}
+          >
+            Search
+          </button>
+        </form>
+
+        {/* LOGOUT on the right, only when logged in */}
+        {token && (
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: "0.5rem 1rem",
+              cursor: "pointer",
+              marginLeft: "auto", // pushes this button to the far right
+            }}
+          >
+            Log out
+          </button>
+        )}
+      </nav>
 
       {/* ==========================
           MAIN PAGE CONTENT
@@ -477,6 +553,87 @@ async function loadCollections(currentToken) {
           </>
         )}
 
+        {/* -------- SEARCH RESULTS PAGE -------- */}
+        {page === "search" && (
+          <div>
+            <h1>Search Results</h1>
+            <p style={{ color: "#666" }}>
+              Showing results for: <strong>{searchQuery}</strong>
+            </p>
+
+            {searchLoading && <p>Searching…</p>}
+            {searchError && <p style={{ color: "red" }}>Error: {searchError}</p>}
+
+            {!searchLoading && !searchError && searchResults.length === 0 && (
+              <p>No sets found.</p>
+            )}
+
+            {!searchLoading && !searchError && searchResults.length > 0 && (
+              <ul
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "1rem",
+                }}
+              >
+                {searchResults.map((set) => (
+                  <li
+                    key={set.set_num}
+                    style={{
+                      border: "1px solid #ddd",
+                      borderRadius: "8px",
+                      padding: "0.75rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    {/* ✅ image thumbnail (if backend provides image_url) */}
+                    {set.image_url && (
+                      <img
+                        src={set.image_url}
+                        alt={set.name || set.set_num}
+                        style={{
+                          width: "100%",
+                          height: "180px",
+                          objectFit: "cover",
+                          borderRadius: "4px",
+                        }}
+                      />
+                    )}
+
+                    <div>
+                      <h3 style={{ margin: "0 0 0.25rem 0" }}>
+                        {set.name || "Unknown set"}
+                      </h3>
+                      <p style={{ margin: 0, color: "#555" }}>
+                        <strong>{set.set_num}</strong>
+                        {set.year && <> · {set.year}</>}
+                      </p>
+                      {set.theme && (
+                        <p style={{ margin: 0, color: "#777" }}>{set.theme}</p>
+                      )}
+                      {set.pieces && (
+                        <p style={{ margin: 0, color: "#777" }}>
+                          {set.pieces} pieces
+                        </p>
+                      )}
+                    </div>
+
+                    {/* You can hook these up later to POST /collections/... */}
+                    {/* <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem" }}>
+                      <button>Mark Owned</button>
+                      <button>Add to Wishlist</button>
+                    </div> */}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* -------- LOGIN / MY ACCOUNT PAGE -------- */}
         {page === "login" && (
           <div>
@@ -500,8 +657,8 @@ async function loadCollections(currentToken) {
             {/* If we DO have a token, show account UI */}
             {token && (
               <div style={{ marginTop: "1.5rem" }}>
-                                {/* 👇 Quick add box, only useful once logged in */}
-                                <QuickCollectionsAdd
+                {/* 👇 Quick add box, only useful once logged in */}
+                <QuickCollectionsAdd
                   token={token}
                   onCollectionsChanged={() => loadCollections(token)}
                 />
@@ -635,58 +792,148 @@ async function loadCollections(currentToken) {
                   </section>
                 )}
 
-                {/* ---------- MY LISTS DISPLAY (Owned + Wishlist + Custom) ---------- */}
+                {/* ---------- MY COLLECTIONS (OWNED + WISHLIST) ---------- */}
+                <section
+                  style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}
+                >
+                  <h2>My Collections</h2>
+
+                  {collectionsLoading && <p>Loading your collections…</p>}
+                  {collectionsError && (
+                    <p style={{ color: "red" }}>Error: {collectionsError}</p>
+                  )}
+
+                  {!collectionsLoading && !collectionsError && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "1rem",
+                        marginTop: "0.5rem",
+                      }}
+                    >
+                      {/* Owned */}
+                      <div
+                        style={{
+                          flex: "1 1 240px",
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                        }}
+                      >
+                        <h3>Owned</h3>
+                        <p>
+                          Sets in Owned: <strong>{owned.length}</strong>
+                        </p>
+
+                        {owned.length === 0 && (
+                          <p style={{ color: "#666" }}>
+                            You haven&apos;t marked any sets as Owned yet.
+                          </p>
+                        )}
+
+                        {owned.length > 0 && (
+                          <ul
+                            style={{
+                              listStyle: "none",
+                              padding: 0,
+                              marginTop: "0.5rem",
+                            }}
+                          >
+                            {owned.map((item) => (
+                              <li key={item.set_num}>
+                                {item.set_num}{" "}
+                                <span style={{ color: "#888" }}>
+                                  ({item.type})
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      {/* Wishlist */}
+                      <div
+                        style={{
+                          flex: "1 1 240px",
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                        }}
+                      >
+                        <h3>Wishlist</h3>
+                        <p>
+                          Sets in Wishlist:{" "}
+                          <strong>{wishlist.length}</strong>
+                        </p>
+
+                        {wishlist.length === 0 && (
+                          <p style={{ color: "#666" }}>
+                            You haven&apos;t added any sets to your Wishlist
+                            yet.
+                          </p>
+                        )}
+
+                        {wishlist.length > 0 && (
+                          <ul
+                            style={{
+                              listStyle: "none",
+                              padding: 0,
+                              marginTop: "0.5rem",
+                            }}
+                          >
+                            {wishlist.map((item) => (
+                              <li key={item.set_num}>
+                                {item.set_num}{" "}
+                                <span style={{ color: "#888" }}>
+                                  ({item.type})
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                {/* ---------- MY LISTS DISPLAY ---------- */}
                 {myListsLoading && <p>Loading your lists…</p>}
 
                 {myListsError && (
                   <p style={{ color: "red" }}>Error: {myListsError}</p>
                 )}
 
-                {!myListsLoading && !myListsError && (
-                  <>
-                    {/* If literally everything is empty */}
-                    {combinedMyLists.length === 0 && (
-                      <p>You don&apos;t have any lists yet.</p>
-                    )}
+                {!myListsLoading && !myListsError && myLists.length === 0 && (
+                  <p>You don&apos;t have any lists yet.</p>
+                )}
 
-                    {combinedMyLists.length > 0 && (
-                      <ul style={{ listStyle: "none", padding: 0 }}>
-                        {combinedMyLists.map((list) => (
-                          <li
-                            key={list.id}
-                            style={{
-                              border: "1px solid #ddd",
-                              borderRadius: "8px",
-                              padding: "1rem",
-                              marginBottom: "1rem",
-                            }}
-                          >
-                            <h3>
-                              {list.title}{" "}
-                              {list.is_collection && (
-                                <span style={{ color: "#888", fontSize: "0.9rem" }}>
-                                </span>
-                              )}
-                            </h3>
-
-                            {list.description && <p>{list.description}</p>}
-
-                            <p>
-                              Sets in list:{" "}
-                              <strong>{list.items_count}</strong>
-                            </p>
-
-                            <p>
-                              Visibility:{" "}
-                              <strong>
-                                {list.is_public ? "Public" : "Private"}
-                              </strong>
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
+                {!myListsLoading && !myListsError && myLists.length > 0 && (
+                  <ul style={{ listStyle: "none", padding: 0 }}>
+                    {myLists.map((list) => (
+                      <li
+                        key={list.id}
+                        style={{
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                          marginBottom: "1rem",
+                        }}
+                      >
+                        <h3>{list.title}</h3>
+                        {list.description && <p>{list.description}</p>}
+                        <p>
+                          Sets in list: <strong>{list.items_count}</strong>
+                        </p>
+                        <p>
+                          Visibility:{" "}
+                          <strong>
+                            {list.is_public ? "Public" : "Private"}
+                          </strong>
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
                 )}
 
                 {/* Little status message under everything */}
