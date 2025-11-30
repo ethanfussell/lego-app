@@ -75,7 +75,7 @@ function App() {
   // Pagination state for search results
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
-  const searchLimit = 25; // page size
+  const searchLimit = 50; // page size
 
   // -------------------------------
   // Helpers
@@ -320,6 +320,54 @@ function App() {
     fetchMyLists();
   }, [token]);
 
+
+  useEffect(() => {
+    // Only enable keyboard page navigation on the search page
+    if (page !== "search" || searchResults.length === 0) {
+      return;
+    }
+  
+    function handleKeyDown(e) {
+      // Don't hijack keys if user is typing in an input/textarea
+      const tag = e.target.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea") {
+        return;
+      }
+  
+      if (e.key === "ArrowRight") {
+        const totalPages =
+          searchTotal > 0
+            ? Math.ceil(searchTotal / searchLimit)
+            : 1;
+  
+        if (!searchLoading && searchPage < totalPages) {
+          e.preventDefault();
+          runSearch(searchQuery, searchSort, searchPage + 1);
+        }
+      } else if (e.key === "ArrowLeft") {
+        if (!searchLoading && searchPage > 1) {
+          e.preventDefault();
+          runSearch(searchQuery, searchSort, searchPage - 1);
+        }
+      }
+    }
+  
+    window.addEventListener("keydown", handleKeyDown);
+  
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    page,
+    searchResults.length,
+    searchTotal,
+    searchLimit,
+    searchLoading,
+    searchPage,
+    searchQuery,
+    searchSort,
+  ]); // 👈 deps
+
   // -------------------------------
   // CREATE NEW LIST
   // -------------------------------
@@ -458,6 +506,12 @@ function App() {
     setPage("search");
     setSearchQuery(trimmed);
     setSearchPage(pageNum);
+    
+    // Smooth scroll to top whenever we (re)run a search
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
 
     try {
       setSearchLoading(true);
@@ -709,7 +763,7 @@ function App() {
           <div>
             <h1>Search Results</h1>
 
-            {/* Header row: "results for" + sort */}
+            {/* Top row: "showing results" + sort dropdown */}
             <div
               style={{
                 display: "flex",
@@ -717,12 +771,15 @@ function App() {
                 alignItems: "flex-start",
                 margin: "0.5rem 0 1rem 0",
                 gap: "1rem",
+                flexWrap: "wrap",
               }}
             >
+              {/* LEFT SIDE: query + showing X–Y of Z */}
               <div>
                 <p style={{ color: "#666", margin: 0 }}>
-                  Search results for: <strong>{searchQuery}</strong>
+                  Showing results for: <strong>{searchQuery}</strong>
                 </p>
+
                 <p
                   style={{
                     margin: "0.25rem 0 0 0",
@@ -732,13 +789,12 @@ function App() {
                 >
                   Showing{" "}
                   <strong>{(searchPage - 1) * searchLimit + 1}</strong> –{" "}
-                  <strong>
-                    {Math.min(searchPage * searchLimit, searchTotal)}
-                  </strong>{" "}
+                  <strong>{Math.min(searchPage * searchLimit, searchTotal)}</strong>{" "}
                   of <strong>{searchTotal}</strong> results
                 </p>
               </div>
 
+              {/* RIGHT SIDE: sort dropdown */}
               <div>
                 <label>
                   Sort by{" "}
@@ -767,7 +823,7 @@ function App() {
             )}
 
             {!searchLoading && !searchError && searchResults.length > 0 && (
-              <>
+              <div>
                 {/* Results grid */}
                 <ul
                   style={{
@@ -791,6 +847,7 @@ function App() {
                         gap: "0.5rem",
                       }}
                     >
+                      {/* Image thumbnail, if provided by backend */}
                       {set.image_url && (
                         <img
                           src={set.image_url}
@@ -823,29 +880,11 @@ function App() {
                           </p>
                         )}
                       </div>
-
-                      {/* Later you can re-enable these: */}
-                      {/*
-                      <div
-                        style={{
-                          marginTop: "0.5rem",
-                          display: "flex",
-                          gap: "0.5rem",
-                        }}
-                      >
-                        <button onClick={() => handleMarkOwned(set.set_num)}>
-                          Mark Owned
-                        </button>
-                        <button onClick={() => handleAddWishlist(set.set_num)}>
-                          Add to Wishlist
-                        </button>
-                      </div>
-                      */}
                     </li>
                   ))}
                 </ul>
 
-                {/* Bottom pagination */}
+                {/* ---------- BOTTOM PAGINATION CONTROLS ---------- */}
                 <div
                   style={{
                     marginTop: "1.25rem",
@@ -853,10 +892,12 @@ function App() {
                     borderTop: "1px solid #eee",
                     display: "flex",
                     flexDirection: "column",
-                    gap: "0.5rem",
+                    gap: "0.75rem",
                     fontSize: "0.9rem",
+                    alignItems: "center",
                   }}
                 >
+                  {/* Prev / Numbers / Next */}
                   <div
                     style={{
                       display: "flex",
@@ -866,26 +907,33 @@ function App() {
                       flexWrap: "wrap",
                     }}
                   >
+                    {/* Previous */}
                     <button
-                        onClick={handleSearchPrevPage}
-                        disabled={searchPage <= 1 || searchLoading}
-                        style={{
-                          minWidth: "2.5rem",
-                          padding: "0.35rem 0.75rem",
-                          borderRadius: "999px",
-                          border: "1px solid #ccc",
-                          backgroundColor:
-                            searchPage <= 1 || searchLoading ? "#f3f3f3" : "#fff",
-                          color:
-                            searchPage <= 1 || searchLoading ? "#999" : "#333",
-                          cursor:
-                            searchPage <= 1 || searchLoading ? "default" : "pointer",
-                          fontWeight: "500",
-                        }}
-                      >
-                        ← Prev
+                      onClick={handleSearchPrevPage}
+                      disabled={searchPage <= 1 || searchLoading}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "1px solid #d1d5db",
+                        backgroundColor:
+                          searchPage <= 1 || searchLoading
+                            ? "#f3f4f6"
+                            : "white",
+                        color:
+                          searchPage <= 1 || searchLoading
+                            ? "#9ca3af"
+                            : "#111827",
+                        cursor:
+                          searchPage <= 1 || searchLoading
+                            ? "default"
+                            : "pointer",
+                        fontSize: "0.85rem",
+                      }}
+                    >
+                      ← Prev
                     </button>
 
+                    {/* Numbered Pages */}
                     {pageNumbers.map((p, idx) =>
                       p === "..." ? (
                         <span key={idx} style={{ padding: "0 0.25rem" }}>
@@ -894,22 +942,24 @@ function App() {
                       ) : (
                         <button
                           key={p}
-                          onClick={() => {
-                            if (p !== searchPage) {
-                              runSearch(searchQuery, searchSort, p);
-                            }
-                          }}
+                          onClick={() => runSearch(searchQuery, searchSort, p)}
+                          disabled={searchPage === p || searchLoading}
                           style={{
-                            minWidth: "2rem",
-                            padding: "0.35rem 0.65rem",
-                            borderRadius: "999px", // pill shape
+                            padding: "0.35rem 0.9rem",
+                            borderRadius: "999px",
                             border:
-                              p === searchPage ? "1px solid #000" : "1px solid #ccc",
+                              searchPage === p
+                                ? "1px solid #111827"
+                                : "1px solid #d1d5db",
                             backgroundColor:
-                              p === searchPage ? "#000" : "#fff",
-                            color: p === searchPage ? "#fff" : "#333",
-                            fontWeight: p === searchPage ? "600" : "400",
-                            cursor: p === searchPage ? "default" : "pointer",
+                              searchPage === p ? "#111827" : "white",
+                            color: searchPage === p ? "white" : "#111827",
+                            fontWeight: searchPage === p ? "600" : "400",
+                            cursor:
+                              searchPage === p || searchLoading
+                                ? "default"
+                                : "pointer",
+                            fontSize: "0.85rem",
                           }}
                         >
                           {p}
@@ -917,28 +967,34 @@ function App() {
                       )
                     )}
 
-                  <button
-                    onClick={handleSearchNextPage}
-                    disabled={searchPage >= totalPages || searchLoading}
-                    style={{
-                      minWidth: "2.5rem",
-                      padding: "0.35rem 0.75rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ccc",
-                      backgroundColor:
-                        searchPage >= totalPages || searchLoading ? "#f3f3f3" : "#fff",
-                      color:
-                        searchPage >= totalPages || searchLoading ? "#999" : "#333",
-                      cursor:
-                        searchPage >= totalPages || searchLoading ? "default" : "pointer",
-                      fontWeight: "500",
-                    }}
-                  >
-                    Next →
-                  </button>
+                    {/* Next */}
+                    <button
+                      onClick={handleSearchNextPage}
+                      disabled={searchPage >= totalPages || searchLoading}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "1px solid #d1d5db",
+                        backgroundColor:
+                          searchPage >= totalPages || searchLoading
+                            ? "#f3f4f6"
+                            : "white",
+                        color:
+                          searchPage >= totalPages || searchLoading
+                            ? "#9ca3af"
+                            : "#111827",
+                        cursor:
+                          searchPage >= totalPages || searchLoading
+                            ? "default"
+                            : "pointer",
+                        fontSize: "0.85rem",
+                      }}
+                    >
+                      Next →
+                    </button>
                   </div>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
