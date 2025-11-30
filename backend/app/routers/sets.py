@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query, Response
-import difflib
+from difflib import SequenceMatcher
 
 from app.data.sets import load_cached_sets, get_set_by_num
 
@@ -35,6 +35,9 @@ def _rating_stats_for_set(set_num: str) -> Tuple[float, int]:
     avg = sum(ratings) / len(ratings)
     return (round(avg, 2), len(ratings))
 
+def _similarity(a: str, b: str) -> float:
+    """Return similarity between two strings (0.0–1.0)."""
+    return SequenceMatcher(None, a, b).ratio()
 
 def _matches_query(s: Dict[str, Any], q: str) -> bool:
     """Case-insensitive match against name, theme, set_num, set_num_plain."""
@@ -50,12 +53,27 @@ def _matches_query(s: Dict[str, Any], q: str) -> bool:
 def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
     """
     Return a similarity score (0.0–1.0) between the query and
-    a set's name / ip / theme using difflib.
+    a set's name / theme / ip using difflib.SequenceMatcher.
     Higher = more similar.
     """
     q = (q or "").strip().lower()
     if not q:
         return 0.0
+
+    candidates = [
+        (s.get("name") or "").lower(),
+        (s.get("theme") or "").lower(),
+        (s.get("ip") or "").lower(),
+    ]
+
+    best = 0.0
+    for text in candidates:
+        if not text:
+            continue
+        ratio = SequenceMatcher(None, q, text).ratio()
+        if ratio > best:
+            best = ratio
+    return best
 
     # things we want to match against
     candidates = [
@@ -137,12 +155,34 @@ def list_sets(
     """
     List sets from the local cache with search, sorting, pagination,
     and rating summary (avg, count) if reviews exist.
-    """
-    sets = load_cached_sets()
 
-    # filter
+    Now with typo-friendly fallback:
+    - First try normal substring search (_matches_query)
+    - If that finds 0 results and q is provided, use _fuzzy_score_for_set
+      to return the closest matches instead.
+    """
+    all_sets = load_cached_sets()
+    sets = all_sets
+
+    # ---------- 1) NORMAL FILTER ----------
     if q:
         sets = [s for s in sets if _matches_query(s, q)]
+
+        # ---------- 2) FUZZY FALLBACK IF NO MATCHES ----------
+        if not sets:
+            scored: List[Tuple[float, Dict[str, Any]]] = []
+
+            for s in all_sets:
+                score = _fuzzy_score_for_set(s, q)
+                # tweak threshold as needed
+                if score >= 0.55:
+                    scored.append((score, s))
+
+            # sort best matches first
+            scored.sort(key=lambda t: t[0], reverse=True)
+
+            # e.g. keep top 100 fuzzy matches
+            sets = [s for score, s in scored[:100]]
 
     # enrich with rating stats
     enriched: List[Dict[str, Any]] = []
