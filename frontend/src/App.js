@@ -5,6 +5,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import Login from "./Login";
 import QuickCollectionsAdd from "./QuickCollectionsAdd";
+import Pagination from"./Pagination";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
@@ -847,7 +848,6 @@ function App() {
                         gap: "0.5rem",
                       }}
                     >
-                      {/* Image thumbnail, if provided by backend */}
                       {set.image_url && (
                         <img
                           src={set.image_url}
@@ -884,116 +884,17 @@ function App() {
                   ))}
                 </ul>
 
-                {/* ---------- BOTTOM PAGINATION CONTROLS ---------- */}
-                <div
-                  style={{
-                    marginTop: "1.25rem",
-                    paddingTop: "0.75rem",
-                    borderTop: "1px solid #eee",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.75rem",
-                    fontSize: "0.9rem",
-                    alignItems: "center",
+                {/* Pagination */}
+                <Pagination
+                  currentPage={searchPage}
+                  totalPages={totalPages}
+                  totalItems={searchTotal}
+                  pageSize={searchLimit}
+                  disabled={searchLoading}
+                  onPageChange={(p) => {
+                    runSearch(searchQuery, searchSort, p);
                   }}
-                >
-                  {/* Prev / Numbers / Next */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "0.35rem",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {/* Previous */}
-                    <button
-                      onClick={handleSearchPrevPage}
-                      disabled={searchPage <= 1 || searchLoading}
-                      style={{
-                        padding: "0.35rem 0.9rem",
-                        borderRadius: "999px",
-                        border: "1px solid #d1d5db",
-                        backgroundColor:
-                          searchPage <= 1 || searchLoading
-                            ? "#f3f4f6"
-                            : "white",
-                        color:
-                          searchPage <= 1 || searchLoading
-                            ? "#9ca3af"
-                            : "#111827",
-                        cursor:
-                          searchPage <= 1 || searchLoading
-                            ? "default"
-                            : "pointer",
-                        fontSize: "0.85rem",
-                      }}
-                    >
-                      ← Prev
-                    </button>
-
-                    {/* Numbered Pages */}
-                    {pageNumbers.map((p, idx) =>
-                      p === "..." ? (
-                        <span key={idx} style={{ padding: "0 0.25rem" }}>
-                          …
-                        </span>
-                      ) : (
-                        <button
-                          key={p}
-                          onClick={() => runSearch(searchQuery, searchSort, p)}
-                          disabled={searchPage === p || searchLoading}
-                          style={{
-                            padding: "0.35rem 0.9rem",
-                            borderRadius: "999px",
-                            border:
-                              searchPage === p
-                                ? "1px solid #111827"
-                                : "1px solid #d1d5db",
-                            backgroundColor:
-                              searchPage === p ? "#111827" : "white",
-                            color: searchPage === p ? "white" : "#111827",
-                            fontWeight: searchPage === p ? "600" : "400",
-                            cursor:
-                              searchPage === p || searchLoading
-                                ? "default"
-                                : "pointer",
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          {p}
-                        </button>
-                      )
-                    )}
-
-                    {/* Next */}
-                    <button
-                      onClick={handleSearchNextPage}
-                      disabled={searchPage >= totalPages || searchLoading}
-                      style={{
-                        padding: "0.35rem 0.9rem",
-                        borderRadius: "999px",
-                        border: "1px solid #d1d5db",
-                        backgroundColor:
-                          searchPage >= totalPages || searchLoading
-                            ? "#f3f4f6"
-                            : "white",
-                        color:
-                          searchPage >= totalPages || searchLoading
-                            ? "#9ca3af"
-                            : "#111827",
-                        cursor:
-                          searchPage >= totalPages || searchLoading
-                            ? "default"
-                            : "pointer",
-                        fontSize: "0.85rem",
-                      }}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
+                />
               </div>
             )}
           </div>
