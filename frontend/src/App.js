@@ -601,6 +601,9 @@ function App() {
     searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
   const pageNumbers = getPageNumbers(searchPage, totalPages);
 
+  const ownedSetNums = new Set(owned.map((item) => item.set_num));
+  const wishlistSetNums = new Set(wishlist.map((item) => item.set_num));
+
   // -------------------------------
   // RENDER
   // -------------------------------
@@ -836,52 +839,99 @@ function App() {
                     gap: "1rem",
                   }}
                 >
-                  {searchResults.map((set) => (
-                    <li
-                      key={set.set_num}
-                      style={{
-                        border: "1px solid #ddd",
-                        borderRadius: "8px",
-                        padding: "0.75rem",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "0.5rem",
-                      }}
-                    >
-                      {set.image_url && (
-                        <img
-                          src={set.image_url}
-                          alt={set.name || set.set_num}
-                          style={{
-                            width: "100%",
-                            height: "180px",
-                            objectFit: "cover",
-                            borderRadius: "4px",
-                          }}
-                        />
-                      )}
+                  {searchResults.map((set) => {
+                    const isOwned = ownedSetNums.has(set.set_num);
+                    const isInWishlist = wishlistSetNums.has(set.set_num);
 
-                      <div>
-                        <h3 style={{ margin: "0 0 0.25rem 0" }}>
-                          {set.name || "Unknown set"}
-                        </h3>
-                        <p style={{ margin: 0, color: "#555" }}>
-                          <strong>{set.set_num}</strong>
-                          {set.year && <> · {set.year}</>}
-                        </p>
-                        {set.theme && (
-                          <p style={{ margin: 0, color: "#777" }}>
-                            {set.theme}
-                          </p>
+                    return (
+                      <li
+                        key={set.set_num}
+                        style={{
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "0.75rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        {/* Image thumbnail, if provided by backend */}
+                        {set.image_url && (
+                          <img
+                            src={set.image_url}
+                            alt={set.name || set.set_num}
+                            style={{
+                              width: "100%",
+                              height: "180px",
+                              objectFit: "cover",
+                              borderRadius: "4px",
+                            }}
+                          />
                         )}
-                        {set.pieces && (
-                          <p style={{ margin: 0, color: "#777" }}>
-                            {set.pieces} pieces
+
+                        <div>
+                          <h3 style={{ margin: "0 0 0.25rem 0" }}>
+                            {set.name || "Unknown set"}
+                          </h3>
+                          <p style={{ margin: 0, color: "#555" }}>
+                            <strong>{set.set_num}</strong>
+                            {set.year && <> · {set.year}</>}
                           </p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                          {set.theme && (
+                            <p style={{ margin: 0, color: "#777" }}>{set.theme}</p>
+                          )}
+                          {set.pieces && (
+                            <p style={{ margin: 0, color: "#777" }}>
+                              {set.pieces} pieces
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Owned / Wishlist buttons */}
+                        <div
+                          style={{
+                            marginTop: "0.5rem",
+                            display: "flex",
+                            gap: "0.5rem",
+                          }}
+                        >
+                          <button
+                            onClick={() => handleMarkOwned(set.set_num)}
+                            disabled={isOwned}
+                            style={{
+                              flex: 1,
+                              padding: "0.4rem 0.6rem",
+                              borderRadius: "999px",
+                              border: isOwned ? "none" : "1px solid #ccc",
+                              backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
+                              color: isOwned ? "white" : "#333",
+                              fontWeight: isOwned ? "600" : "500",
+                              cursor: isOwned ? "default" : "pointer",
+                            }}
+                          >
+                            {isOwned ? "Owned ✓" : "Mark Owned"}
+                          </button>
+
+                          <button
+                            onClick={() => handleAddWishlist(set.set_num)}
+                            disabled={isInWishlist}
+                            style={{
+                              flex: 1,
+                              padding: "0.4rem 0.6rem",
+                              borderRadius: "999px",
+                              border: isInWishlist ? "none" : "1px solid #ccc",
+                              backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
+                              color: isInWishlist ? "white" : "#333",
+                              fontWeight: isInWishlist ? "600" : "500",
+                              cursor: isInWishlist ? "default" : "pointer",
+                            }}
+                          >
+                            {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
 
                 {/* Pagination */}
