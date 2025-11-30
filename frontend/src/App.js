@@ -94,7 +94,7 @@ function App() {
   // Pagination state for search results
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
-  const searchLimit = 20; // page size to request from backend
+  const searchLimit = 25; // page size to request from backend
 
   // -------------------------------
   // SEARCH HANDLERS (input + suggestions)
@@ -140,7 +140,34 @@ function App() {
     setSearchQuery(term);
   }
 
-    // -------------------------------
+  function getPageNumbers(current, total) {
+    const pages = [];
+
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) {
+        pages.push(i);
+      }
+      return pages;
+    }
+
+    // Near the beginning
+    if (current <= 4) {
+      pages.push(1, 2, 3, 4, "...", total);
+      return pages;
+    }
+
+    // Near the end
+    if (current >= total - 3) {
+      pages.push(1, "...", total - 3, total - 2, total - 1, total);
+      return pages;
+    }
+
+    // In the middle
+    pages.push(1, "...", current - 1, current, current + 1, "...", total);
+    return pages;
+  }
+
+  // -------------------------------
   // SUGGESTIONS EFFECT (debounced)
   // -------------------------------
   useEffect(() => {
@@ -590,6 +617,10 @@ function App() {
     setWishlist([]);
   }
 
+  const totalPages =
+    searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
+  const pageNumbers = getPageNumbers(searchPage, totalPages);
+
   // For quick checking in JSX: which sets are already owned / wishlisted
   const ownedSetNums = new Set(owned.map((i) => i.set_num));
   const wishlistSetNums = new Set(wishlist.map((i) => i.set_num));
@@ -773,26 +804,37 @@ function App() {
         {page === "search" && (
           <div>
             <h1>Search Results</h1>
-            <p style={{ color: "#666" }}>
-              Showing results for: <strong>{searchQuery}</strong>
-            </p>
 
-            {/* Sort dropdown */}
-            <div style={{ margin: "0.5rem 0 1rem 0" }}>
-              <label>
-                Sort by{" "}
-                <select
-                  value={searchSort}
-                  onChange={handleSearchSortChange}
-                  style={{ padding: "0.25rem 0.5rem" }}
-                >
-                  <option value="relevance">Best match</option>
-                  <option value="rating">Rating</option>
-                  <option value="year">Year</option>
-                  <option value="pieces">Pieces</option>
-                  <option value="name">Name (A–Z)</option>
-                </select>
-              </label>
+            {/* Top row: "showing results" + sort dropdown */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                margin: "0.5rem 0 1rem 0",
+                gap: "1rem",
+              }}
+            >
+              <p style={{ color: "#666", margin: 0 }}>
+                Showing results for: <strong>{searchQuery}</strong>
+              </p>
+
+              <div>
+                <label>
+                  Sort by{" "}
+                  <select
+                    value={searchSort}
+                    onChange={handleSearchSortChange}
+                    style={{ padding: "0.25rem 0.5rem" }}
+                  >
+                    <option value="relevance">Best match</option>
+                    <option value="rating">Rating</option>
+                    <option value="year">Year</option>
+                    <option value="pieces">Pieces</option>
+                    <option value="name">Name (A–Z)</option>
+                  </select>
+                </label>
+              </div>
             </div>
 
             {searchLoading && <p>Searching…</p>}
@@ -806,76 +848,6 @@ function App() {
 
             {!searchLoading && !searchError && searchResults.length > 0 && (
               <>
-                {/* Pagination info + controls */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "0.75rem",
-                    gap: "0.75rem",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  <span>
-                    Page <strong>{searchPage}</strong>
-                    {searchTotal > 0 && (
-                      <>
-                        {" "}
-                        of{" "}
-                        <strong>
-                          {Math.max(
-                            1,
-                            Math.ceil(searchTotal / searchLimit)
-                          )}
-                        </strong>{" "}
-                        · Showing{" "}
-                        <strong>
-                          {(searchPage - 1) * searchLimit + 1}
-                        </strong>{" "}
-                        –{" "}
-                        <strong>
-                          {Math.min(searchPage * searchLimit, searchTotal)}
-                        </strong>{" "}
-                        of <strong>{searchTotal}</strong> results
-                      </>
-                    )}
-                  </span>
-
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      onClick={handleSearchPrevPage}
-                      disabled={searchPage <= 1 || searchLoading}
-                      style={{
-                        padding: "0.35rem 0.7rem",
-                        cursor:
-                          searchPage <= 1 || searchLoading
-                            ? "default"
-                            : "pointer",
-                      }}
-                    >
-                      ← Previous
-                    </button>
-                    <button
-                      onClick={handleSearchNextPage}
-                      disabled={
-                        searchLoading ||
-                        (searchTotal > 0 &&
-                          searchPage >=
-                            Math.ceil(searchTotal / searchLimit))
-                      }
-                      style={{
-                        padding: "0.35rem 0.7rem",
-                        cursor: searchLoading
-                          ? "default"
-                          : "pointer",
-                      }}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-
                 {/* Results grid */}
                 <ul
                   style={{
@@ -932,36 +904,89 @@ function App() {
                           </p>
                         )}
                       </div>
-
-                      {/* You can wire these up later if you want */}
-                      {/* 
-                      <div
-                        style={{
-                          marginTop: "0.5rem",
-                          display: "flex",
-                          gap: "0.5rem",
-                        }}
-                      >
-                        <button
-                          onClick={() => handleMarkOwned(set.set_num)}
-                        >
-                          Mark Owned
-                        </button>
-                        <button
-                          onClick={() => handleAddWishlist(set.set_num)}
-                        >
-                          Add to Wishlist
-                        </button>
-                      </div>
-                      */}
                     </li>
                   ))}
                 </ul>
+
+                {/* ---------- BOTTOM PAGINATION CONTROLS ---------- */}
+                <div
+                  style={{
+                    marginTop: "1.25rem",
+                    paddingTop: "0.75rem",
+                    borderTop: "1px solid #eee",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {/* Page info */}
+                  <div>
+                    Page <strong>{searchPage}</strong> of{" "}
+                    <strong>{totalPages}</strong> · Showing{" "}
+                    <strong>
+                      {(searchPage - 1) * searchLimit + 1}
+                    </strong>{" "}
+                    –{" "}
+                    <strong>
+                      {Math.min(searchPage * searchLimit, searchTotal)}
+                    </strong>{" "}
+                    of <strong>{searchTotal}</strong> results
+                  </div>
+
+                  {/* Prev / Numbers / Next */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "0.35rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {/* Previous */}
+                    <button
+                      onClick={handleSearchPrevPage}
+                      disabled={searchPage <= 1 || searchLoading}
+                    >
+                      ← Prev
+                    </button>
+
+                    {/* Numbered Pages */}
+                    {pageNumbers.map((p, idx) =>
+                      p === "..." ? (
+                        <span key={idx}>…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => runSearch(searchQuery, searchSort, p)}
+                          disabled={searchPage === p}
+                          style={{
+                            fontWeight:
+                              searchPage === p ? "bold" : "normal",
+                            textDecoration:
+                              searchPage === p ? "underline" : "none",
+                          }}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
+
+                    {/* Next */}
+                    <button
+                      onClick={handleSearchNextPage}
+                      disabled={searchPage >= totalPages || searchLoading}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>
         )}
-        
+
         {/* -------- LOGIN / MY ACCOUNT PAGE -------- */}
         {page === "login" && (
           <div>
