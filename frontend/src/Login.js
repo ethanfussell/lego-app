@@ -1,55 +1,49 @@
 // frontend/src/Login.js
 import React, { useState } from "react";
 
-// This should match your backend URL
 const API_BASE = "http://localhost:8000";
 
 function Login({ onLoginSuccess }) {
-  // Local state for the form fields
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-
-  // Local state for UI feedback
+  const [username, setUsername] = useState("ethan");
+  const [password, setPassword] = useState("lego123");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
 
-  // This runs when you submit the form
-  async function handleSubmit(event) {
-    event.preventDefault(); // stop the browser from reloading the page
+  async function handleSubmit(e) {
+    e.preventDefault();
     setLoading(true);
-    setError(null);
+    setError("");
 
     try {
-      // 🔑 IMPORTANT: OAuth2PasswordRequestForm expects *form data*,
-      // not JSON. We build a URL-encoded body like: username=ethan&password=lego123
-      const formData = new URLSearchParams();
-      formData.append("username", username);
-      formData.append("password", password);
+      // 🔑 Backend expects form data (OAuth2PasswordRequestForm),
+      // NOT JSON.
+      const body = new URLSearchParams();
+      body.append("username", username);
+      body.append("password", password);
 
       const resp = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: {
-          // Tell FastAPI this is form-encoded data
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        // Send the URL-encoded string as the body
-        body: formData.toString(),
+        body,
       });
 
       if (!resp.ok) {
-        // If login fails (wrong password, etc.)
-        throw new Error(`Login failed with status ${resp.status}`);
+        const text = await resp.text();
+        throw new Error(text || `Login failed (${resp.status})`);
       }
 
-      const data = await resp.json();
-      // data should look like: { access_token: "fake-token-for-ethan", token_type: "bearer" }
+      const data = await resp.json(); // { access_token, token_type }
 
       if (onLoginSuccess) {
         onLoginSuccess(data.access_token);
       }
+
+      console.log("✅ Logged in, token:", data.access_token);
     } catch (err) {
       console.error("Login error:", err);
-      setError(err.message);
+      setError(err.message || String(err));
     } finally {
       setLoading(false);
     }
@@ -59,48 +53,71 @@ function Login({ onLoginSuccess }) {
     <form
       onSubmit={handleSubmit}
       style={{
+        border: "1px solid #ddd",
+        borderRadius: "8px",
+        padding: "1rem",
         maxWidth: "320px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.75rem",
+        marginTop: "1rem",
       }}
     >
-      <label>
-        <div>Username</div>
+      <div style={{ marginBottom: "0.75rem" }}>
+        <label
+          style={{ display: "block", marginBottom: "0.25rem", fontWeight: 500 }}
+        >
+          Username
+        </label>
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="ethan"
-          style={{ width: "100%", padding: "0.5rem" }}
+          style={{
+            width: "100%",
+            padding: "0.5rem",
+            borderRadius: "4px",
+            border: "1px solid #ccc",
+          }}
         />
-      </label>
+      </div>
 
-      <label>
-        <div>Password</div>
+      <div style={{ marginBottom: "0.75rem" }}>
+        <label
+          style={{ display: "block", marginBottom: "0.25rem", fontWeight: 500 }}
+        >
+          Password
+        </label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="lego123"
-          style={{ width: "100%", padding: "0.5rem" }}
+          style={{
+            width: "100%",
+            padding: "0.5rem",
+            borderRadius: "4px",
+            border: "1px solid #ccc",
+          }}
         />
-      </label>
+      </div>
+
+      {error && (
+        <p style={{ color: "red", marginBottom: "0.5rem" }}>
+          {error}
+        </p>
+      )}
 
       <button
         type="submit"
         disabled={loading}
         style={{
           padding: "0.5rem 1rem",
-          cursor: loading ? "not-allowed" : "pointer",
+          cursor: loading ? "default" : "pointer",
         }}
       >
-        {loading ? "Logging in..." : "Log In"}
+        {loading ? "Logging in…" : "Log in"}
       </button>
 
-      {error && (
-        <p style={{ color: "red", marginTop: "0.5rem" }}>Error: {error}</p>
-      )}
+      <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#777" }}>
+        Try <code>ethan</code> / <code>lego123</code>.
+      </p>
     </form>
   );
 }

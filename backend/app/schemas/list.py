@@ -51,3 +51,9 @@ class ReorderPayload(BaseModel):
 
 class ActorPayload(BaseModel):
     user: str  # actor (must be owner)
+
+class ListItemAdd(BaseModel):
+    """
+    Payload for adding a set to a list.
+    """
+    set_num: str

@@ -30,7 +30,9 @@ function App() {
   const [page, setPage] = useState("public");
 
   // Auth token from login
-  const [token, setToken] = useState(null);
+  const [token, setToken] = useState(() => {
+      return localStorage.getItem("lego_token") || "";
+  });
 
   // -------------------------------
   // SEARCH BAR STATE (text + suggestions)
@@ -48,6 +50,12 @@ function App() {
   const [myLists, setMyLists] = useState([]);
   const [myListsLoading, setMyListsLoading] = useState(false);
   const [myListsError, setMyListsError] = useState(null);
+
+  // -------------------------------
+  // LOGIN
+  // -------------------------------
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   // -------------------------------
   // CREATE-LIST FORM STATE
@@ -82,6 +90,15 @@ function App() {
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
   const searchLimit = 50; // page size
+
+  // keep token in localStorage
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem("lego_token", token);
+    } else {
+      localStorage.removeItem("lego_token");
+    }
+  }, [token]);
 
   // -------------------------------
   // Helpers
@@ -447,6 +464,9 @@ function App() {
   async function handleMarkOwned(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
+      // go to the login route
+      navigate("/login");
+      // optional: also update your "page" state
       setPage("login");
       return;
     }
@@ -458,7 +478,10 @@ function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ set_num: setNum }),
+        body: JSON.stringify({
+          set_num: setNum,
+          username: "ethan", // backend temporary requirement
+        }),
       });
 
       if (!resp.ok) {
@@ -466,6 +489,7 @@ function App() {
         throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
       }
 
+      // refresh owned/wishlist from backend
       await loadCollections(token);
     } catch (err) {
       console.error("Error marking owned:", err);
@@ -476,6 +500,7 @@ function App() {
   async function handleAddWishlist(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
+      navigate("/login");
       setPage("login");
       return;
     }
@@ -487,7 +512,10 @@ function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ set_num: setNum }),
+        body: JSON.stringify({
+          set_num: setNum,
+          username: "ethan", // again, temporary until real auth
+        }),
       });
 
       if (!resp.ok) {
@@ -598,7 +626,7 @@ function App() {
   // LOGOUT
   // -------------------------------
   function handleLogout() {
-    setToken(null);
+    setToken("");
     setMyLists([]);
     setOwned([]);
     setWishlist([]);
