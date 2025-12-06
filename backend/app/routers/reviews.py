@@ -178,6 +178,8 @@ def create_review(set_num: str, payload: ReviewCreate):
             detail="User already reviewed this set. Use PUT to edit the existing review.",
         )
 
+    username = payload.user or "Anonymous"
+    
     obj = {
         "id": _next_review_id(),
         "set_num": set_num,

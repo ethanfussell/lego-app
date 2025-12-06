@@ -28,7 +28,8 @@ class Review(BaseModel):
 
 
 class ReviewCreate(BaseModel):
-    user: str
+    # user is now optional; frontend doesn't HAVE to send it
+    user: Optional[str] = None
     rating: Optional[float] = None   # can be rating-only, text-only, or both
     text: Optional[str] = None
 

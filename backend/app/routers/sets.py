@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from difflib import SequenceMatcher
 
 from ..data.sets import load_cached_sets, get_set_by_num
+from ..data.offers import get_offers_for_set
+from ..schemas.pricing import StoreOffer
 
 router = APIRouter()
 
@@ -359,3 +361,22 @@ def get_set(set_num: str):
     out["rating_avg"] = avg
     out["rating_count"] = count
     return out
+
+
+# --------- price offers endpoint: GET /sets/{set_num}/offers ---------
+@router.get("/{set_num}/offers", response_model=List[StoreOffer])
+def get_set_offers(set_num: str):
+    """
+    Return a list of store offers (price, currency, affiliate URL, stock)
+    for the given set. Uses the plain set number as the lookup key.
+    """
+    s = get_set_by_num(set_num)
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    # Prefer the precomputed plain number; fall back to stripping suffix
+    plain = (s.get("set_num_plain") or "").strip() or s.get("set_num") or ""
+    plain = plain.split("-")[0]
+
+    offers = get_offers_for_set(plain)
+    return offers
