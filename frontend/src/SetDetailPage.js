@@ -14,7 +14,14 @@ function getUsernameFromToken(token) {
   return token;
 }
 
-function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist }) {
+function SetDetailPage({
+  token,
+  ownedSetNums,
+  wishlistSetNums,
+  onMarkOwned,
+  onAddWishlist,
+  onEnsureOwned,
+}) {
   const { setNum } = useParams();
   const navigate = useNavigate();
 
@@ -179,8 +186,8 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
       navigate("/login");
       return;
     }
-    if (typeof onMarkOwned === "function") {
-      onMarkOwned(setNum);
+    if (typeof onEnsureOwned === "function") {
+      onEnsureOwned(setNum);
     }
   }
 
@@ -229,19 +236,12 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
 
       if (!resp.ok) {
         const text = await resp.text();
-
-        // 409 = user already rated this set; not fatal
-        if (resp.status === 409) {
-          console.warn("You already rated this set.");
-          return;
-        }
-
         throw new Error(`Failed to save rating (${resp.status}): ${text}`);
       }
 
       const created = await resp.json();
 
-      // Replace any existing review from this user with the new one
+      // Update local reviews so your own review stays in sync
       setReviews((prev) => {
         const others = prev.filter(
           (r) => (r.user || r.username) !== currentUsername
@@ -249,9 +249,9 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
         return [created, ...others];
       });
 
-      // Also mark this set as owned
-      if (typeof onMarkOwned === "function") {
-        onMarkOwned(setNum);
+      // ✅ Only ensure it's owned; do NOT toggle
+      if (typeof onEnsureOwned === "function") {
+        onEnsureOwned(setNum);
       }
     } catch (err) {
       console.error("Error saving rating:", err);
@@ -260,70 +260,6 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
       setSavingRating(false);
     }
   }
-
-  async function clearRating() {
-    if (!isLoggedIn) {
-      alert("Please log in to rate this set.");
-      navigate("/login");
-      return;
-    }
-  
-    try {
-      setSavingRating(true);
-      setRatingError(null);
-  
-      // DELETE your review for this set
-      const resp = await fetch(`${API_BASE}/sets/${setNum}/reviews/me`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${effectiveToken}`,
-        },
-      });
-  
-      // Treat 404 as "already gone" → still success
-      if (!resp.ok && resp.status !== 404) {
-        const text = await resp.text();
-        throw new Error(
-          `Failed to clear rating (${resp.status}): ${text || "unknown error"}`
-        );
-      }
-  
-      // Clear local rating UI
-      setUserRating(null);
-  
-      // Remove *your* review from local list
-      if (currentUsername) {
-        setReviews((prev) =>
-          prev.filter((r) => (r.user || r.username) !== currentUsername)
-        );
-      }
-  
-      // 🔸 IMPORTANT: we do **not** touch Owned here anymore.
-      // If the set is Owned, it stays Owned.
-      // (We also don't auto-add or remove from wishlist.)
-  
-      // Optionally refresh the rating summary
-      try {
-        const summaryResp = await fetch(`${API_BASE}/sets/${setNum}/rating`);
-        if (summaryResp.ok) {
-          const data = await summaryResp.json();
-          setAvgRating(data.average);
-          setRatingCount(data.count);
-        } else if (summaryResp.status === 404) {
-          setAvgRating(null);
-          setRatingCount(0);
-        }
-      } catch (err) {
-        console.error("Error refreshing rating summary after clear:", err);
-      }
-    } catch (err) {
-      console.error("Error clearing rating:", err);
-      setRatingError(err.message || String(err));
-    } finally {
-      setSavingRating(false);
-    }
-  }
-
   // -------------------------------
   // Review handler (rating + text)
   // -------------------------------
@@ -604,13 +540,12 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                 onMouseMove={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
-                  const relative = x / rect.width; // 0–1
+                  const relative = x / rect.width;
                   let value = relative * 5;
 
-                  value = Math.round(value * 2) / 2; // snap to 0.5
+                  value = Math.round(value * 2) / 2;
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
-
                   setHoverRating(value);
                 }}
                 onMouseLeave={() => setHoverRating(null)}
@@ -624,22 +559,52 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
 
-                  // If user clicks the *same* rating again → clear rating only
-                  if (userRating != null && Math.abs(userRating - value) < 0.001) {
-                    await clearRating();
+                  // 🔁 Clicking the same value again clears your rating (but NOT owned)
+                  if (userRating != null && Math.abs(userRating - value) < 0.01) {
+                    setUserRating(null);
+
+                    // delete just your review
+                    if (isLoggedIn) {
+                      try {
+                        const resp = await fetch(
+                          `${API_BASE}/sets/${setNum}/reviews/me`,
+                          {
+                            method: "DELETE",
+                            headers: {
+                              Authorization: `Bearer ${effectiveToken}`,
+                            },
+                          }
+                        );
+
+                        if (!resp.ok && resp.status !== 404) {
+                          const text = await resp.text();
+                          throw new Error(
+                            `Failed to clear rating (${resp.status}): ${text}`
+                          );
+                        }
+
+                        // remove from local reviews
+                        setReviews((prev) =>
+                          prev.filter((r) => (r.user || r.username) !== currentUsername)
+                        );
+                      } catch (err) {
+                        console.error("Error clearing rating:", err);
+                        setRatingError(err.message || String(err));
+                      }
+                    }
+
                     return;
                   }
 
-                  // New or changed rating → save to backend
+                  // Normal path: update rating
                   setUserRating(value);
                   await saveRating(value);
                 }}
               >
-              
-                {/* Grey base row */}
+                {/* grey base */}
                 <div style={{ color: "#ccc" }}>★★★★★</div>
 
-                {/* Gold overlay row, clipped to rating percentage */}
+                {/* gold overlay */}
                 <div
                   style={{
                     position: "absolute",

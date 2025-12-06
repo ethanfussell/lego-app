@@ -576,6 +576,43 @@ function App() {
     }
   }
 
+  // Only ADD to Owned if it's not there already (used by rating stars)
+  async function ensureOwned(setNum) {
+    if (!token) {
+      // Stars already redirect / warn if not logged in
+      return;
+    }
+
+    // Is this set already in Owned?
+    const alreadyOwned = owned.some((item) => item.set_num === setNum);
+    if (alreadyOwned) {
+      // do nothing – important: we DO NOT toggle it off
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${API_BASE}/collections/owned`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ set_num: setNum }),
+      });
+
+      // 409 "already exists" is fine
+      if (!resp.ok && resp.status !== 409) {
+        const text = await resp.text();
+        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+      }
+
+      // Refresh collections so UI stays correct
+      await loadCollections(token);
+    } catch (err) {
+      console.error("Error ensuring owned:", err);
+    }
+  }
+
   // -------------------------------
   // SEARCH: core function + handlers
   // -------------------------------
@@ -924,9 +961,9 @@ function App() {
                         style={{
                           listStyle: "none",
                           padding: 0,
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(220px, 1fr))",
+                          margin: 0,
+                          display: "flex",
+                          flexWrap: "wrap",
                           gap: "1rem",
                         }}
                       >
@@ -940,6 +977,7 @@ function App() {
                             <li
                               key={set.set_num}
                               style={{
+                                width: "260px",
                                 border: "1px solid #ddd",
                                 borderRadius: "8px",
                                 padding: "0.75rem",
@@ -957,16 +995,29 @@ function App() {
                                 }}
                               >
                                 {set.image_url && (
-                                  <img
-                                    src={set.image_url}
-                                    alt={set.name || set.set_num}
+                                  <div
                                     style={{
                                       width: "100%",
                                       height: "180px",
-                                      objectFit: "cover",
                                       borderRadius: "4px",
+                                      background: "#f5f5f5",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      overflow: "hidden",
                                     }}
-                                  />
+                                  >
+                                    <img
+                                      src={set.image_url}
+                                      alt={set.name || set.set_num}
+                                      style={{
+                                        maxWidth: "100%",
+                                        maxHeight: "100%",
+                                        objectFit: "contain",
+                                        display: "block",
+                                      }}
+                                    />
+                                  </div>
                                 )}
 
                                 <div>
@@ -1407,6 +1458,7 @@ function App() {
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
+                onEnsureOwned={ensureOwned} 
               />
             }
           />
