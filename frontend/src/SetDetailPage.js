@@ -4,171 +4,76 @@ import { useParams, useNavigate } from "react-router-dom";
 
 const API_BASE = "http://localhost:8000";
 
-// 5-star rating with half-star support
-function StarRating({ value = 0, editable = false, onChange }) {
-  const starSlots = [1, 2, 3, 4, 5];
-
-  const handleClick = (slot, half) => {
-    if (!editable || !onChange) return;
-    const newVal = half ? slot - 0.5 : slot;
-    onChange(newVal);
-  };
-
-  return (
-    <div style={{ display: "inline-flex", gap: "2px" }}>
-      {starSlots.map((slot) => {
-        const full = value >= slot;
-        const half = !full && value >= slot - 0.5;
-
-        return (
-          <div
-            key={slot}
-            style={{
-              position: "relative",
-              width: "22px",
-              height: "22px",
-              fontSize: "22px",
-              lineHeight: "22px",
-              color: "#ccc",
-              cursor: editable ? "pointer" : "default",
-              display: "inline-block",
-            }}
-          >
-            {/* empty star */}
-            <span
-              style={{
-                position: "absolute",
-                inset: 0,
-                textAlign: "center",
-              }}
-            >
-              ☆
-            </span>
-
-            {/* full star */}
-            {full && (
-              <span
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  textAlign: "center",
-                  color: "#f5a623",
-                }}
-              >
-                ★
-              </span>
-            )}
-
-            {/* half star */}
-            {half && (
-              <span
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "50%",
-                  overflow: "hidden",
-                  color: "#f5a623",
-                }}
-              >
-                ★
-              </span>
-            )}
-
-            {/* click targets: left = half, right = full */}
-            {editable && (
-              <>
-                <div
-                  onClick={() => handleClick(slot, true)}
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
-                    width: "50%",
-                    height: "100%",
-                  }}
-                />
-                <div
-                  onClick={() => handleClick(slot, false)}
-                  style={{
-                    position: "absolute",
-                    right: 0,
-                    top: 0,
-                    width: "50%",
-                    height: "100%",
-                  }}
-                />
-              </>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+// Helper: derive username from our fake token format
+function getUsernameFromToken(token) {
+  if (!token) return null;
+  if (token.startsWith("fake-token-for-")) {
+    return token.replace("fake-token-for-", "");
+  }
+  // fallback: sometimes the token might literally be the username
+  return token;
 }
 
-function SetDetailPage({
-  token,
-  ownedSetNums,
-  wishlistSetNums,
-  onMarkOwned,
-  onAddWishlist,
-}) {
+function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist }) {
   const { setNum } = useParams();
   const navigate = useNavigate();
 
+
   // Prefer prop token, fall back to localStorage
   const storedToken = localStorage.getItem("lego_token") || "";
-  const authToken = token || storedToken || "";
-  const isLoggedIn = !!authToken;
+  const effectiveToken = token || storedToken || "";
+  const isLoggedIn = !!effectiveToken;
+  const currentUsername = getUsernameFromToken(effectiveToken);
 
+  // -------------------------------
+  // Basic set + reviews state
+  // -------------------------------
   const [setDetail, setSetDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Collection state for THIS set
-  const [isOwned, setIsOwned] = useState(false);
-  const [isInWishlist, setIsInWishlist] = useState(false);
-
-  // Reviews state
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState(null);
 
-  // Rating is separate from review text
-  const [userRating, setUserRating] = useState(null); // null = no selection yet
+  // -------------------------------
+  // Rating state
+  // -------------------------------
+  const [userRating, setUserRating] = useState(null);
+  const [hoverRating, setHoverRating] = useState(null);
   const [savingRating, setSavingRating] = useState(false);
   const [ratingError, setRatingError] = useState(null);
-  const [hoverRating, setHoverRating] = useState(null);
+  const [ratingSaveMessage, setRatingSaveMessage] = useState("");
 
-  // Average + count from backend rating summary
-  const [avgRating, setAvgRating] = useState(null); // e.g. 4.3
-  const [ratingCount, setRatingCount] = useState(0); // how many ratings
+  // Global rating summary
+  const [avgRating, setAvgRating] = useState(null);
+  const [ratingCount, setRatingCount] = useState(0);
   const [ratingSummaryLoading, setRatingSummaryLoading] = useState(false);
   const [ratingSummaryError, setRatingSummaryError] = useState(null);
 
-  // Review text (optional)
+  // Review text
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewText, setReviewText] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState(null);
 
-  // Add-to-list UI state
-  const [showAddToList, setShowAddToList] = useState(false);
-  const [selectedListId, setSelectedListId] = useState("");
-  const [addingToList, setAddingToList] = useState(false);
-  const [addToListError, setAddToListError] = useState(null);
-  const [addToListSuccess, setAddToListSuccess] = useState("");
+  // Derived collection state from parent
+  const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
+  const isInWishlist = wishlistSetNums ? wishlistSetNums.has(setNum) : false;
 
   // -------------------------------
-  // Initial load: set detail + reviews + owned/wishlist state
+  // Load set detail + reviews
   // -------------------------------
   useEffect(() => {
+    if (!setNum) return;
+
     async function fetchData() {
       try {
         setLoading(true);
         setError(null);
+        setUserRating(null);
 
-        // 1) Fetch set details
+        // detail
         const detailResp = await fetch(`${API_BASE}/sets/${setNum}`);
         if (!detailResp.ok) {
           throw new Error(`Failed to load set (status ${detailResp.status})`);
@@ -176,7 +81,7 @@ function SetDetailPage({
         const detailData = await detailResp.json();
         setSetDetail(detailData);
 
-        // 2) Fetch reviews
+        // reviews
         setReviewsLoading(true);
         setReviewsError(null);
         const reviewsResp = await fetch(
@@ -190,43 +95,16 @@ function SetDetailPage({
         const reviewsData = await reviewsResp.json();
         setReviews(reviewsData);
 
-        // 3) If logged in, check if this set is in Owned / Wishlist
-        if (authToken) {
-          try {
-            const ownedResp = await fetch(
-              `${API_BASE}/collections/me/owned`,
-              {
-                headers: { Authorization: `Bearer ${authToken}` },
-              }
-            );
-            if (ownedResp.ok) {
-              const ownedData = await ownedResp.json();
-              const ownedNums = new Set(
-                ownedData.map((item) => item.set_num)
-              );
-              setIsOwned(ownedNums.has(setNum));
-            }
-
-            const wishlistResp = await fetch(
-              `${API_BASE}/collections/me/wishlist`,
-              {
-                headers: { Authorization: `Bearer ${authToken}` },
-              }
-            );
-            if (wishlistResp.ok) {
-              const wishlistData = await wishlistResp.json();
-              const wishlistNums = new Set(
-                wishlistData.map((item) => item.set_num)
-              );
-              setIsInWishlist(wishlistNums.has(setNum));
-            }
-          } catch (innerErr) {
-            console.warn("Error checking collections state:", innerErr);
+        // If logged in, try to find *your* review and set the stars to match it
+        if (currentUsername && Array.isArray(reviewsData)) {
+          const mine = reviewsData.find(
+            (r) => (r.user || r.username) === currentUsername
+          );
+          if (mine && typeof mine.rating === "number") {
+            setUserRating(mine.rating);
           }
-        } else {
-          setIsOwned(false);
-          setIsInWishlist(false);
         }
+
       } catch (err) {
         console.error("Error loading set detail:", err);
         setError(err.message || String(err));
@@ -236,13 +114,11 @@ function SetDetailPage({
       }
     }
 
-    if (setNum) {
-      fetchData();
-    }
-  }, [setNum, authToken]);
+    fetchData();
+  }, [setNum]);
 
   // -------------------------------
-  // Rating summary (average + count)
+  // Rating summary (avg + count)
   // -------------------------------
   useEffect(() => {
     if (!setNum) return;
@@ -254,12 +130,8 @@ function SetDetailPage({
         setRatingSummaryLoading(true);
         setRatingSummaryError(null);
 
-        // Backend route is /sets/{set_num}/rating-summary
-        const resp = await fetch(
-          `${API_BASE}/sets/${setNum}/rating-summary`
-        );
+        const resp = await fetch(`${API_BASE}/sets/${setNum}/rating`);
 
-        // If backend returns 404, treat as "no ratings".
         if (!resp.ok) {
           if (resp.status === 404) {
             if (!cancelled) {
@@ -268,13 +140,11 @@ function SetDetailPage({
             }
             return;
           }
-
           const text = await resp.text();
           throw new Error(`Rating summary failed (${resp.status}): ${text}`);
         }
 
         const data = await resp.json(); // { set_num, average, count }
-
         if (!cancelled) {
           setAvgRating(data.average);
           setRatingCount(data.count);
@@ -299,135 +169,43 @@ function SetDetailPage({
   }, [setNum]);
 
   // -------------------------------
-  // Collection handlers
+  // Handlers: Owned / Wishlist
   // -------------------------------
-  async function handleMarkOwned() {
-    if (!authToken) {
+  function handleMarkOwnedClick() {
+    if (!isLoggedIn) {
       alert("Please log in to track your collection.");
       navigate("/login");
       return;
     }
-
-    try {
-      const resp = await fetch(`${API_BASE}/collections/owned`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ set_num: setNum }),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
-      }
-
-      setIsOwned(true);
-    } catch (err) {
-      console.error("Error marking owned:", err);
-      alert(err.message);
+    if (typeof onMarkOwned === "function") {
+      onMarkOwned(setNum);
     }
   }
 
-  async function handleAddWishlist() {
-    if (!authToken) {
+  function handleAddWishlistClick() {
+    if (!isLoggedIn) {
       alert("Please log in to track your collection.");
       navigate("/login");
       return;
     }
-
-    try {
-      const resp = await fetch(`${API_BASE}/collections/wishlist`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ set_num: setNum }),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(
-          `Failed to add to wishlist (${resp.status}): ${text}`
-        );
-      }
-
-      setIsInWishlist(true);
-    } catch (err) {
-      console.error("Error adding to wishlist:", err);
-      alert(err.message);
-    }
-  }
-
-  // -------------------------------
-  // Add to List handler
-  // -------------------------------
-  async function handleAddToListSubmit(e) {
-    e.preventDefault();
-
-    if (!authToken) {
-      alert("Please log in to modify your lists.");
-      navigate("/login");
-      return;
-    }
-
-    if (!selectedListId) {
-      setAddToListError("Please choose a list first.");
-      return;
-    }
-
-    try {
-      setAddingToList(true);
-      setAddToListError(null);
-      setAddToListSuccess("");
-
-      const resp = await fetch(
-        `${API_BASE}/lists/${selectedListId}/items`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({ set_num: setNum }),
-        }
-      );
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Failed to add to list (${resp.status}): ${text}`);
-      }
-
-      await resp.json(); // we don't actually need the body right now
-      setAddToListSuccess("Added to list!");
-    } catch (err) {
-      console.error("Error adding to list:", err);
-      setAddToListError(err.message || String(err));
-    } finally {
-      setAddingToList(false);
+    if (typeof onAddWishlist === "function") {
+      onAddWishlist(setNum);
     }
   }
 
   // -------------------------------
   // Rating-only handler
   // -------------------------------
-  async function handleSaveRating(e) {
-    e.preventDefault();
-
+  async function saveRating(newRating) {
     if (!isLoggedIn) {
       alert("Please log in to rate this set.");
       navigate("/login");
       return;
     }
 
-    if (userRating === "" || userRating == null) {
-      setRatingError("Please choose a rating first.");
-      return;
-    }
+    if (newRating == null) return;
 
-    const numericRating = Number(userRating);
+    const numericRating = Number(newRating);
 
     try {
       setSavingRating(true);
@@ -435,30 +213,41 @@ function SetDetailPage({
 
       const payload = {
         rating: numericRating,
-        // TEMP: until reviews use real auth
-        user: "ethan",
+        text: null, // rating-only here
       };
 
       const resp = await fetch(`${API_BASE}/sets/${setNum}/reviews`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
         },
         body: JSON.stringify(payload),
       });
 
       if (!resp.ok) {
         const text = await resp.text();
+
+        // 409 = user already rated this set; not fatal
+        if (resp.status === 409) {
+          console.warn("You already rated this set.");
+          return;
+        }
+
         throw new Error(`Failed to save rating (${resp.status}): ${text}`);
       }
 
       const created = await resp.json();
 
-      // Add it to our local list (still filtered out if there's no text)
-      setReviews((prev) => [created, ...prev]);
+      // Replace any existing review from this user with the new one
+      setReviews((prev) => {
+        const others = prev.filter(
+          (r) => (r.user || r.username) !== currentUsername
+        );
+        return [created, ...others];
+      });
 
-      // 👉 Also mark this set as owned
+      // Also mark this set as owned
       if (typeof onMarkOwned === "function") {
         onMarkOwned(setNum);
       }
@@ -471,7 +260,7 @@ function SetDetailPage({
   }
 
   // -------------------------------
-  // Review handler (rating + text, but rating still optional)
+  // Review handler (rating + text)
   // -------------------------------
   async function handleReviewSubmit(e) {
     e.preventDefault();
@@ -482,15 +271,12 @@ function SetDetailPage({
       return;
     }
 
-    if (!reviewText.trim() && (userRating === "" || userRating == null)) {
-      setReviewSubmitError(
-        "Please provide a rating, some text, or both."
-      );
+    if (!reviewText.trim() && userRating == null) {
+      setReviewSubmitError("Please provide a rating, some text, or both.");
       return;
     }
 
-    const numericRating =
-      userRating === "" || userRating == null ? null : Number(userRating);
+    const numericRating = userRating == null ? null : Number(userRating);
 
     try {
       setReviewSubmitting(true);
@@ -505,7 +291,7 @@ function SetDetailPage({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -555,26 +341,16 @@ function SetDetailPage({
 
   const { name, year, theme, pieces, image_url, description } = setDetail;
 
-  const ratingOptions = [
-    0.5,
-    1.0,
-    1.5,
-    2.0,
-    2.5,
-    3.0,
-    3.5,
-    4.0,
-    4.5,
-    5.0,
-  ];
-
-  // Only show reviews that actually have text
+  // Only show reviews that have text
   const textReviews = Array.isArray(reviews)
     ? reviews.filter(
         (r) => typeof r.text === "string" && r.text.trim() !== ""
       )
     : [];
 
+  // -------------------------------
+  // Render
+  // -------------------------------
   return (
     <div style={{ padding: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
       <button
@@ -654,7 +430,9 @@ function SetDetailPage({
           )}
 
           {/* Global rating summary */}
-          {(ratingSummaryLoading || ratingSummaryError || ratingCount > 0) && (
+          {(ratingSummaryLoading ||
+            ratingSummaryError ||
+            ratingCount > 0) && (
             <p style={{ marginTop: "0.75rem", color: "#444" }}>
               ⭐{" "}
               <strong>
@@ -673,7 +451,9 @@ function SetDetailPage({
                   (
                   {ratingCount === 0
                     ? "no ratings yet"
-                    : `${ratingCount} rating${ratingCount === 1 ? "" : "s"}`}
+                    : `${ratingCount} rating${
+                        ratingCount === 1 ? "" : "s"
+                      }`}
                   )
                 </span>
               )}
@@ -693,7 +473,7 @@ function SetDetailPage({
               gap: "0.9rem",
             }}
           >
-            {/* OWNED / WISHLIST / ADD TO LIST */}
+            {/* OWNED / WISHLIST */}
             <div
               style={{
                 display: "flex",
@@ -702,12 +482,12 @@ function SetDetailPage({
               }}
             >
               <button
-                onClick={handleMarkOwned}
+                onClick={handleMarkOwnedClick}
                 disabled={isOwned}
                 style={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
-                  border: isOwned ? "none" : "1px solid "#ccc",
+                  border: isOwned ? "none" : "1px solid #ccc",
                   backgroundColor: isOwned ? "#1f883d" : "white",
                   color: isOwned ? "white" : "#222",
                   fontWeight: 500,
@@ -718,7 +498,7 @@ function SetDetailPage({
               </button>
 
               <button
-                onClick={handleAddWishlist}
+                onClick={handleAddWishlistClick}
                 disabled={isInWishlist}
                 style={{
                   padding: "0.45rem 0.9rem",
@@ -732,118 +512,10 @@ function SetDetailPage({
               >
                 {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!authToken) {
-                    alert("Log in to add this set to a list.");
-                    navigate("/login");
-                    return;
-                  }
-                  setShowAddToList((prev) => !prev);
-                  setAddToListError(null);
-                  setAddToListSuccess("");
-                }}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "1px solid #ccc",
-                  backgroundColor: "white",
-                  color: "#222",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                ➕ Add to List…
-              </button>
             </div>
 
-            {/* ADD-TO-LIST PANEL */}
-            {showAddToList && (
-              <form
-                onSubmit={handleAddToListSubmit}
-                style={{
-                  marginTop: "0.25rem",
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: "10px",
-                  background: "white",
-                  border: "1px solid #e0e0e0",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.5rem",
-                }}
-              >
-                <label
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#444",
-                  }}
-                >
-                  Choose a list:
-                  <select
-                    value={selectedListId}
-                    onChange={(e) => setSelectedListId(e.target.value)}
-                    style={{
-                      display: "block",
-                      marginTop: "0.3rem",
-                      padding: "0.35rem 0.4rem",
-                      borderRadius: "6px",
-                      border: "1px solid #ccc",
-                      width: "100%",
-                    }}
-                  >
-                    <option value="">Select a list…</option>
-                  </select>
-                </label>
-
-                {addToListError && (
-                  <p
-                    style={{
-                      margin: 0,
-                      color: "red",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {addToListError}
-                  </p>
-                )}
-
-                {addToListSuccess && (
-                  <p
-                    style={{
-                      margin: 0,
-                      color: "green",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {addToListSuccess}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={addingToList}
-                  style={{
-                    alignSelf: "flex-start",
-                    padding: "0.4rem 0.9rem",
-                    borderRadius: "999px",
-                    border: "none",
-                    backgroundColor: addingToList ? "#888" : "#1f883d",
-                    color: "white",
-                    fontWeight: 500,
-                    fontSize: "0.9rem",
-                    cursor: addingToList ? "default" : "pointer",
-                  }}
-                >
-                  {addingToList ? "Adding…" : "Add to list"}
-                </button>
-              </form>
-            )}
-
             {/* YOUR RATING */}
-            <form
-              onSubmit={handleSaveRating}
+            <div
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -867,20 +539,17 @@ function SetDetailPage({
                 onMouseMove={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
-                  const relative = x / rect.width; // 0–1 across the 5 stars
-                  let value = relative * 5; // 0–5
+                  const relative = x / rect.width; // 0–1
+                  let value = relative * 5;        // 0–5
 
-                  // snap to nearest 0.5
-                  value = Math.round(value * 2) / 2;
-
-                  // clamp between 0.5 and 5
+                  value = Math.round(value * 2) / 2; // snap to 0.5
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
 
                   setHoverRating(value);
                 }}
                 onMouseLeave={() => setHoverRating(null)}
-                onClick={(e) => {
+                onClick={async (e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
                   const relative = x / rect.width;
@@ -890,7 +559,10 @@ function SetDetailPage({
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
 
+                  // immediately update UI
                   setUserRating(value);
+                  // save to backend + mark owned
+                  await saveRating(value);
                 }}
               >
                 {/* Grey base row */}
@@ -919,29 +591,15 @@ function SetDetailPage({
                 </span>
               )}
 
-              <button
-                type="submit"
-                disabled={savingRating || userRating == null}
-                style={{
-                  marginLeft: "0.5rem",
-                  padding: "0.35rem 0.8rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  backgroundColor:
-                    savingRating || userRating == null ? "#888" : "#1f883d",
-                  color: "white",
-                  fontWeight: 500,
-                  cursor:
-                    savingRating || userRating == null
-                      ? "default"
-                      : "pointer",
-                }}
-              >
-                {savingRating ? "Saving…" : "Save"}
-              </button>
-            </form>
+              {ratingError && (
+                <span style={{ fontSize: "0.85rem", color: "red" }}>
+                  {ratingError}
+                </span>
+              )}
+            </div>
 
-            {/* REVIEW TOGGLE */}
+
+            {/* REVIEW TOGGLE + FORM */}
             <div
               style={{
                 display: "flex",
@@ -952,9 +610,7 @@ function SetDetailPage({
             >
               <button
                 type="button"
-                onClick={() =>
-                  setShowReviewForm((prev) => !prev)
-                }
+                onClick={() => setShowReviewForm((prev) => !prev)}
                 style={{
                   padding: "0.4rem 0.9rem",
                   borderRadius: "999px",
@@ -968,23 +624,18 @@ function SetDetailPage({
                 {showReviewForm ? "Cancel review" : "✍️ Leave a review"}
               </button>
 
-              {!authToken && (
-                <span
-                  style={{ fontSize: "0.85rem", color: "#777" }}
-                >
+              {!effectiveToken && (
+                <span style={{ fontSize: "0.85rem", color: "#777" }}>
                   Log in to rate or review this set.
                 </span>
               )}
             </div>
 
-            {/* REVIEW FORM (uses same rating, but adds text) */}
             {showReviewForm && (
               <form onSubmit={handleReviewSubmit}>
                 <textarea
                   value={reviewText}
-                  onChange={(e) =>
-                    setReviewText(e.target.value)
-                  }
+                  onChange={(e) => setReviewText(e.target.value)}
                   placeholder="What did you think of this set?"
                   style={{
                     width: "100%",
@@ -998,12 +649,7 @@ function SetDetailPage({
                 />
 
                 {reviewSubmitError && (
-                  <p
-                    style={{
-                      color: "red",
-                      marginTop: "0.35rem",
-                    }}
-                  >
+                  <p style={{ color: "red", marginTop: "0.35rem" }}>
                     {reviewSubmitError}
                   </p>
                 )}
@@ -1016,14 +662,10 @@ function SetDetailPage({
                     padding: "0.45rem 0.9rem",
                     borderRadius: "999px",
                     border: "none",
-                    backgroundColor: reviewSubmitting
-                      ? "#888"
-                      : "#1f883d",
+                    backgroundColor: reviewSubmitting ? "#888" : "#1f883d",
                     color: "white",
                     fontWeight: 600,
-                    cursor: reviewSubmitting
-                      ? "default"
-                      : "pointer",
+                    cursor: reviewSubmitting ? "default" : "pointer",
                   }}
                 >
                   {reviewSubmitting ? "Posting…" : "Post review"}
@@ -1059,78 +701,61 @@ function SetDetailPage({
         )}
 
         {!reviewsLoading && !reviewsError && textReviews.length === 0 && (
-          <p style={{ color: "#666" }}>
-            No reviews yet. Be the first!
-          </p>
+          <p style={{ color: "#666" }}>No reviews yet. Be the first!</p>
         )}
 
-        {!reviewsLoading &&
-          !reviewsError &&
-          textReviews.length > 0 && (
-            <ul
-              style={{
-                listStyle: "none",
-                padding: 0,
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.75rem",
-              }}
-            >
-              {reviews.map((r) => (
-                <li
-                  key={
-                    r.id ??
-                    `${r.user}-${r.created_at ?? Math.random()}`
-                  }
+        {!reviewsLoading && !reviewsError && textReviews.length > 0 && (
+          <ul
+            style={{
+              listStyle: "none",
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+            }}
+          >
+            {textReviews.map((r) => (
+              <li
+                key={r.id ?? `${r.username}-${r.created_at ?? Math.random()}`}
+                style={{
+                  border: "1px solid #e0e0e0",
+                  borderRadius: "8px",
+                  padding: "0.75rem 0.9rem",
+                  background: "white",
+                }}
+              >
+                <div
                   style={{
-                    border: "1px solid #e0e0e0",
-                    borderRadius: "8px",
-                    padding: "0.75rem 0.9rem",
-                    background: "white",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "0.25rem",
                   }}
                 >
-                  <div
+                  <div style={{ fontSize: "0.9rem", color: "#555" }}>
+                    <strong>{r.username || "Anonymous"}</strong>
+                  </div>
+                  {typeof r.rating === "number" && (
+                    <div style={{ fontSize: "0.9rem", color: "#f39c12" }}>
+                      {r.rating.toFixed(1)} ★
+                    </div>
+                  )}
+                </div>
+                {r.text && (
+                  <p
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: "0.25rem",
+                      margin: 0,
+                      fontSize: "0.95rem",
+                      color: "#333",
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: "0.9rem",
-                        color: "#555",
-                      }}
-                    >
-                      <strong>{r.user || "Anonymous"}</strong>
-                    </div>
-                    {typeof r.rating === "number" && (
-                      <div
-                        style={{
-                          fontSize: "0.9rem",
-                          color: "#f39c12",
-                        }}
-                      >
-                        {r.rating.toFixed(1)} ★
-                      </div>
-                    )}
-                  </div>
-                  {r.text && (
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: "0.95rem",
-                        color: "#333",
-                      }}
-                    >
-                      {r.text}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+                    {r.text}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );

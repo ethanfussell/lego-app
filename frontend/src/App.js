@@ -5,7 +5,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import Login from "./Login";
-import QuickCollectionsAdd from "./QuickCollectionsAdd";
 import Pagination from "./Pagination";
 import { Routes, Route, Link } from "react-router-dom";
 import SetDetailPage from"./SetDetailPage";
@@ -308,6 +307,7 @@ function App() {
     fetchPublicLists();
   }, []);
 
+  
   // -------------------------------
   // "MY LISTS": fetch when token changes
   // -------------------------------
@@ -462,35 +462,36 @@ function App() {
   // COLLECTION MUTATIONS (owned / wishlist)
   // -------------------------------
   async function handleMarkOwned(setNum) {
-    if (!token) {
+    // Use token from state OR from localStorage (in case of refresh)
+    const currentToken = token || localStorage.getItem("lego_token") || "";
+  
+    if (!currentToken) {
       alert("Please log in to track your collection.");
-      // go to the login route
       navigate("/login");
-      // optional: also update your "page" state
       setPage("login");
       return;
     }
-
+  
     try {
       const resp = await fetch(`${API_BASE}/collections/owned`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${currentToken}`,
         },
         body: JSON.stringify({
           set_num: setNum,
-          username: "ethan", // backend temporary requirement
+          // username not needed anymore; backend takes it from the token
         }),
       });
-
+  
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
       }
-
-      // refresh owned/wishlist from backend
-      await loadCollections(token);
+  
+      // 🔁 Refresh Owned/Wishlist from backend so the Account page updates
+      await loadCollections(currentToken);
     } catch (err) {
       console.error("Error marking owned:", err);
       alert(err.message);
@@ -1054,11 +1055,115 @@ function App() {
 
                 {token && (
                   <div style={{ marginTop: "1.5rem" }}>
-                    <QuickCollectionsAdd
-                      token={token}
-                      onCollectionsChanged={() => loadCollections(token)}
-                    />
+                    {/* Top-level: everything is "My Lists" */}
+                    <h2 style={{ marginTop: 0 }}>My Lists</h2>
 
+                    {/* ===== Built-in lists: Owned + Wishlist (from /collections) ===== */}
+                    <section
+                      style={{
+                        marginTop: "0.75rem",
+                        marginBottom: "1.5rem",
+                      }}
+                    >
+                      {collectionsLoading && <p>Loading your lists…</p>}
+                      {collectionsError && (
+                        <p style={{ color: "red" }}>Error: {collectionsError}</p>
+                      )}
+
+                      {!collectionsLoading && !collectionsError && (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "1rem",
+                            marginTop: "0.5rem",
+                          }}
+                        >
+                          {/* Owned */}
+                          <div
+                            style={{
+                              flex: "1 1 240px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              padding: "1rem",
+                            }}
+                          >
+                            <h3 style={{ marginTop: 0 }}>Owned</h3>
+                            <p>
+                              Sets in list: <strong>{owned.length}</strong>
+                            </p>
+
+                            {owned.length === 0 && (
+                              <p style={{ color: "#666" }}>
+                                You haven&apos;t marked any sets as Owned yet.
+                              </p>
+                            )}
+
+                            {owned.length > 0 && (
+                              <ul
+                                style={{
+                                  listStyle: "none",
+                                  padding: 0,
+                                  marginTop: "0.5rem",
+                                }}
+                              >
+                                {owned.map((item) => (
+                                  <li key={item.set_num}>
+                                    {item.set_num}{" "}
+                                    <span style={{ color: "#888" }}>
+                                      ({item.type})
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          {/* Wishlist */}
+                          <div
+                            style={{
+                              flex: "1 1 240px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              padding: "1rem",
+                            }}
+                          >
+                            <h3 style={{ marginTop: 0 }}>Wishlist</h3>
+                            <p>
+                              Sets in list: <strong>{wishlist.length}</strong>
+                            </p>
+
+                            {wishlist.length === 0 && (
+                              <p style={{ color: "#666" }}>
+                                You haven&apos;t added any sets to your Wishlist
+                                yet.
+                              </p>
+                            )}
+
+                            {wishlist.length > 0 && (
+                              <ul
+                                style={{
+                                  listStyle: "none",
+                                  padding: 0,
+                                  marginTop: "0.5rem",
+                                }}
+                              >
+                                {wishlist.map((item) => (
+                                  <li key={item.set_num}>
+                                    {item.set_num}{" "}
+                                    <span style={{ color: "#888" }}>
+                                      ({item.type})
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </section>
+
+                    {/* ===== Custom lists (from /lists) ===== */}
                     <div
                       style={{
                         display: "flex",
@@ -1068,21 +1173,17 @@ function App() {
                         gap: "1rem",
                       }}
                     >
-                      <h2 style={{ margin: 0 }}>My Lists</h2>
+                      <h3 style={{ margin: 0 }}>Custom lists</h3>
 
                       <div style={{ display: "flex", gap: "0.5rem" }}>
                         <button
-                          onClick={() =>
-                            setShowCreateForm((prev) => !prev)
-                          }
+                          onClick={() => setShowCreateForm((prev) => !prev)}
                           style={{
                             padding: "0.4rem 0.8rem",
                             cursor: "pointer",
                           }}
                         >
-                          {showCreateForm
-                            ? "Cancel"
-                            : "➕ Create New List"}
+                          {showCreateForm ? "Cancel" : "➕ Create New List"}
                         </button>
                       </div>
                     </div>
@@ -1097,10 +1198,9 @@ function App() {
                           background: "#fafafa",
                         }}
                       >
-                        <h3>Create a New List</h3>
+                        <h4 style={{ marginTop: 0 }}>Create a New List</h4>
                         <p style={{ color: "#666", marginTop: 0 }}>
-                          This will call <code>POST /lists</code> with
-                          your token.
+                          This will call <code>POST /lists</code> with your token.
                         </p>
 
                         <form onSubmit={handleCreateList}>
@@ -1116,9 +1216,7 @@ function App() {
                             <input
                               type="text"
                               value={newListTitle}
-                              onChange={(e) =>
-                                setNewListTitle(e.target.value)
-                              }
+                              onChange={(e) => setNewListTitle(e.target.value)}
                               style={{
                                 width: "100%",
                                 padding: "0.5rem",
@@ -1184,193 +1282,51 @@ function App() {
                             disabled={createLoading}
                             style={{
                               padding: "0.5rem 1rem",
-                              cursor: createLoading
-                                ? "default"
-                                : "pointer",
+                              cursor: createLoading ? "default" : "pointer",
                             }}
                           >
-                            {createLoading
-                              ? "Creating..."
-                              : "Create List"}
+                            {createLoading ? "Creating..." : "Create List"}
                           </button>
                         </form>
                       </section>
                     )}
 
-                    <section
-                      style={{
-                        marginTop: "1.5rem",
-                        marginBottom: "1.5rem",
-                      }}
-                    >
-                      <h2>My Collections</h2>
-
-                      {collectionsLoading && (
-                        <p>Loading your collections…</p>
-                      )}
-                      {collectionsError && (
-                        <p style={{ color: "red" }}>
-                          Error: {collectionsError}
-                        </p>
-                      )}
-
-                      {!collectionsLoading && !collectionsError && (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: "1rem",
-                            marginTop: "0.5rem",
-                          }}
-                        >
-                          <div
-                            style={{
-                              flex: "1 1 240px",
-                              border: "1px solid #ddd",
-                              borderRadius: "8px",
-                              padding: "1rem",
-                            }}
-                          >
-                            <h3>Owned</h3>
-                            <p>
-                              Sets in Owned:{" "}
-                              <strong>{owned.length}</strong>
-                            </p>
-
-                            {owned.length === 0 && (
-                              <p style={{ color: "#666" }}>
-                                You haven&apos;t marked any sets as
-                                Owned yet.
-                              </p>
-                            )}
-
-                            {owned.length > 0 && (
-                              <ul
-                                style={{
-                                  listStyle: "none",
-                                  padding: 0,
-                                  marginTop: "0.5rem",
-                                }}
-                              >
-                                {owned.map((item) => (
-                                  <li key={item.set_num}>
-                                    {item.set_num}{" "}
-                                    <span
-                                      style={{ color: "#888" }}
-                                    >
-                                      ({item.type})
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-
-                          <div
-                            style={{
-                              flex: "1 1 240px",
-                              border: "1px solid #ddd",
-                              borderRadius: "8px",
-                              padding: "1rem",
-                            }}
-                          >
-                            <h3>Wishlist</h3>
-                            <p>
-                              Sets in Wishlist:{" "}
-                              <strong>{wishlist.length}</strong>
-                            </p>
-
-                            {wishlist.length === 0 && (
-                              <p style={{ color: "#666" }}>
-                                You haven&apos;t added any sets to
-                                your Wishlist yet.
-                              </p>
-                            )}
-
-                            {wishlist.length > 0 && (
-                              <ul
-                                style={{
-                                  listStyle: "none",
-                                  padding: 0,
-                                  marginTop: "0.5rem",
-                                }}
-                              >
-                                {wishlist.map((item) => (
-                                  <li key={item.set_num}>
-                                    {item.set_num}{" "}
-                                    <span
-                                      style={{ color: "#888" }}
-                                    >
-                                      ({item.type})
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </section>
-
-                    {myListsLoading && <p>Loading your lists…</p>}
+                    {myListsLoading && <p>Loading your custom lists…</p>}
                     {myListsError && (
-                      <p style={{ color: "red" }}>
-                        Error: {myListsError}
-                      </p>
+                      <p style={{ color: "red" }}>Error: {myListsError}</p>
                     )}
 
-                    {!myListsLoading &&
-                      !myListsError &&
-                      myLists.length === 0 && (
-                        <p>You don&apos;t have any lists yet.</p>
-                      )}
+                    {!myListsLoading && !myListsError && myLists.length === 0 && (
+                      <p>You don&apos;t have any custom lists yet.</p>
+                    )}
 
-                    {!myListsLoading &&
-                      !myListsError &&
-                      myLists.length > 0 && (
-                        <ul style={{ listStyle: "none", padding: 0 }}>
-                          {myLists.map((list) => (
-                            <li
-                              key={list.id}
-                              style={{
-                                border: "1px solid #ddd",
-                                borderRadius: "8px",
-                                padding: "1rem",
-                                marginBottom: "1rem",
-                              }}
-                            >
-                              <h3>{list.title}</h3>
-                              {list.description && (
-                                <p>{list.description}</p>
-                              )}
-                              <p>
-                                Sets in list:{" "}
-                                <strong>{list.items_count}</strong>
-                              </p>
-                              <p>
-                                Visibility:{" "}
-                                <strong>
-                                  {list.is_public
-                                    ? "Public"
-                                    : "Private"}
-                                </strong>
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                    {!myListsLoading && !myListsError && (
-                      <p
-                        style={{
-                          marginTop: "0.5rem",
-                          color: "green",
-                        }}
-                      >
-                        Logged in: token stored in React state and used
-                        for <code>/lists/me</code> and{" "}
-                        <code>/lists</code>.
-                      </p>
+                    {!myListsLoading && !myListsError && myLists.length > 0 && (
+                      <ul style={{ listStyle: "none", padding: 0 }}>
+                        {myLists.map((list) => (
+                          <li
+                            key={list.id}
+                            style={{
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              padding: "1rem",
+                              marginBottom: "1rem",
+                            }}
+                          >
+                            <h4 style={{ marginTop: 0 }}>{list.title}</h4>
+                            {list.description && <p>{list.description}</p>}
+                            <p>
+                              Sets in list:{" "}
+                              <strong>{list.items_count}</strong>
+                            </p>
+                            <p>
+                              Visibility:{" "}
+                              <strong>
+                                {list.is_public ? "Public" : "Private"}
+                              </strong>
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 )}
