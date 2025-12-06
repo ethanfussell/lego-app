@@ -462,10 +462,7 @@ function App() {
   // COLLECTION MUTATIONS (owned / wishlist)
   // -------------------------------
   async function handleMarkOwned(setNum) {
-    // Use token from state OR from localStorage (in case of refresh)
-    const currentToken = token || localStorage.getItem("lego_token") || "";
-  
-    if (!currentToken) {
+    if (!token) {
       alert("Please log in to track your collection.");
       navigate("/login");
       setPage("login");
@@ -477,27 +474,35 @@ function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${currentToken}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          set_num: setNum,
-          // username not needed anymore; backend takes it from the token
-        }),
+        body: JSON.stringify({ set_num: setNum }),
       });
   
       if (!resp.ok) {
         const text = await resp.text();
+  
+        // 👇 If it's already in owned, just silently accept it
+        if (resp.status === 400 && text.includes("Already in owned")) {
+          console.warn("Set was already in owned, ignoring duplicate add.");
+          // still refresh collections to keep UI in sync
+          await loadCollections(token);
+          return;
+        }
+  
         throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
       }
   
-      // 🔁 Refresh Owned/Wishlist from backend so the Account page updates
-      await loadCollections(currentToken);
+      // Normal success path
+      await loadCollections(token);
     } catch (err) {
       console.error("Error marking owned:", err);
       alert(err.message);
     }
   }
 
+
+  // ADD WISHLIST
   async function handleAddWishlist(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
@@ -505,7 +510,7 @@ function App() {
       setPage("login");
       return;
     }
-
+  
     try {
       const resp = await fetch(`${API_BASE}/collections/wishlist`, {
         method: "POST",
@@ -513,24 +518,30 @@ function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          set_num: setNum,
-          username: "ethan", // again, temporary until real auth
-        }),
+        body: JSON.stringify({ set_num: setNum }),
       });
-
+  
       if (!resp.ok) {
         const text = await resp.text();
+  
+        // 👇 If it's already in wishlist, treat it as success
+        if (resp.status === 400 && text.includes("Already in wishlist")) {
+          console.warn("Set already in wishlist, ignoring duplicate add.");
+          await loadCollections(token);
+          return;
+        }
+  
         throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
       }
-
+  
+      // Normal success
       await loadCollections(token);
     } catch (err) {
       console.error("Error adding to wishlist:", err);
       alert(err.message);
     }
   }
-
+  
   // -------------------------------
   // SEARCH: core function + handlers
   // -------------------------------
