@@ -47,7 +47,7 @@ def get_user_profile(username: str):
     wishlist_count = sum(1 for i in WISHLIST if i["username"] == username)
 
     public_lists_raw = _public_lists_for_user(username)
-    public_lists = [PublicListSummary(**1) for l in public_lists_raw]
+    public_lists = [PublicListSummary(**l) for l in public_lists_raw]
 
     return UserProfile(
         username=username,
