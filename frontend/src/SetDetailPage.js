@@ -261,6 +261,69 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
     }
   }
 
+  async function clearRating() {
+    if (!isLoggedIn) {
+      alert("Please log in to rate this set.");
+      navigate("/login");
+      return;
+    }
+  
+    try {
+      setSavingRating(true);
+      setRatingError(null);
+  
+      // DELETE your review for this set
+      const resp = await fetch(`${API_BASE}/sets/${setNum}/reviews/me`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${effectiveToken}`,
+        },
+      });
+  
+      // Treat 404 as "already gone" → still success
+      if (!resp.ok && resp.status !== 404) {
+        const text = await resp.text();
+        throw new Error(
+          `Failed to clear rating (${resp.status}): ${text || "unknown error"}`
+        );
+      }
+  
+      // Clear local rating UI
+      setUserRating(null);
+  
+      // Remove *your* review from local list
+      if (currentUsername) {
+        setReviews((prev) =>
+          prev.filter((r) => (r.user || r.username) !== currentUsername)
+        );
+      }
+  
+      // 🔸 IMPORTANT: we do **not** touch Owned here anymore.
+      // If the set is Owned, it stays Owned.
+      // (We also don't auto-add or remove from wishlist.)
+  
+      // Optionally refresh the rating summary
+      try {
+        const summaryResp = await fetch(`${API_BASE}/sets/${setNum}/rating`);
+        if (summaryResp.ok) {
+          const data = await summaryResp.json();
+          setAvgRating(data.average);
+          setRatingCount(data.count);
+        } else if (summaryResp.status === 404) {
+          setAvgRating(null);
+          setRatingCount(0);
+        }
+      } catch (err) {
+        console.error("Error refreshing rating summary after clear:", err);
+      }
+    } catch (err) {
+      console.error("Error clearing rating:", err);
+      setRatingError(err.message || String(err));
+    } finally {
+      setSavingRating(false);
+    }
+  }
+
   // -------------------------------
   // Review handler (rating + text)
   // -------------------------------
@@ -484,8 +547,8 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
               }}
             >
               <button
+                type="button"
                 onClick={handleMarkOwnedClick}
-                disabled={isOwned}
                 style={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
@@ -493,15 +556,15 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                   backgroundColor: isOwned ? "#1f883d" : "white",
                   color: isOwned ? "white" : "#222",
                   fontWeight: 500,
-                  cursor: isOwned ? "default" : "pointer",
+                  cursor: "pointer",
                 }}
               >
                 {isOwned ? "Owned ✓" : "Mark Owned"}
               </button>
 
               <button
+                type="button"
                 onClick={handleAddWishlistClick}
-                disabled={isInWishlist}
                 style={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
@@ -509,7 +572,7 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                   backgroundColor: isInWishlist ? "#b16be3" : "white",
                   color: isInWishlist ? "white" : "#222",
                   fontWeight: 500,
-                  cursor: isInWishlist ? "default" : "pointer",
+                  cursor: "pointer",
                 }}
               >
                 {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
@@ -542,7 +605,7 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
                   const relative = x / rect.width; // 0–1
-                  let value = relative * 5;        // 0–5
+                  let value = relative * 5;
 
                   value = Math.round(value * 2) / 2; // snap to 0.5
                   if (value < 0.5) value = 0.5;
@@ -561,12 +624,18 @@ function SetDetailPage({ token, ownedSetNums, wishlistSetNums, onMarkOwned, onAd
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
 
-                  // immediately update UI
+                  // If user clicks the *same* rating again → clear rating only
+                  if (userRating != null && Math.abs(userRating - value) < 0.001) {
+                    await clearRating();
+                    return;
+                  }
+
+                  // New or changed rating → save to backend
                   setUserRating(value);
-                  // save to backend + mark owned
                   await saveRating(value);
                 }}
               >
+              
                 {/* Grey base row */}
                 <div style={{ color: "#ccc" }}>★★★★★</div>
 
