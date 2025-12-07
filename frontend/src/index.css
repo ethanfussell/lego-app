@@ -66,3 +66,13 @@ code {
 .nav-pill {
   /* right now they share the same look as .page-pill */
 }
+
+/* Card hover effect */
+.set-card {
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.set-card:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}

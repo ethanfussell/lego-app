@@ -971,26 +971,21 @@ function App() {
                           listStyle: "none",
                           padding: 0,
                           display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: "1rem",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                          columnGap: "1rem",
+                          rowGap: "1.75rem"
                         }}
                       >
-                        {searchResults.map((set) => {
-                          const isOwned = ownedSetNums.has(set.set_num);
-                          const isInWishlist = wishlistSetNums.has(set.set_num);
-
-                          return (
-                            <SetCard
-                              key={set.set_num}
-                              set={set}
-                              isOwned={isOwned}
-                              isInWishlist={isInWishlist}
-                              onMarkOwned={handleMarkOwned}
-                              onAddWishlist={handleAddWishlist}
-                            />
-                          );
-                        })}
+                        {searchResults.map((set) => (
+                          <SetCard
+                            key={set.set_num}
+                            set={set}
+                            isOwned={ownedSetNums.has(set.set_num)}
+                            isInWishlist={wishlistSetNums.has(set.set_num)}
+                            onMarkOwned={handleMarkOwned}
+                            onAddWishlist={handleAddWishlist}
+                          />
+                        ))}
                       </ul>
 
                       {/* Pagination */}
