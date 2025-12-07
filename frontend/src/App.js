@@ -10,10 +10,127 @@ import { Routes, Route, Link } from "react-router-dom";
 import SetDetailPage from"./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
-import HomePage from "./HomePage";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
+
+// Reusable horizontal row for Featured / Deals / Retiring
+function HomeSectionRow({ title, subtitle, sets, variant = "dealRow", seeMoreHref }) {
+  if (!sets || sets.length === 0) {
+    return null; // nothing to show yet
+  }
+
+  return (
+    <section style={{ marginTop: "2rem" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: "0.5rem",
+          gap: "1rem",
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
+          {subtitle && (
+            <p
+              style={{
+                margin: "0.15rem 0 0 0",
+                fontSize: "0.9rem",
+                color: "#666",
+              }}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
+
+        {seeMoreHref && (
+          <Link
+            to={seeMoreHref}
+            style={{
+              fontSize: "0.85rem",
+              textDecoration: "none",
+              padding: "0.25rem 0.6rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+            }}
+          >
+            View all →
+          </Link>
+        )}
+      </div>
+
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          display: "grid",
+          gridAutoFlow: "column",
+          gridAutoColumns: "minmax(220px, 1fr)",
+          columnGap: "1rem",
+          overflowX: "auto",
+          paddingBottom: "0.25rem",
+        }}
+      >
+        {sets.map((set) => (
+          <SetCard key={set.set_num} set={set} variant={variant} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Main Home page layout
+function HomePage({ featuredSets, dealsSets, retiringSets, loading, error }) {
+  return (
+    <div>
+      {/* Hero / intro */}
+      <section style={{ marginBottom: "1.5rem" }}>
+        <h1 style={{ margin: "0 0 0.5rem 0" }}>
+          Track your LEGO sets, prices & wishlists.
+        </h1>
+        <p style={{ margin: 0, color: "#555", maxWidth: "520px" }}>
+          Search every LEGO set ever made, log what you own, monitor price
+          drops, and share lists with other collectors.
+        </p>
+      </section>
+
+      {loading && <p>Loading sets for your home feed…</p>}
+      {error && !loading && (
+        <p style={{ color: "red" }}>Error loading home sections: {error}</p>
+      )}
+
+      {/* Even if there was an error, try rendering whatever data we do have */}
+
+      <HomeSectionRow
+        title="Featured sets"
+        subtitle="Highlighted picks and iconic builds."
+        sets={featuredSets}
+        variant="dealRow"
+        seeMoreHref="/explore"
+      />
+
+      <HomeSectionRow
+        title="Deals & price drops"
+        subtitle="Potential bargains and discounted sets."
+        sets={dealsSets}
+        variant="dealRow"
+        seeMoreHref="/explore"
+      />
+
+      <HomeSectionRow
+        title="Retiring soon"
+        subtitle="Last chance to pick these up."
+        sets={retiringSets}
+        variant="dealRow"
+        seeMoreHref="/explore"
+      />
+    </div>
+  );
+}
 
 function App() {
   const navigate = useNavigate();
@@ -58,6 +175,15 @@ function App() {
   // -------------------------------
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+
+  // -------------------------------
+  // HOME PAGE SECTIONS (Featured / Deals / Retiring)
+  // -------------------------------
+  const [homeFeaturedSets, setHomeFeaturedSets] = useState([]);
+  const [homeDealsSets, setHomeDealsSets] = useState([]);
+  const [homeRetiringSets, setHomeRetiringSets] = useState([]);
+  const [homeLoading, setHomeLoading] = useState(false);
+  const [homeError, setHomeError] = useState(null);
 
   // -------------------------------
   // CREATE-LIST FORM STATE
@@ -223,6 +349,47 @@ function App() {
       }
     };
   }, [searchText]);
+
+
+  // -------------------------------
+  // HOME PAGE: load a curated slice of sets once
+  // -------------------------------
+  useEffect(() => {
+    async function loadHomeSections() {
+      try {
+        setHomeLoading(true);
+        setHomeError(null);
+
+        const params = new URLSearchParams();
+        params.set("q", "lego");      // generic query, just to get a good spread
+        params.set("sort", "rating"); // highest-rated first
+        params.set("order", "desc");
+        params.set("page", "1");
+        params.set("limit", "30");    // we’ll slice this into 3 rows of 10
+
+        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Home sets fetch failed (${resp.status}): ${text}`);
+        }
+
+        const data = await resp.json();
+        const items = Array.isArray(data) ? data : data.results || [];
+
+        setHomeFeaturedSets(items.slice(0, 10));
+        setHomeDealsSets(items.slice(10, 20));
+        setHomeRetiringSets(items.slice(20, 30));
+      } catch (err) {
+        console.error("Error loading home sections:", err);
+        setHomeError(err.message || String(err));
+      } finally {
+        setHomeLoading(false);
+      }
+    }
+
+    loadHomeSections();
+  }, []);
 
   // -------------------------------
   // LOAD OWNED + WISHLIST WHEN TOKEN CHANGES
@@ -917,13 +1084,76 @@ function App() {
             path="/"
             element={
               <HomePage
-                lists={lists}
-                loading={loading}
-                error={error}
+                featuredSets={homeFeaturedSets}
+                dealsSets={homeDealsSets}
+                retiringSets={homeRetiringSets}
+                loading={homeLoading}
+                error={homeError}
               />
             }
           />
-              
+
+          <Route
+            path="/explore"
+            element={
+              <>
+                <h1>Explore public lists</h1>
+                <p style={{ color: "#666" }}>
+                  Browse lists created by other LEGO fans (GET{" "}
+                  <code>/lists/public</code>).
+                </p>
+
+                {loading && <p>Loading public lists…</p>}
+                {error && <p style={{ color: "red" }}>Error: {error}</p>}
+
+                {!loading && !error && lists.length === 0 && (
+                  <p>No public lists yet. Create one from your account page.</p>
+                )}
+
+                {!loading && !error && lists.length > 0 && (
+                  <ul style={{ listStyle: "none", padding: 0 }}>
+                    {lists.map((list) => (
+                      <li
+                        key={list.id}
+                        style={{
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                          marginBottom: "1rem",
+                        }}
+                      >
+                        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>
+                          <Link
+                            to={`/lists/${list.id}`}
+                            style={{
+                              textDecoration: "none",
+                              color: "inherit",
+                            }}
+                          >
+                            {list.title}
+                          </Link>
+                        </h2>
+                        <p>
+                          Owner: <strong>{list.owner}</strong>
+                        </p>
+                        <p>
+                          Sets in list: <strong>{list.items_count}</strong>
+                        </p>
+                        <p>
+                          Visibility:{" "}
+                          <strong>
+                            {list.is_public ? "Public" : "Private"}
+                          </strong>
+                        </p>
+                        {list.description && <p>{list.description}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            }
+          />  
+
           {/* -------- SEARCH RESULTS PAGE -------- */}
           <Route
             path="/search"
@@ -1010,12 +1240,12 @@ function App() {
                       >
                         {searchResults.map((set) => (
                           <SetCard
-                            key={set.set_num}
                             set={set}
                             isOwned={ownedSetNums.has(set.set_num)}
                             isInWishlist={wishlistSetNums.has(set.set_num)}
                             onMarkOwned={handleMarkOwned}
                             onAddWishlist={handleAddWishlist}
+                            variant="default"
                           />
                         ))}
                       </ul>

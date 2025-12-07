@@ -1,265 +1,335 @@
 // frontend/src/SetCard.js
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
 
-const API_BASE = "http://localhost:8000";
+function formatPrice(value) {
+  if (value == null || Number.isNaN(value)) return null;
+  return `$${value.toFixed(2)}`;
+}
 
-function SetCard({ set, isOwned, isInWishlist, onMarkOwned, onAddWishlist }) {
-  const { set_num, name, year, theme, pieces, image_url } = set;
+function SetCard({
+  set,
+  isOwned = false,
+  isInWishlist = false,
+  onMarkOwned,
+  onAddWishlist,
+  variant = "default", // "default" | "dealRow"
+}) {
+  const {
+    set_num,
+    name,
+    year,
+    theme,
+    pieces,
+    image_url,
+    // optional pricing fields (safe even if backend doesn't send them yet)
+    msrp,
+    lowest_price,
+    best_retailer,
+  } = set;
 
-  // Rating summary state for this card
-  const [avgRating, setAvgRating] = useState(null);
-  const [ratingCount, setRatingCount] = useState(0);
-  const [ratingLoading, setRatingLoading] = useState(false);
-  const [ratingError, setRatingError] = useState(null);
+  const normalizedMsrp =
+    typeof msrp === "number" && !Number.isNaN(msrp) ? msrp : null;
+  const normalizedLowest =
+    typeof lowest_price === "number" && !Number.isNaN(lowest_price)
+      ? lowest_price
+      : null;
 
-  useEffect(() => {
-    if (!set_num) return;
+  const currentPrice = normalizedLowest ?? normalizedMsrp;
 
-    let cancelled = false;
+  let discountPercent = null;
+  if (
+    normalizedMsrp != null &&
+    normalizedLowest != null &&
+    normalizedLowest < normalizedMsrp
+  ) {
+    discountPercent = Math.round(
+      ((normalizedMsrp - normalizedLowest) / normalizedMsrp) * 100
+    );
+  }
 
-    async function fetchRating() {
-      try {
-        setRatingLoading(true);
-        setRatingError(null);
+  const retailerLabel = best_retailer || null;
 
-        const resp = await fetch(
-          `${API_BASE}/sets/${encodeURIComponent(set_num)}/rating`
-        );
+  const cardBaseStyle = {
+    border: "1px solid #ddd",
+    borderRadius: "10px",
+    padding: "0.75rem",
+    display: "flex",
+    flexDirection: "column",
+    background: "white",
+    height: "100%",
+    boxSizing: "border-box",
+  };
 
-        if (!resp.ok) {
-          // 404 = no ratings yet, that's fine
-          if (resp.status === 404) {
-            if (!cancelled) {
-              setAvgRating(null);
-              setRatingCount(0);
-            }
-            return;
-          }
-          const text = await resp.text();
-          throw new Error(`Rating summary failed (${resp.status}): ${text}`);
-        }
+  const imageWrapperStyle = {
+    width: "100%",
+    aspectRatio: "4 / 3",
+    borderRadius: "8px",
+    overflow: "hidden",
+    marginBottom: "0.5rem",
+    background: "#f5f5f5",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
 
-        const data = await resp.json(); // { set_num, average, count }
-        if (!cancelled) {
-          setAvgRating(data.average);
-          setRatingCount(data.count);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Error loading card rating:", err);
-          setRatingError(err.message || String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setRatingLoading(false);
-        }
-      }
-    }
+  const imageStyle = {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+  };
 
-    fetchRating();
+  const titleStyle = {
+    margin: "0 0 0.15rem 0",
+    fontSize: "0.98rem",
+    fontWeight: 600,
+  };
 
-    return () => {
-      cancelled = true;
-    };
-  }, [set_num]);
+  const metaStyle = {
+    margin: 0,
+    fontSize: "0.8rem",
+    color: "#666",
+  };
 
-  return (
-    <li
-      className="set-card"
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "12px",
-        padding: "0.75rem",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.5rem",
-        backgroundColor: "#fff",
-        listStyle: "none",
-        height: "100%",
-      }}
-    >
-      <Link
-        to={`/sets/${set_num}`}
-        style={{
-          textDecoration: "none",
-          color: "inherit",
-          display: "flex",
-          flexDirection: "column",
-          flexGrow: 1,
-        }}
-      >
-        {/* Image area */}
-        <div
-          style={{
-            position: "relative",
-            borderRadius: "8px",
-            overflow: "hidden",
-            width: "100%",
-            height: "180px",
-          }}
-        >
+  // =========================
+  // DEAL-ROW VARIANT (home page)
+  // =========================
+  if (variant === "dealRow") {
+    return (
+      <li style={cardBaseStyle}>
+        <div style={imageWrapperStyle}>
           {image_url ? (
-            <img
-              src={image_url}
-              alt={name || set_num}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-                display: "block",
-                backgroundColor: "#fff",
-              }}
-            />
+            <img src={image_url} alt={name || set_num} style={imageStyle} />
           ) : (
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#999",
-                fontSize: "0.9rem",
-                backgroundColor: "#fafafa",
-              }}
-            >
+            <span style={{ fontSize: "0.8rem", color: "#999" }}>
               No image
-            </div>
-          )}
-
-          {/* Owned / Wishlist badges */}
-          {(isOwned || isInWishlist) && (
-            <div
-              style={{
-                position: "absolute",
-                top: "8px",
-                right: "8px",
-                display: "flex",
-                gap: "0.25rem",
-              }}
-            >
-              {isOwned && (
-                <span
-                  style={{
-                    padding: "0.15rem 0.5rem",
-                    borderRadius: "999px",
-                    backgroundColor: "#1f883d",
-                    color: "#fff",
-                    fontSize: "0.75rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  Owned
-                </span>
-              )}
-              {isInWishlist && (
-                <span
-                  style={{
-                    padding: "0.15rem 0.5rem",
-                    borderRadius: "999px",
-                    backgroundColor: "#b16be3",
-                    color: "#fff",
-                    fontSize: "0.75rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  Wishlist
-                </span>
-              )}
-            </div>
+            </span>
           )}
         </div>
 
-        {/* Text info */}
-        <div style={{ marginTop: "0.5rem" }}>
-          <h3
-            style={{
-              margin: "0 0 0.25rem 0",
-              fontSize: "1rem",
-            }}
+        <h3 style={titleStyle}>
+          <Link
+            to={`/sets/${set_num}`}
+            style={{ textDecoration: "none", color: "inherit" }}
           >
             {name || "Unknown set"}
-          </h3>
+          </Link>
+        </h3>
 
-          <p style={{ margin: 0, color: "#555", fontSize: "0.9rem" }}>
-            <strong>{set_num}</strong>
-            {year && <> · {year}</>}
-          </p>
+        <p style={metaStyle}>
+          <strong>{set_num}</strong>
+          {year && <> · {year}</>}
+        </p>
 
-          {theme && (
-            <p style={{ margin: 0, color: "#777", fontSize: "0.85rem" }}>
-              {theme}
-            </p>
+        {theme && (
+          <p style={{ ...metaStyle, marginTop: "0.15rem" }}>{theme}</p>
+        )}
+
+        {/* Pricing focus */}
+        <div
+          style={{
+            marginTop: "0.4rem",
+            display: "flex",
+            alignItems: "baseline",
+            gap: "0.5rem",
+            flexWrap: "wrap",
+          }}
+        >
+          {currentPrice != null ? (
+            <span
+              style={{
+                fontSize: "1rem",
+                fontWeight: 700,
+              }}
+            >
+              {formatPrice(currentPrice)}
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: "0.85rem",
+                color: "#777",
+              }}
+            >
+              Price coming soon
+            </span>
           )}
 
-          {pieces && (
-            <p style={{ margin: 0, color: "#777", fontSize: "0.85rem" }}>
-              {pieces} pieces
-            </p>
+          {discountPercent != null && discountPercent >= 5 && (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                padding: "0.1rem 0.4rem",
+                borderRadius: "999px",
+                backgroundColor: "#1f883d",
+                color: "white",
+              }}
+            >
+              {discountPercent}% off
+            </span>
           )}
+        </div>
 
-          {/* Rating summary line */}
+        {normalizedMsrp != null && currentPrice != null && currentPrice !== normalizedMsrp && (
           <p
             style={{
-              margin: "0.35rem 0 0 0",
-              fontSize: "0.85rem",
-              color: "#777",
+              ...metaStyle,
+              marginTop: "0.15rem",
+              textDecoration: "line-through",
             }}
           >
-            {ratingError
-              ? "Rating unavailable"
-              : ratingLoading
-              ? "Loading rating…"
-              : ratingCount === 0
-              ? "No ratings yet"
-              : `⭐ ${avgRating.toFixed(1)} · ${ratingCount} rating${
-                  ratingCount === 1 ? "" : "s"
-                }`}
+            {formatPrice(normalizedMsrp)} MSRP
           </p>
-        </div>
-      </Link>
+        )}
 
-      {/* Buttons */}
+        {retailerLabel && (
+          <p style={{ ...metaStyle, marginTop: "0.15rem" }}>
+            From {retailerLabel}
+          </p>
+        )}
+
+        {/* Spacer + CTA */}
+        <div style={{ marginTop: "auto" }} />
+
+        <Link
+          to={`/sets/${set_num}`}
+          style={{
+            marginTop: "0.6rem",
+            padding: "0.4rem 0.7rem",
+            borderRadius: "999px",
+            border: "1px solid #222",
+            textDecoration: "none",
+            fontSize: "0.85rem",
+            textAlign: "center",
+          }}
+        >
+          View prices →
+        </Link>
+      </li>
+    );
+  }
+
+  // =========================
+  // DEFAULT VARIANT (search / normal grid)
+  // =========================
+  return (
+    <li style={cardBaseStyle}>
+      <div style={imageWrapperStyle}>
+        {image_url ? (
+          <img src={image_url} alt={name || set_num} style={imageStyle} />
+        ) : (
+          <span style={{ fontSize: "0.8rem", color: "#999" }}>No image</span>
+        )}
+      </div>
+
+      <h3 style={titleStyle}>
+        <Link
+          to={`/sets/${set_num}`}
+          style={{ textDecoration: "none", color: "inherit" }}
+        >
+          {name || "Unknown set"}
+        </Link>
+      </h3>
+
+      <p style={metaStyle}>
+        <strong>{set_num}</strong>
+        {year && <> · {year}</>}
+      </p>
+
+      {theme && (
+        <p style={{ ...metaStyle, marginTop: "0.15rem" }}>{theme}</p>
+      )}
+
+      {pieces && (
+        <p style={{ ...metaStyle, marginTop: "0.15rem" }}>
+          {pieces} pieces
+        </p>
+      )}
+
+      {/* Small price line (optional) */}
+      {currentPrice != null && (
+        <p
+          style={{
+            marginTop: "0.35rem",
+            fontSize: "0.85rem",
+            color: "#444",
+          }}
+        >
+          {formatPrice(currentPrice)}
+          {discountPercent != null && discountPercent >= 5 && (
+            <>
+              {" "}
+              ·{" "}
+              <span style={{ color: "#1f883d", fontWeight: 600 }}>
+                {discountPercent}% off
+              </span>
+            </>
+          )}
+          {retailerLabel && <> · via {retailerLabel}</>}
+        </p>
+      )}
+
+      {/* Spacer to push buttons down */}
+      <div style={{ flexGrow: 1 }} />
+
+      {/* Owned / wishlist buttons */}
       <div
         style={{
-          marginTop: "0.5rem",
-          marginBottom: "0.5rem",
+          marginTop: "0.6rem",
           display: "flex",
-          gap: "0.5rem",
+          flexDirection: "column",
+          gap: "0.4rem",
         }}
       >
-        <button
-          onClick={() => onMarkOwned(set_num)}
-          style={{
-            flex: 1,
-            padding: "0.4rem 0.6rem",
-            borderRadius: "999px",
-            border: isOwned ? "none" : "1px solid #ccc",
-            backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
-            color: isOwned ? "white" : "#333",
-            fontWeight: isOwned ? "600" : "500",
-            cursor: "pointer",
-          }}
-        >
-          {isOwned ? "Owned ✓" : "Mark Owned"}
-        </button>
+        {typeof onMarkOwned === "function" && (
+          <button
+            onClick={() => onMarkOwned(set_num)}
+            style={{
+              padding: "0.4rem 0.7rem",
+              borderRadius: "999px",
+              border: isOwned ? "none" : "1px solid #ccc",
+              backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
+              color: isOwned ? "white" : "#222",
+              fontSize: "0.85rem",
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+          >
+            {isOwned ? "Owned ✓" : "Mark Owned"}
+          </button>
+        )}
 
-        <button
-          onClick={() => onAddWishlist(set_num)}
+        {typeof onAddWishlist === "function" && (
+          <button
+            onClick={() => onAddWishlist(set_num)}
+            style={{
+              padding: "0.4rem 0.7rem",
+              borderRadius: "999px",
+              border: isInWishlist ? "none" : "1px solid #ccc",
+              backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
+              color: isInWishlist ? "white" : "#222",
+              fontSize: "0.85rem",
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+          >
+            {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
+          </button>
+        )}
+
+        <Link
+          to={`/sets/${set_num}`}
           style={{
-            flex: 1,
-            padding: "0.4rem 0.6rem",
-            borderRadius: "999px",
-            border: isInWishlist ? "none" : "1px solid #ccc",
-            backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
-            color: isInWishlist ? "white" : "#333",
-            fontWeight: isInWishlist ? "600" : "500",
-            cursor: "pointer",
+            marginTop: "0.1rem",
+            fontSize: "0.8rem",
+            color: "#555",
+            textDecoration: "none",
+            textAlign: "center",
           }}
         >
-          {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
-        </button>
+          View details →
+        </Link>
       </div>
     </li>
   );
