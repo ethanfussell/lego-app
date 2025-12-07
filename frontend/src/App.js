@@ -10,6 +10,7 @@ import { Routes, Route, Link } from "react-router-dom";
 import SetDetailPage from"./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
+import HomePage from "./HomePage";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
@@ -785,14 +786,14 @@ function App() {
           </Link>
 
           <Link
-            to="/feed"
+            to="/explore"
             style={{
               padding: "0.5rem 0.9rem",
               cursor: "pointer",
               textDecoration: "none",
             }}
           >
-            📡 Feed
+            📡 Explore
           </Link>
         </div>
 
@@ -915,68 +916,14 @@ function App() {
           <Route
             path="/"
             element={
-              <>
-                <h1>LEGO Lists App</h1>
-                <p style={{ color: "#666" }}>
-                  This page is pulling data directly from your FastAPI backend
-                  (GET <code>/lists/public</code>).
-                </p>
-
-                {loading && <p>Loading public lists…</p>}
-                {error && <p style={{ color: "red" }}>Error: {error}</p>}
-
-                {!loading && !error && lists.length === 0 && (
-                  <p>No public lists yet. Create one in the backend.</p>
-                )}
-
-                {!loading && !error && lists.length > 0 && (
-                  <ul style={{ listStyle: "none", padding: 0 }}>
-                    {lists.map((list) => (
-                      <li
-                        key={list.id}
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: "8px",
-                          padding: "1rem",
-                          marginBottom: "1rem",
-                        }}
-                      >
-                        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>
-                          <Link
-                            to={`/lists/${list.id}`}
-                            style={{ textDecoration: "none", color: "inherit" }}
-                          >
-                            {list.title}
-                          </Link>
-                        </h2>
-                        <p>
-                          Owner: <strong>{list.owner}</strong>
-                        </p>
-                        <p>
-                          Sets in list: <strong>{list.items_count}</strong>
-                        </p>
-                        <p>
-                          Visibility:{" "}
-                          <strong>{list.is_public ? "Public" : "Private"}</strong>
-                        </p>
-                        {list.description && <p>{list.description}</p>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
+              <HomePage
+                lists={lists}
+                loading={loading}
+                error={error}
+              />
             }
           />
-
-          <Route
-            path="/journal"
-            element={
-              <div>
-                <h1>Journal</h1>
-                <p style={{ color: "#666" }}>Journal page coming soon.</p>
-              </div>
-            }
-          />
+              
           {/* -------- SEARCH RESULTS PAGE -------- */}
           <Route
             path="/search"
