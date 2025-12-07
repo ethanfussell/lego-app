@@ -321,15 +321,22 @@ function App() {
       try {
         setMyListsLoading(true);
         setMyListsError(null);
-
+  
         const resp = await fetch(`${API_BASE}/lists/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
+  
         if (!resp.ok) {
+          // Treat "no lists yet" (404) as an empty list, not an error
+          if (resp.status === 404) {
+            setMyLists([]);
+            return;
+          }
+  
+          // Other statuses are real errors
           throw new Error(`Failed to load your lists (status ${resp.status})`);
         }
-
+  
         const data = await resp.json();
         setMyLists(data);
       } catch (err) {

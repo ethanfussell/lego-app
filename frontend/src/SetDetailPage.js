@@ -20,11 +20,9 @@ function SetDetailPage({
   wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
-  onEnsureOwned,
 }) {
   const { setNum } = useParams();
   const navigate = useNavigate();
-
 
   // Prefer prop token, fall back to localStorage
   const storedToken = localStorage.getItem("lego_token") || "";
@@ -50,7 +48,6 @@ function SetDetailPage({
   const [hoverRating, setHoverRating] = useState(null);
   const [savingRating, setSavingRating] = useState(false);
   const [ratingError, setRatingError] = useState(null);
-  const [ratingSaveMessage, setRatingSaveMessage] = useState("");
 
   // Global rating summary
   const [avgRating, setAvgRating] = useState(null);
@@ -67,8 +64,6 @@ function SetDetailPage({
   // Derived collection state from parent
   const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
   const isInWishlist = wishlistSetNums ? wishlistSetNums.has(setNum) : false;
-
-
 
   // -------------------------------
   // Load set detail + reviews
@@ -113,7 +108,6 @@ function SetDetailPage({
             setUserRating(mine.rating);
           }
         }
-
       } catch (err) {
         console.error("Error loading set detail:", err);
         setError(err.message || String(err));
@@ -124,7 +118,7 @@ function SetDetailPage({
     }
 
     fetchData();
-  }, [setNum]);
+  }, [setNum, currentUsername]);
 
   // -------------------------------
   // Rating summary (avg + count)
@@ -186,8 +180,8 @@ function SetDetailPage({
       navigate("/login");
       return;
     }
-    if (typeof onEnsureOwned === "function") {
-      onEnsureOwned(setNum);
+    if (typeof onMarkOwned === "function") {
+      onMarkOwned(setNum);
     }
   }
 
@@ -203,7 +197,52 @@ function SetDetailPage({
   }
 
   // -------------------------------
-  // Rating-only handler
+  // Clear rating (double-click same stars)
+  // -------------------------------
+  async function clearRating() {
+    if (!isLoggedIn) {
+      alert("Please log in to rate this set.");
+      navigate("/login");
+      return;
+    }
+
+    try {
+      setSavingRating(true);
+      setRatingError(null);
+
+      const resp = await fetch(
+        `${API_BASE}/sets/${setNum}/reviews/me`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${effectiveToken}`,
+          },
+        }
+      );
+
+      if (!resp.ok && resp.status !== 404) {
+        const text = await resp.text();
+        throw new Error(`Failed to clear rating (${resp.status}): ${text}`);
+      }
+
+      // Clear local UI rating
+      setUserRating(null);
+      // Remove this user's review from the list
+      if (currentUsername) {
+        setReviews((prev) =>
+          prev.filter((r) => (r.user || r.username) !== currentUsername)
+        );
+      }
+    } catch (err) {
+      console.error("Error clearing rating:", err);
+      setRatingError(err.message || String(err));
+    } finally {
+      setSavingRating(false);
+    }
+  }
+
+  // -------------------------------
+  // Save rating (single click or change)
   // -------------------------------
   async function saveRating(newRating) {
     if (!isLoggedIn) {
@@ -241,7 +280,7 @@ function SetDetailPage({
 
       const created = await resp.json();
 
-      // Update local reviews so your own review stays in sync
+      // Replace any existing review from this user with the new one
       setReviews((prev) => {
         const others = prev.filter(
           (r) => (r.user || r.username) !== currentUsername
@@ -249,9 +288,12 @@ function SetDetailPage({
         return [created, ...others];
       });
 
-      // ✅ Only ensure it's owned; do NOT toggle
-      if (typeof onEnsureOwned === "function") {
-        onEnsureOwned(setNum);
+      // Ensure UI rating matches
+      setUserRating(numericRating);
+
+      // Also mark this set as owned (but don't un-own on changes)
+      if (typeof onMarkOwned === "function" && !isOwned) {
+        onMarkOwned(setNum);
       }
     } catch (err) {
       console.error("Error saving rating:", err);
@@ -260,6 +302,26 @@ function SetDetailPage({
       setSavingRating(false);
     }
   }
+
+  // Handle click on stars: toggle if same rating, otherwise save
+  async function handleStarClick(value) {
+    if (!isLoggedIn) {
+      alert("Please log in to rate this set.");
+      navigate("/login");
+      return;
+    }
+
+    // If clicking the same rating again → clear rating (but keep Owned)
+    if (userRating != null && Number(userRating) === Number(value)) {
+      await clearRating();
+      return;
+    }
+
+    // Otherwise: update rating
+    setUserRating(value); // immediate UI feedback
+    await saveRating(value);
+  }
+
   // -------------------------------
   // Review handler (rating + text)
   // -------------------------------
@@ -303,7 +365,12 @@ function SetDetailPage({
       }
 
       const created = await resp.json();
-      setReviews((prev) => [created, ...prev]);
+      setReviews((prev) => {
+        const others = prev.filter(
+          (r) => (r.user || r.username) !== currentUsername
+        );
+        return [created, ...others];
+      });
 
       setReviewText("");
       setShowReviewForm(false);
@@ -483,13 +550,12 @@ function SetDetailPage({
               }}
             >
               <button
-                type="button"
                 onClick={handleMarkOwnedClick}
                 style={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
                   border: isOwned ? "none" : "1px solid #ccc",
-                  backgroundColor: isOwned ? "#1f883d" : "white",
+                  backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
                   color: isOwned ? "white" : "#222",
                   fontWeight: 500,
                   cursor: "pointer",
@@ -499,13 +565,12 @@ function SetDetailPage({
               </button>
 
               <button
-                type="button"
                 onClick={handleAddWishlistClick}
                 style={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
                   border: isInWishlist ? "none" : "1px solid #ccc",
-                  backgroundColor: isInWishlist ? "#b16be3" : "white",
+                  backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
                   color: isInWishlist ? "white" : "#222",
                   fontWeight: 500,
                   cursor: "pointer",
@@ -534,22 +599,26 @@ function SetDetailPage({
                   position: "relative",
                   display: "inline-block",
                   fontSize: "1.8rem",
-                  cursor: "pointer",
+                  cursor: savingRating ? "default" : "pointer",
                   lineHeight: 1,
+                  opacity: savingRating ? 0.7 : 1,
                 }}
                 onMouseMove={(e) => {
+                  if (savingRating) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
-                  const relative = x / rect.width;
-                  let value = relative * 5;
+                  const relative = x / rect.width; // 0–1
+                  let value = relative * 5; // 0–5
 
-                  value = Math.round(value * 2) / 2;
+                  value = Math.round(value * 2) / 2; // snap to 0.5
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
+
                   setHoverRating(value);
                 }}
                 onMouseLeave={() => setHoverRating(null)}
                 onClick={async (e) => {
+                  if (savingRating) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
                   const relative = x / rect.width;
@@ -559,52 +628,13 @@ function SetDetailPage({
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
 
-                  // 🔁 Clicking the same value again clears your rating (but NOT owned)
-                  if (userRating != null && Math.abs(userRating - value) < 0.01) {
-                    setUserRating(null);
-
-                    // delete just your review
-                    if (isLoggedIn) {
-                      try {
-                        const resp = await fetch(
-                          `${API_BASE}/sets/${setNum}/reviews/me`,
-                          {
-                            method: "DELETE",
-                            headers: {
-                              Authorization: `Bearer ${effectiveToken}`,
-                            },
-                          }
-                        );
-
-                        if (!resp.ok && resp.status !== 404) {
-                          const text = await resp.text();
-                          throw new Error(
-                            `Failed to clear rating (${resp.status}): ${text}`
-                          );
-                        }
-
-                        // remove from local reviews
-                        setReviews((prev) =>
-                          prev.filter((r) => (r.user || r.username) !== currentUsername)
-                        );
-                      } catch (err) {
-                        console.error("Error clearing rating:", err);
-                        setRatingError(err.message || String(err));
-                      }
-                    }
-
-                    return;
-                  }
-
-                  // Normal path: update rating
-                  setUserRating(value);
-                  await saveRating(value);
+                  await handleStarClick(value);
                 }}
               >
-                {/* grey base */}
+                {/* Grey base row */}
                 <div style={{ color: "#ccc" }}>★★★★★</div>
 
-                {/* gold overlay */}
+                {/* Gold overlay row, clipped to rating percentage */}
                 <div
                   style={{
                     position: "absolute",
@@ -633,7 +663,6 @@ function SetDetailPage({
                 </span>
               )}
             </div>
-
 
             {/* REVIEW TOGGLE + FORM */}
             <div
