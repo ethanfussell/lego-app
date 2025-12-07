@@ -8,6 +8,7 @@ import Login from "./Login";
 import Pagination from "./Pagination";
 import { Routes, Route, Link } from "react-router-dom";
 import SetDetailPage from"./SetDetailPage";
+import SetCard from "./SetCard";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
@@ -963,134 +964,31 @@ function App() {
                   !searchError &&
                   searchResults.length > 0 && (
                     <div>
+
                       {/* Results grid */}
                       <ul
                         style={{
                           listStyle: "none",
                           padding: 0,
-                          margin: 0,
-                          display: "flex",
-                          flexWrap: "wrap",
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(220px, 1fr))",
                           gap: "1rem",
                         }}
                       >
                         {searchResults.map((set) => {
-                          // You can keep using owned.some(...) if you want,
-                          // or use the Sets you already built:
                           const isOwned = ownedSetNums.has(set.set_num);
                           const isInWishlist = wishlistSetNums.has(set.set_num);
 
                           return (
-                            <li
+                            <SetCard
                               key={set.set_num}
-                              style={{
-                                width: "260px",
-                                border: "1px solid #ddd",
-                                borderRadius: "8px",
-                                padding: "0.75rem",
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "0.5rem",
-                              }}
-                            >
-                              <Link
-                                to={`/sets/${set.set_num}`}
-                                style={{
-                                  textDecoration: "none",
-                                  color: "inherit",
-                                  display: "block",
-                                }}
-                              >
-                                {set.image_url && (
-                                  <div
-                                    style={{
-                                      width: "100%",
-                                      height: "180px",
-                                      borderRadius: "4px",
-                                      background: "#f5f5f5",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      overflow: "hidden",
-                                    }}
-                                  >
-                                    <img
-                                      src={set.image_url}
-                                      alt={set.name || set.set_num}
-                                      style={{
-                                        maxWidth: "100%",
-                                        maxHeight: "100%",
-                                        objectFit: "contain",
-                                        display: "block",
-                                      }}
-                                    />
-                                  </div>
-                                )}
-
-                                <div>
-                                  <h3
-                                    style={{
-                                      margin: "0 0 0.25rem 0",
-                                    }}
-                                  >
-                                    {set.name || "Unknown set"}
-                                  </h3>
-                                  <p style={{ margin: 0, color: "#555" }}>
-                                    <strong>{set.set_num}</strong>
-                                    {set.year && <> · {set.year}</>}
-                                  </p>
-                                  {set.theme && (
-                                    <p style={{ margin: 0, color: "#777" }}>{set.theme}</p>
-                                  )}
-                                  {set.pieces && (
-                                    <p style={{ margin: 0, color: "#777" }}>
-                                      {set.pieces} pieces
-                                    </p>
-                                  )}
-                                </div>
-                              </Link>
-
-                              {/* Owned / Wishlist buttons */}
-                              <div
-                                style={{
-                                  marginTop: "0.5rem",
-                                  display: "flex",
-                                  gap: "0.5rem",
-                                }}
-                              >
-                                <button
-                                  onClick={() => handleMarkOwned(set.set_num)}
-                                  style={{
-                                    flex: 1,
-                                    padding: "0.4rem 0.6rem",
-                                    borderRadius: "999px",
-                                    border: isOwned ? "none" : "1px solid #ccc",
-                                    backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
-                                    color: isOwned ? "white" : "#333",
-                                    fontWeight: isOwned ? "600" : "500",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  {isOwned ? "Owned ✓" : "Mark Owned"}
-                                </button>
-
-                                <button
-                                  onClick={() => handleAddWishlist(set.set_num)}
-                                  style={{
-                                    flex: 1,
-                                    padding: "0.4rem 0.6rem",
-                                    borderRadius: "999px",
-                                    border: isInWishlist ? "none" : "1px solid #ccc",
-                                    backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
-                                    color: isInWishlist ? "white" : "#333",
-                                    fontWeight: isInWishlist ? "600" : "500",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
-                                </button>
-                              </div>
-                            </li>
+                              set={set}
+                              isOwned={isOwned}
+                              isInWishlist={isInWishlist}
+                              onMarkOwned={handleMarkOwned}
+                              onAddWishlist={handleAddWishlist}
+                            />
                           );
                         })}
                       </ul>
