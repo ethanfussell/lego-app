@@ -9,6 +9,7 @@ import Pagination from "./Pagination";
 import { Routes, Route, Link } from "react-router-dom";
 import SetDetailPage from"./SetDetailPage";
 import SetCard from "./SetCard";
+import ListDetailPage from "./ListDetailPage";
 
 // Your backend base URL
 const API_BASE = "http://localhost:8000";
@@ -281,33 +282,32 @@ function App() {
   }
 
   // -------------------------------
-  // PUBLIC LISTS: fetch on load
+  // PUBLIC LISTS: fetch helper + on load
   // -------------------------------
-  useEffect(() => {
-    async function fetchPublicLists() {
-      try {
-        setLoading(true);
-        setError(null);
+  async function loadPublicLists() {
+    try {
+      setLoading(true);
+      setError(null);
 
-        const resp = await fetch(`${API_BASE}/lists/public`);
+      const resp = await fetch(`${API_BASE}/lists/public`);
 
-        if (!resp.ok) {
-          throw new Error(`Request failed with status ${resp.status}`);
-        }
-
-        const data = await resp.json();
-        setLists(data);
-      } catch (err) {
-        console.error("Error fetching public lists:", err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (!resp.ok) {
+        throw new Error(`Request failed with status ${resp.status}`);
       }
+
+      const data = await resp.json();
+      setLists(data);
+    } catch (err) {
+      console.error("Error fetching public lists:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
+  }
 
-    fetchPublicLists();
+  useEffect(() => {
+    loadPublicLists();
   }, []);
-
   
   // -------------------------------
   // "MY LISTS": fetch when token changes
@@ -425,7 +425,7 @@ function App() {
         is_public: newListIsPublic,
       };
 
-      const resp = await fetch(`${API_BASE}/lists`, {
+      const resp = await fetch(`${API_BASE}/lists/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -452,12 +452,19 @@ function App() {
         updated_at: created.updated_at,
       };
 
+      // Update "My Lists" panel
       setMyLists((prev) => [summary, ...prev]);
 
+      // Clear form
       setNewListTitle("");
       setNewListDescription("");
       setNewListIsPublic(true);
       setShowCreateForm(false);
+
+      // 🔁 NEW: if this list is public, refresh the Public Lists page data
+      if (summary.is_public) {
+        await loadPublicLists();
+      }
     } catch (err) {
       console.error("Error creating list:", err);
       setCreateError(err.message);
@@ -465,7 +472,6 @@ function App() {
       setCreateLoading(false);
     }
   }
-
   // -------------------------------
   // COLLECTION MUTATIONS (owned / wishlist) - TOGGLE
   // -------------------------------
@@ -735,108 +741,171 @@ function App() {
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
-      {/* ========================== TOP NAV ========================== */}
+     
+     {/* ========================== TOP NAV ========================== */}
       <nav
         style={{
           display: "flex",
-          gap: "1rem",
+          alignItems: "center",
           padding: "1rem",
           borderBottom: "1px solid #ddd",
           marginBottom: "1.5rem",
-          alignItems: "center",
+          gap: "1rem",
         }}
       >
-        <Link
-          to="/"
+        {/* LEFT: main nav links */}
+        <div
           style={{
-            padding: "0.5rem 1rem",
-            cursor: "pointer",
-            textDecoration: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
           }}
         >
-          🌍 Public Lists
-        </Link>
-
-        <Link
-          to="/login"
-          style={{
-            padding: "0.5rem 1rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          🔐 Login / My Lists
-        </Link>
-
-        {/* Search bar */}
-        <form
-          onSubmit={handleSearchSubmit}
-          style={{ position: "relative", marginLeft: "1rem" }}
-        >
-          <input
-            type="text"
-            placeholder="Search sets..."
-            value={searchText}
-            onChange={handleSearchChange}
-            onBlur={handleSearchBlur}
+          <Link
+            to="/"
             style={{
-              padding: "0.5rem",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-              width: "220px",
-            }}
-          />
-
-          {showSuggestions && suggestions.length > 0 && (
-            <ul
-              style={{
-                position: "absolute",
-                top: "110%",
-                left: 0,
-                right: 0,
-                background: "white",
-                border: "1px solid #ddd",
-                borderRadius: "6px",
-                listStyle: "none",
-                margin: 0,
-                padding: "0.25rem 0",
-                zIndex: 20,
-                maxHeight: "240px",
-                overflowY: "auto",
-              }}
-            >
-              {suggestions.map((s) => (
-                <li
-                  key={s.set_num}
-                  onMouseDown={() => handleSuggestionClick(s)}
-                  style={{
-                    padding: "0.5rem 0.75rem",
-                    cursor: "pointer",
-                    borderBottom: "1px solid #eee",
-                  }}
-                >
-                  <strong>{s.name}</strong>
-                  <div style={{ fontSize: "0.8rem", color: "#666" }}>
-                    {s.set_num} • {s.year}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </form>
-
-        {token && (
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: "0.5rem 1rem",
+              padding: "0.5rem 0.9rem",
               cursor: "pointer",
-              marginLeft: "auto",
+              textDecoration: "none",
+            }}
+            onClick={() => setPage("public")}
+          >
+            🏠 Home
+          </Link>
+
+          <Link
+            to="/journal"
+            style={{
+              padding: "0.5rem 0.9rem",
+              cursor: "pointer",
+              textDecoration: "none",
             }}
           >
-            Log out
-          </button>
-        )}
+            📓 Journal
+          </Link>
+
+          <Link
+            to="/feed"
+            style={{
+              padding: "0.5rem 0.9rem",
+              cursor: "pointer",
+              textDecoration: "none",
+            }}
+          >
+            📡 Feed
+          </Link>
+        </div>
+
+        {/* RIGHT: search + auth */}
+        <div
+          style={{
+            marginLeft: "auto",          // push this whole group to the right
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+          }}
+        >
+          {/* Search bar */}
+          <form
+            onSubmit={handleSearchSubmit}
+            style={{ position: "relative" }}
+          >
+            <input
+              type="text"
+              placeholder="Search sets..."
+              value={searchText}
+              onChange={handleSearchChange}
+              onBlur={handleSearchBlur}
+              style={{
+                padding: "0.5rem",
+                borderRadius: "6px",
+                border: "1px solid #ccc",
+                width: "220px",
+              }}
+            />
+
+            {showSuggestions && suggestions.length > 0 && (
+              <ul
+                style={{
+                  position: "absolute",
+                  top: "110%",
+                  left: 0,
+                  right: 0,
+                  background: "white",
+                  border: "1px solid #ddd",
+                  borderRadius: "6px",
+                  listStyle: "none",
+                  margin: 0,
+                  padding: "0.25rem 0",
+                  zIndex: 20,
+                  maxHeight: "240px",
+                  overflowY: "auto",
+                }}
+              >
+                {suggestions.map((s) => (
+                  <li
+                    key={s.set_num}
+                    onMouseDown={() => handleSuggestionClick(s)}
+                    style={{
+                      padding: "0.5rem 0.75rem",
+                      cursor: "pointer",
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    <strong>{s.name}</strong>
+                    <div style={{ fontSize: "0.8rem", color: "#666" }}>
+                      {s.set_num} • {s.year}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </form>
+
+          {/* Auth / lists links */}
+          {!token && (
+            <Link
+              to="/login"
+              style={{
+                padding: "0.5rem 0.9rem",
+                cursor: "pointer",
+                textDecoration: "none",
+              }}
+              onClick={() => setPage("login")}
+            >
+              🔐 Login
+            </Link>
+          )}
+
+          {token && (
+            <>
+              <Link
+                to="/login"
+                style={{
+                  padding: "0.5rem 0.9rem",
+                  cursor: "pointer",
+                  textDecoration: "none",
+                }}
+                onClick={() => setPage("login")}
+              >
+                📋 My Lists
+              </Link>
+
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: "0.4rem 0.9rem",
+                  cursor: "pointer",
+                  borderRadius: "999px",
+                  border: "1px solid #ddd",
+                  background: "white",
+                }}
+              >
+                Log out
+              </button>
+            </>
+          )}
+        </div>
       </nav>
 
       {/* ========================== MAIN CONTENT (ROUTED) ========================== */}
@@ -872,7 +941,14 @@ function App() {
                           marginBottom: "1rem",
                         }}
                       >
-                        <h2>{list.title}</h2>
+                        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>
+                          <Link
+                            to={`/lists/${list.id}`}
+                            style={{ textDecoration: "none", color: "inherit" }}
+                          >
+                            {list.title}
+                          </Link>
+                        </h2>
                         <p>
                           Owner: <strong>{list.owner}</strong>
                         </p>
@@ -892,6 +968,15 @@ function App() {
             }
           />
 
+          <Route
+            path="/journal"
+            element={
+              <div>
+                <h1>Journal</h1>
+                <p style={{ color: "#666" }}>Journal page coming soon.</p>
+              </div>
+            }
+          />
           {/* -------- SEARCH RESULTS PAGE -------- */}
           <Route
             path="/search"
@@ -1005,6 +1090,20 @@ function App() {
             }
           />
 
+          {/* -------- LIST DETAIL PAGE -------- */}
+          <Route
+            path="/lists/:listId"
+            element={
+              <ListDetailPage
+                token={token}
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            }
+          />
+
           {/* -------- LOGIN / ACCOUNT PAGE -------- */}
           <Route
             path="/login"
@@ -1040,17 +1139,15 @@ function App() {
                     >
                       <h2 style={{ margin: 0 }}>My Lists</h2>
 
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <button
-                          onClick={() => setShowCreateForm((prev) => !prev)}
-                          style={{
-                            padding: "0.4rem 0.8rem",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {showCreateForm ? "Cancel" : "➕ Create New List"}
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setShowCreateForm((prev) => !prev)}
+                        style={{
+                          padding: "0.4rem 0.8rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {showCreateForm ? "Cancel" : "➕ Create New List"}
+                      </button>
                     </div>
 
                     {/* Optional: small summary line */}
@@ -1059,106 +1156,6 @@ function App() {
                       <strong>{wishlist.length}</strong> · Custom lists:{" "}
                       <strong>{myLists.length}</strong>
                     </p>
-
-                    {/* Create new list form */}
-                    {showCreateForm && (
-                      <section
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: "8px",
-                          padding: "1rem",
-                          marginBottom: "1.5rem",
-                          background: "#fafafa",
-                        }}
-                      >
-                        <h3>Create a New List</h3>
-                        <p style={{ color: "#666", marginTop: 0 }}>
-                          This will call <code>POST /lists</code> with your token.
-                        </p>
-
-                        <form onSubmit={handleCreateList}>
-                          <div style={{ marginBottom: "0.75rem" }}>
-                            <label
-                              style={{
-                                display: "block",
-                                marginBottom: "0.25rem",
-                              }}
-                            >
-                              Title (required)
-                            </label>
-                            <input
-                              type="text"
-                              value={newListTitle}
-                              onChange={(e) => setNewListTitle(e.target.value)}
-                              style={{
-                                width: "100%",
-                                padding: "0.5rem",
-                                borderRadius: "4px",
-                                border: "1px solid #ccc",
-                              }}
-                              placeholder="e.g. Favorite Castle Sets"
-                            />
-                          </div>
-
-                          <div style={{ marginBottom: "0.75rem" }}>
-                            <label
-                              style={{
-                                display: "block",
-                                marginBottom: "0.25rem",
-                              }}
-                            >
-                              Description (optional)
-                            </label>
-                            <textarea
-                              value={newListDescription}
-                              onChange={(e) => setNewListDescription(e.target.value)}
-                              style={{
-                                width: "100%",
-                                padding: "0.5rem",
-                                borderRadius: "4px",
-                                border: "1px solid #ccc",
-                                minHeight: "60px",
-                              }}
-                              placeholder="Describe this list..."
-                            />
-                          </div>
-
-                          <div style={{ marginBottom: "0.75rem" }}>
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={newListIsPublic}
-                                onChange={(e) => setNewListIsPublic(e.target.checked)}
-                                style={{ marginRight: "0.5rem" }}
-                              />
-                              Public list?
-                            </label>
-                          </div>
-
-                          {createError && (
-                            <p
-                              style={{
-                                color: "red",
-                                marginBottom: "0.5rem",
-                              }}
-                            >
-                              {createError}
-                            </p>
-                          )}
-
-                          <button
-                            type="submit"
-                            disabled={createLoading}
-                            style={{
-                              padding: "0.5rem 1rem",
-                              cursor: createLoading ? "default" : "pointer",
-                            }}
-                          >
-                            {createLoading ? "Creating..." : "Create List"}
-                          </button>
-                        </form>
-                      </section>
-                    )}
 
                     {/* Unified "My Lists" grid: Owned, Wishlist, Custom Lists */}
                     <section
@@ -1292,7 +1289,9 @@ function App() {
                           )}
 
                           {!myListsLoading && !myListsError && myLists.length > 0 && (
-                            <ul style={{ listStyle: "none", padding: 0, marginTop: 0 }}>
+                            <ul
+                              style={{ listStyle: "none", padding: 0, marginTop: 0 }}
+                            >
                               {myLists.map((list) => (
                                 <li
                                   key={list.id}
@@ -1331,6 +1330,105 @@ function App() {
                       </div>
                     </section>
 
+                    {/* Create new list form — now at the bottom, only when toggled */}
+                    {showCreateForm && (
+                      <section
+                        style={{
+                          border: "1px solid #ddd",
+                          borderRadius: "8px",
+                          padding: "1rem",
+                          marginBottom: "1.5rem",
+                          background: "#fafafa",
+                        }}
+                      >
+                        <h3 style={{ marginTop: 0 }}>Create a New List</h3>
+
+                        <form onSubmit={handleCreateList}>
+                          <div style={{ marginBottom: "0.75rem" }}>
+                            <label
+                              style={{
+                                display: "block",
+                                marginBottom: "0.25rem",
+                              }}
+                            >
+                              Title (required)
+                            </label>
+                            <input
+                              type="text"
+                              value={newListTitle}
+                              onChange={(e) => setNewListTitle(e.target.value)}
+                              style={{
+                                width: "100%",
+                                padding: "0.5rem",
+                                borderRadius: "4px",
+                                border: "1px solid #ccc",
+                              }}
+                              placeholder="e.g. Favorite Castle Sets"
+                            />
+                          </div>
+
+                          <div style={{ marginBottom: "0.75rem" }}>
+                            <label
+                              style={{
+                                display: "block",
+                                marginBottom: "0.25rem",
+                              }}
+                            >
+                              Description (optional)
+                            </label>
+                            <textarea
+                              value={newListDescription}
+                              onChange={(e) => setNewListDescription(e.target.value)}
+                              style={{
+                                width: "100%",
+                                padding: "0.5rem",
+                                borderRadius: "4px",
+                                border: "1px solid #ccc",
+                                minHeight: "60px",
+                              }}
+                              placeholder="Describe this list..."
+                            />
+                          </div>
+
+                          <div style={{ marginBottom: "0.75rem" }}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={newListIsPublic}
+                                onChange={(e) =>
+                                  setNewListIsPublic(e.target.checked)
+                                }
+                                style={{ marginRight: "0.5rem" }}
+                              />
+                              Public list?
+                            </label>
+                          </div>
+
+                          {createError && (
+                            <p
+                              style={{
+                                color: "red",
+                                marginBottom: "0.5rem",
+                              }}
+                            >
+                              {createError}
+                            </p>
+                          )}
+
+                          <button
+                            type="submit"
+                            disabled={createLoading}
+                            style={{
+                              padding: "0.5rem 1rem",
+                              cursor: createLoading ? "default" : "pointer",
+                            }}
+                          >
+                            {createLoading ? "Creating..." : "Create List"}
+                          </button>
+                        </form>
+                      </section>
+                    )}
+
                     {!myListsLoading && !myListsError && (
                       <p
                         style={{
@@ -1359,6 +1457,7 @@ function App() {
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
                 onEnsureOwned={ensureOwned} 
+                myLists={myLists}
               />
             }
           />

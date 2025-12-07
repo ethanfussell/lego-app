@@ -20,6 +20,8 @@ function SetDetailPage({
   wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
+  onEnsureOwned,
+  myLists,
 }) {
   const { setNum } = useParams();
   const navigate = useNavigate();
@@ -64,6 +66,27 @@ function SetDetailPage({
   // Derived collection state from parent
   const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
   const isInWishlist = wishlistSetNums ? wishlistSetNums.has(setNum) : false;
+
+  // -------------------------------
+  // Custom lists (add this set to a list)
+  // -------------------------------
+  const [selectedListId, setSelectedListId] = useState(
+    myLists && myLists.length > 0 ? myLists[0].id : ""
+  );
+  const [listError, setListError] = useState("");
+  const [listSuccess, setListSuccess] = useState("");
+
+  // Keep selectedListId in sync when myLists changes
+  useEffect(() => {
+    if (myLists && myLists.length > 0) {
+      setSelectedListId((prev) => {
+        const stillExists = myLists.some((lst) => lst.id === prev);
+        return stillExists ? prev : myLists[0].id;
+      });
+    } else {
+      setSelectedListId("");
+    }
+  }, [myLists]);
 
   // -------------------------------
   // Load set detail + reviews
@@ -210,15 +233,12 @@ function SetDetailPage({
       setSavingRating(true);
       setRatingError(null);
 
-      const resp = await fetch(
-        `${API_BASE}/sets/${setNum}/reviews/me`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${effectiveToken}`,
-          },
-        }
-      );
+      const resp = await fetch(`${API_BASE}/sets/${setNum}/reviews/me`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${effectiveToken}`,
+        },
+      });
 
       if (!resp.ok && resp.status !== 404) {
         const text = await resp.text();
@@ -291,8 +311,11 @@ function SetDetailPage({
       // Ensure UI rating matches
       setUserRating(numericRating);
 
-      // Also mark this set as owned (but don't un-own on changes)
-      if (typeof onMarkOwned === "function" && !isOwned) {
+      // Also mark this set as owned (but never un-own on rating changes)
+      if (typeof onEnsureOwned === "function") {
+        onEnsureOwned(setNum);
+      } else if (typeof onMarkOwned === "function" && !isOwned) {
+        // fallback if onEnsureOwned isn't provided
         onMarkOwned(setNum);
       }
     } catch (err) {
@@ -379,6 +402,58 @@ function SetDetailPage({
       setReviewSubmitError(err.message || String(err));
     } finally {
       setReviewSubmitting(false);
+    }
+  }
+
+  // -------------------------------
+  // Add this set to a custom list
+  // -------------------------------
+  async function handleAddToCustomList() {
+    setListError("");
+    setListSuccess("");
+
+    if (!isLoggedIn) {
+      setListError("You must be logged in to add to a list.");
+      navigate("/login");
+      return;
+    }
+
+    if (!selectedListId) {
+      setListError("Choose a list first.");
+      return;
+    }
+
+    if (!setNum) {
+      setListError("Set info not loaded yet.");
+      return;
+    }
+
+    try {
+      const resp = await fetch(
+        `${API_BASE}/lists/${selectedListId}/items`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${effectiveToken}`,
+          },
+          body: JSON.stringify({ set_num: setNum }),
+        }
+      );
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        if (resp.status === 409) {
+          setListError("This set is already in that list.");
+          return;
+        }
+        throw new Error(`Failed to add to list (${resp.status}): ${text}`);
+      }
+
+      setListSuccess("Added to list!");
+    } catch (err) {
+      console.error("Error adding to custom list:", err);
+      setListError(err.message || String(err));
     }
   }
 
@@ -579,6 +654,96 @@ function SetDetailPage({
                 {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
               </button>
             </div>
+
+            {/* ADD TO CUSTOM LIST */}
+            {isLoggedIn && myLists && myLists.length > 0 && (
+              <section
+                style={{
+                  padding: "0.75rem 0.9rem",
+                  borderRadius: "8px",
+                  border: "1px solid #eee",
+                  background: "#fdfdfd",
+                }}
+              >
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>Add this set to a list</strong>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <select
+                    value={selectedListId || ""}
+                    onChange={(e) =>
+                      setSelectedListId(parseInt(e.target.value, 10))
+                    }
+                    style={{
+                      padding: "0.3rem 0.4rem",
+                      borderRadius: "4px",
+                      border: "1px solid #ccc",
+                      minWidth: "180px",
+                    }}
+                  >
+                    {myLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.title} {list.is_public ? "(Public)" : "(Private)"}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={handleAddToCustomList}
+                    style={{
+                      padding: "0.35rem 0.9rem",
+                      borderRadius: "999px",
+                      border: "none",
+                      background: "#1f883d",
+                      color: "white",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Add to List
+                  </button>
+                </div>
+
+                {listError && (
+                  <p
+                    style={{
+                      color: "red",
+                      marginTop: "0.4rem",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    {listError}
+                  </p>
+                )}
+                {listSuccess && (
+                  <p
+                    style={{
+                      color: "green",
+                      marginTop: "0.4rem",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    {listSuccess}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {isLoggedIn && myLists && myLists.length === 0 && (
+              <p style={{ fontSize: "0.85rem", color: "#777" }}>
+                You don&apos;t have any custom lists yet. Create one on the
+                Account page to add sets.
+              </p>
+            )}
 
             {/* YOUR RATING */}
             <div

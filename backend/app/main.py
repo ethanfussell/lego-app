@@ -40,7 +40,7 @@ app.include_router(
 )
 
 # Custom lists
-app.include_router(lists_router.router, prefix="/lists", tags=["lists"])
+app.include_router(lists_router.router, tags=["lists"])
 
 # Users
 app.include_router(users_router.router, tags=["users"])
