@@ -1,160 +1,226 @@
-// We import React + hooks:
-// - useState → store values and trigger re-renders
-// - useEffect → run side-effect code (like API calls)
-// - useRef → keep a mutable value between renders (for debounce timer)
+// src/App.js
+// Main React app for LEGO tracker
+
 import React, { useEffect, useState, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
+
 import Login from "./Login";
 import Pagination from "./Pagination";
-import { Routes, Route, Link } from "react-router-dom";
-import SetDetailPage from"./SetDetailPage";
+import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
 
-// Your backend base URL
 const API_BASE = "http://localhost:8000";
 
-// Reusable horizontal row for Featured / Deals / Retiring
-function HomeSectionRow({ title, subtitle, sets, variant = "dealRow", seeMoreHref }) {
-  if (!sets || sets.length === 0) {
-    return null; // nothing to show yet
-  }
+/* -------------------------------------------------------
+   Reusable horizontal row of SetCards
+-------------------------------------------------------- */
+function SetRow({
+  title,
+  sets,
+  ownedSetNums = new Set(),
+  wishlistSetNums = new Set(),
+  onMarkOwned,
+  onAddWishlist,
+}) {
+  if (!sets || sets.length === 0) return null;
 
   return (
-    <section style={{ marginTop: "2rem" }}>
+    <section style={{ marginBottom: "1.75rem" }}>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "baseline",
           marginBottom: "0.5rem",
-          gap: "1rem",
         }}
       >
-        <div>
-          <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
-          {subtitle && (
-            <p
-              style={{
-                margin: "0.15rem 0 0 0",
-                fontSize: "0.9rem",
-                color: "#666",
-              }}
-            >
-              {subtitle}
-            </p>
-          )}
-        </div>
-
-        {seeMoreHref && (
-          <Link
-            to={seeMoreHref}
-            style={{
-              fontSize: "0.85rem",
-              textDecoration: "none",
-              padding: "0.25rem 0.6rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-            }}
-          >
-            View all →
-          </Link>
-        )}
+        <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
       </div>
 
-      <ul
+      <div
         style={{
-          listStyle: "none",
-          padding: 0,
-          margin: 0,
-          display: "grid",
-          gridAutoFlow: "column",
-          gridAutoColumns: "minmax(220px, 1fr)",
-          columnGap: "1rem",
           overflowX: "auto",
-          paddingBottom: "0.25rem",
+          paddingBottom: "0.5rem",
         }}
       >
-        {sets.map((set) => (
-          <SetCard key={set.set_num} set={set} variant={variant} />
-        ))}
-      </ul>
+        <ul
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+          }}
+        >
+          {sets.map((set) => (
+            <li
+              key={set.set_num}
+              style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}
+            >
+              <SetCard
+                set={set}
+                isOwned={ownedSetNums.has(set.set_num)}
+                isInWishlist={wishlistSetNums.has(set.set_num)}
+                onMarkOwned={onMarkOwned}
+                onAddWishlist={onAddWishlist}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }
 
-// Main Home page layout
-function HomePage({ featuredSets, dealsSets, retiringSets, loading, error }) {
+/* -------------------------------------------------------
+   Home page: hero + 4 sections
+-------------------------------------------------------- */
+function HomePage({
+  ownedSetNums,
+  wishlistSetNums,
+  onMarkOwned,
+  onAddWishlist,
+}) {
+  const [featuredSets, setFeaturedSets] = useState([]);
+  const [dealsSets, setDealsSets] = useState([]);
+  const [retiringSets, setRetiringSets] = useState([]);
+  const [trendingSets, setTrendingSets] = useState([]);
+  const [homeLoading, setHomeLoading] = useState(false);
+  const [homeError, setHomeError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchHomeSets() {
+      try {
+        setHomeLoading(true);
+        setHomeError(null);
+
+        const params = new URLSearchParams();
+        params.set("q", "lego"); // generic search term
+        params.set("sort", "rating");
+        params.set("order", "desc");
+        params.set("page", "1");
+        params.set("limit", "40");
+
+        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Home feed failed (${resp.status}): ${text}`);
+        }
+
+        const data = await resp.json();
+        const items = Array.isArray(data) ? data : data.results || [];
+
+        if (cancelled) return;
+
+        setFeaturedSets(items.slice(0, 8));
+        setDealsSets(items.slice(8, 16));
+        setRetiringSets(items.slice(16, 24));
+        setTrendingSets(items.slice(24, 32));
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Error loading home sets:", err);
+          setHomeError(err.message || String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setHomeLoading(false);
+        }
+      }
+    }
+
+    fetchHomeSets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div>
       {/* Hero / intro */}
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: "0 0 0.5rem 0" }}>
-          Track your LEGO sets, prices & wishlists.
-        </h1>
-        <p style={{ margin: 0, color: "#555", maxWidth: "520px" }}>
-          Search every LEGO set ever made, log what you own, monitor price
-          drops, and share lists with other collectors.
+      <section style={{ marginBottom: "2rem" }}>
+        <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Track your LEGO world</h1>
+        <p style={{ marginTop: "0.5rem", color: "#666", maxWidth: "560px" }}>
+          Log your collection, wishlist, and reviews. Discover deals, sets
+          retiring soon, and what&apos;s trending with other fans.
         </p>
       </section>
 
-      {loading && <p>Loading sets for your home feed…</p>}
-      {error && !loading && (
-        <p style={{ color: "red" }}>Error loading home sections: {error}</p>
+      {homeLoading && <p>Loading sets…</p>}
+      {homeError && (
+        <p style={{ color: "red" }}>Error loading homepage: {homeError}</p>
       )}
 
-      {/* Even if there was an error, try rendering whatever data we do have */}
-
-      <HomeSectionRow
-        title="Featured sets"
-        subtitle="Highlighted picks and iconic builds."
+      {/* Rows – they hide themselves if their set list is empty */}
+      <SetRow
+        title="Featured Sets"
         sets={featuredSets}
-        variant="dealRow"
-        seeMoreHref="/explore"
+        ownedSetNums={ownedSetNums}
+        wishlistSetNums={wishlistSetNums}
+        onMarkOwned={onMarkOwned}
+        onAddWishlist={onAddWishlist}
       />
 
-      <HomeSectionRow
-        title="Deals & price drops"
-        subtitle="Potential bargains and discounted sets."
+      <SetRow
+        title="Deals & Price Drops"
         sets={dealsSets}
-        variant="dealRow"
-        seeMoreHref="/explore"
+        ownedSetNums={ownedSetNums}
+        wishlistSetNums={wishlistSetNums}
+        onMarkOwned={onMarkOwned}
+        onAddWishlist={onAddWishlist}
       />
 
-      <HomeSectionRow
-        title="Retiring soon"
-        subtitle="Last chance to pick these up."
+      <SetRow
+        title="Retiring Soon"
         sets={retiringSets}
-        variant="dealRow"
-        seeMoreHref="/explore"
+        ownedSetNums={ownedSetNums}
+        wishlistSetNums={wishlistSetNums}
+        onMarkOwned={onMarkOwned}
+        onAddWishlist={onAddWishlist}
+      />
+
+      <SetRow
+        title="Trending Right Now"
+        sets={trendingSets}
+        ownedSetNums={ownedSetNums}
+        wishlistSetNums={wishlistSetNums}
+        onMarkOwned={onMarkOwned}
+        onAddWishlist={onAddWishlist}
       />
     </div>
   );
 }
 
+/* -------------------------------------------------------
+   Main App
+-------------------------------------------------------- */
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
+
   // -------------------------------
-  // PUBLIC LISTS STATE
+  // Public lists (Explore page)
   // -------------------------------
   const [lists, setLists] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [publicLoading, setPublicLoading] = useState(true);
+  const [publicError, setPublicError] = useState(null);
 
   // -------------------------------
-  // GLOBAL UI STATE
+  // Global UI state
   // -------------------------------
-  // Which "page" the user is on: "public", "login", or "search"
-  const [page, setPage] = useState("public");
+  const [page, setPage] = useState("home"); // "home", "search", "login", etc.
 
-  // Auth token from login
+  // Auth token
   const [token, setToken] = useState(() => {
-      return localStorage.getItem("lego_token") || "";
+    return localStorage.getItem("lego_token") || "";
   });
 
   // -------------------------------
-  // SEARCH BAR STATE (text + suggestions)
+  // Search bar + suggestions
   // -------------------------------
   const [searchText, setSearchText] = useState("");
   const [suggestions, setSuggestions] = useState([]);
@@ -164,29 +230,14 @@ function App() {
   const searchDebounceRef = useRef(null);
 
   // -------------------------------
-  // "MY LISTS" (AUTHED) STATE
+  // My Lists (authed)
   // -------------------------------
   const [myLists, setMyLists] = useState([]);
   const [myListsLoading, setMyListsLoading] = useState(false);
   const [myListsError, setMyListsError] = useState(null);
 
   // -------------------------------
-  // LOGIN
-  // -------------------------------
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-
-  // -------------------------------
-  // HOME PAGE SECTIONS (Featured / Deals / Retiring)
-  // -------------------------------
-  const [homeFeaturedSets, setHomeFeaturedSets] = useState([]);
-  const [homeDealsSets, setHomeDealsSets] = useState([]);
-  const [homeRetiringSets, setHomeRetiringSets] = useState([]);
-  const [homeLoading, setHomeLoading] = useState(false);
-  const [homeError, setHomeError] = useState(null);
-
-  // -------------------------------
-  // CREATE-LIST FORM STATE
+  // Create-list form
   // -------------------------------
   const [newListTitle, setNewListTitle] = useState("");
   const [newListDescription, setNewListDescription] = useState("");
@@ -196,7 +247,7 @@ function App() {
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   // -------------------------------
-  // COLLECTIONS (Owned / Wishlist) STATE
+  // Collections (Owned / Wishlist)
   // -------------------------------
   const [owned, setOwned] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -204,22 +255,18 @@ function App() {
   const [collectionsError, setCollectionsError] = useState(null);
 
   // -------------------------------
-  // SEARCH STATE (results page)
+  // Search results state
   // -------------------------------
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
-
-  // backend supports: relevance | name | year | pieces | rating
   const [searchSort, setSearchSort] = useState("relevance");
-
-  // Pagination state for search results
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
-  const searchLimit = 50; // page size
+  const searchLimit = 50;
 
-  // keep token in localStorage
+  // Persist token in localStorage
   useEffect(() => {
     if (token) {
       localStorage.setItem("lego_token", token);
@@ -228,51 +275,19 @@ function App() {
     }
   }, [token]);
 
-  // -------------------------------
-  // Helpers
-  // -------------------------------
-
-  function getPageNumbers(current, total) {
-    const pages = [];
-
-    if (total <= 7) {
-      for (let i = 1; i <= total; i++) {
-        pages.push(i);
-      }
-      return pages;
-    }
-
-    // Near the beginning
-    if (current <= 4) {
-      pages.push(1, 2, 3, 4, "...", total);
-      return pages;
-    }
-
-    // Near the end
-    if (current >= total - 3) {
-      pages.push(1, "...", total - 3, total - 2, total - 1, total);
-      return pages;
-    }
-
-    // In the middle
-    pages.push(1, "...", current - 1, current, current + 1, "...", total);
-    return pages;
-  }
-
+  /* -------------------------------
+     Helpers
+  --------------------------------*/
   function getOrderForSort(sortKey) {
-    // rating / pieces / year: highest / newest first
-    // relevance: best match first
-    // name: A–Z
     if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") {
       return "desc";
     }
     return "asc";
   }
 
-  // -------------------------------
-  // SUGGESTIONS: handlers + debounced effect
-  // -------------------------------
-
+  /* -------------------------------
+     Search suggestions
+  --------------------------------*/
   function handleSearchChange(e) {
     const value = e.target.value;
     setSearchText(value);
@@ -299,7 +314,8 @@ function App() {
     setShowSuggestions(false);
     setPage("search");
     setSearchQuery(term);
-    // Optionally you could auto-run a search here too if you want
+    navigate("/search");
+    runSearch(term, searchSort, 1);
   }
 
   useEffect(() => {
@@ -350,50 +366,9 @@ function App() {
     };
   }, [searchText]);
 
-
-  // -------------------------------
-  // HOME PAGE: load a curated slice of sets once
-  // -------------------------------
-  useEffect(() => {
-    async function loadHomeSections() {
-      try {
-        setHomeLoading(true);
-        setHomeError(null);
-
-        const params = new URLSearchParams();
-        params.set("q", "lego");      // generic query, just to get a good spread
-        params.set("sort", "rating"); // highest-rated first
-        params.set("order", "desc");
-        params.set("page", "1");
-        params.set("limit", "30");    // we’ll slice this into 3 rows of 10
-
-        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
-
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Home sets fetch failed (${resp.status}): ${text}`);
-        }
-
-        const data = await resp.json();
-        const items = Array.isArray(data) ? data : data.results || [];
-
-        setHomeFeaturedSets(items.slice(0, 10));
-        setHomeDealsSets(items.slice(10, 20));
-        setHomeRetiringSets(items.slice(20, 30));
-      } catch (err) {
-        console.error("Error loading home sections:", err);
-        setHomeError(err.message || String(err));
-      } finally {
-        setHomeLoading(false);
-      }
-    }
-
-    loadHomeSections();
-  }, []);
-
-  // -------------------------------
-  // LOAD OWNED + WISHLIST WHEN TOKEN CHANGES
-  // -------------------------------
+  /* -------------------------------
+     Load collections on token change
+  --------------------------------*/
   useEffect(() => {
     if (!token) {
       setOwned([]);
@@ -449,13 +424,13 @@ function App() {
     }
   }
 
-  // -------------------------------
-  // PUBLIC LISTS: fetch helper + on load
-  // -------------------------------
+  /* -------------------------------
+     Public lists (Explore)
+  --------------------------------*/
   async function loadPublicLists() {
     try {
-      setLoading(true);
-      setError(null);
+      setPublicLoading(true);
+      setPublicError(null);
 
       const resp = await fetch(`${API_BASE}/lists/public`);
 
@@ -467,19 +442,19 @@ function App() {
       setLists(data);
     } catch (err) {
       console.error("Error fetching public lists:", err);
-      setError(err.message);
+      setPublicError(err.message);
     } finally {
-      setLoading(false);
+      setPublicLoading(false);
     }
   }
 
   useEffect(() => {
     loadPublicLists();
   }, []);
-  
-  // -------------------------------
-  // "MY LISTS": fetch when token changes
-  // -------------------------------
+
+  /* -------------------------------
+     My lists (authed)
+  --------------------------------*/
   useEffect(() => {
     if (!token) {
       setMyLists([]);
@@ -490,22 +465,19 @@ function App() {
       try {
         setMyListsLoading(true);
         setMyListsError(null);
-  
+
         const resp = await fetch(`${API_BASE}/lists/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-  
+
         if (!resp.ok) {
-          // Treat "no lists yet" (404) as an empty list, not an error
           if (resp.status === 404) {
             setMyLists([]);
             return;
           }
-  
-          // Other statuses are real errors
           throw new Error(`Failed to load your lists (status ${resp.status})`);
         }
-  
+
         const data = await resp.json();
         setMyLists(data);
       } catch (err) {
@@ -519,26 +491,24 @@ function App() {
     fetchMyLists();
   }, [token]);
 
-
+  /* -------------------------------
+     Keyboard: search page pgUp/PgDn via arrows
+  --------------------------------*/
   useEffect(() => {
-    // Only enable keyboard page navigation on the search page
     if (page !== "search" || searchResults.length === 0) {
       return;
     }
-  
+
     function handleKeyDown(e) {
-      // Don't hijack keys if user is typing in an input/textarea
       const tag = e.target.tagName.toLowerCase();
       if (tag === "input" || tag === "textarea") {
         return;
       }
-  
+
       if (e.key === "ArrowRight") {
         const totalPages =
-          searchTotal > 0
-            ? Math.ceil(searchTotal / searchLimit)
-            : 1;
-  
+          searchTotal > 0 ? Math.ceil(searchTotal / searchLimit) : 1;
+
         if (!searchLoading && searchPage < totalPages) {
           e.preventDefault();
           runSearch(searchQuery, searchSort, searchPage + 1);
@@ -550,12 +520,9 @@ function App() {
         }
       }
     }
-  
+
     window.addEventListener("keydown", handleKeyDown);
-  
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     page,
     searchResults.length,
@@ -565,11 +532,11 @@ function App() {
     searchPage,
     searchQuery,
     searchSort,
-  ]); // 👈 deps
+  ]);
 
-  // -------------------------------
-  // CREATE NEW LIST
-  // -------------------------------
+  /* -------------------------------
+     Create new list
+  --------------------------------*/
   async function handleCreateList(event) {
     event.preventDefault();
 
@@ -620,16 +587,13 @@ function App() {
         updated_at: created.updated_at,
       };
 
-      // Update "My Lists" panel
       setMyLists((prev) => [summary, ...prev]);
 
-      // Clear form
       setNewListTitle("");
       setNewListDescription("");
       setNewListIsPublic(true);
       setShowCreateForm(false);
 
-      // 🔁 NEW: if this list is public, refresh the Public Lists page data
       if (summary.is_public) {
         await loadPublicLists();
       }
@@ -640,9 +604,13 @@ function App() {
       setCreateLoading(false);
     }
   }
-  // -------------------------------
-  // COLLECTION MUTATIONS (owned / wishlist) - TOGGLE
-  // -------------------------------
+
+  /* -------------------------------
+     Collection mutations
+  --------------------------------*/
+  const ownedSetNums = new Set(owned.map((item) => item.set_num));
+  const wishlistSetNums = new Set(wishlist.map((item) => item.set_num));
+
   async function handleMarkOwned(setNum) {
     if (!token) {
       alert("Please log in to track your collection.");
@@ -655,7 +623,6 @@ function App() {
 
     try {
       if (alreadyOwned) {
-        // 🔁 REMOVE from Owned
         const resp = await fetch(
           `${API_BASE}/collections/owned/${encodeURIComponent(setNum)}`,
           {
@@ -666,7 +633,6 @@ function App() {
           }
         );
 
-        // Treat 404 as "already gone" (not a hard error)
         if (!resp.ok && resp.status !== 404) {
           const text = await resp.text();
           throw new Error(
@@ -674,26 +640,21 @@ function App() {
           );
         }
       } else {
-        // ➕ ADD to Owned
         const resp = await fetch(`${API_BASE}/collections/owned`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            set_num: setNum,
-          }),
+          body: JSON.stringify({ set_num: setNum }),
         });
 
-        // If backend returns 409 "already in owned", that's not fatal
         if (!resp.ok && resp.status !== 409) {
           const text = await resp.text();
           throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
         }
       }
 
-      // Refresh from backend so UI (search + account page) stays in sync
       await loadCollections(token);
     } catch (err) {
       console.error("Error toggling owned:", err);
@@ -713,7 +674,6 @@ function App() {
 
     try {
       if (alreadyInWishlist) {
-        // 🔁 REMOVE from Wishlist
         const resp = await fetch(
           `${API_BASE}/collections/wishlist/${encodeURIComponent(setNum)}`,
           {
@@ -731,16 +691,13 @@ function App() {
           );
         }
       } else {
-        // ➕ ADD to Wishlist
         const resp = await fetch(`${API_BASE}/collections/wishlist`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            set_num: setNum,
-          }),
+          body: JSON.stringify({ set_num: setNum }),
         });
 
         if (!resp.ok && resp.status !== 409) {
@@ -758,19 +715,11 @@ function App() {
     }
   }
 
-  // Only ADD to Owned if it's not there already (used by rating stars)
   async function ensureOwned(setNum) {
-    if (!token) {
-      // Stars already redirect / warn if not logged in
-      return;
-    }
+    if (!token) return;
 
-    // Is this set already in Owned?
     const alreadyOwned = owned.some((item) => item.set_num === setNum);
-    if (alreadyOwned) {
-      // do nothing – important: we DO NOT toggle it off
-      return;
-    }
+    if (alreadyOwned) return;
 
     try {
       const resp = await fetch(`${API_BASE}/collections/owned`, {
@@ -782,22 +731,20 @@ function App() {
         body: JSON.stringify({ set_num: setNum }),
       });
 
-      // 409 "already exists" is fine
       if (!resp.ok && resp.status !== 409) {
         const text = await resp.text();
         throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
       }
 
-      // Refresh collections so UI stays correct
       await loadCollections(token);
     } catch (err) {
       console.error("Error ensuring owned:", err);
     }
   }
 
-  // -------------------------------
-  // SEARCH: core function + handlers
-  // -------------------------------
+  /* -------------------------------
+     Search core
+  --------------------------------*/
   async function runSearch(query, sortKey = searchSort, pageNum = 1) {
     const trimmed = (query || "").trim();
     if (!trimmed) return;
@@ -805,12 +752,8 @@ function App() {
     setPage("search");
     setSearchQuery(trimmed);
     setSearchPage(pageNum);
-    
-    // Smooth scroll to top whenever we (re)run a search
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
 
     try {
       setSearchLoading(true);
@@ -838,11 +781,7 @@ function App() {
       const totalStr = resp.headers.get("X-Total-Count");
       if (totalStr) {
         const totalNum = parseInt(totalStr, 10);
-        if (!Number.isNaN(totalNum)) {
-          setSearchTotal(totalNum);
-        } else {
-          setSearchTotal(items.length);
-        }
+        setSearchTotal(Number.isNaN(totalNum) ? items.length : totalNum);
       } else {
         setSearchTotal(items.length);
       }
@@ -857,11 +796,8 @@ function App() {
   async function handleSearchSubmit(event) {
     event.preventDefault();
     setShowSuggestions(false);
-  
-    // move to the search "page" in both state and URL
     setPage("search");
     navigate("/search");
-  
     await runSearch(searchText, searchSort, 1);
   }
 
@@ -870,26 +806,12 @@ function App() {
     setSearchSort(newSort);
 
     if (!searchQuery.trim()) return;
-
     await runSearch(searchQuery, newSort, 1);
   }
 
-  async function handleSearchNextPage() {
-    const totalPages =
-      searchTotal > 0 ? Math.ceil(searchTotal / searchLimit) : 1;
-
-    if (searchPage >= totalPages) return;
-    await runSearch(searchQuery, searchSort, searchPage + 1);
-  }
-
-  async function handleSearchPrevPage() {
-    if (searchPage <= 1) return;
-    await runSearch(searchQuery, searchSort, searchPage - 1);
-  }
-
-  // -------------------------------
-  // LOGOUT
-  // -------------------------------
+  /* -------------------------------
+     Logout
+  --------------------------------*/
   function handleLogout() {
     setToken("");
     setMyLists([]);
@@ -897,20 +819,16 @@ function App() {
     setWishlist([]);
   }
 
-  // -------------------------------
-  // Pagination derived values
-  // -------------------------------
   const totalPages =
     searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
-  const pageNumbers = getPageNumbers(searchPage, totalPages);
 
-  const ownedSetNums = new Set(owned.map((item) => item.set_num));
-  const wishlistSetNums = new Set(wishlist.map((item) => item.set_num));
+  const isHome = location.pathname === "/";
+  const isJournal = location.pathname.startsWith("/journal");
+  const isExplore = location.pathname.startsWith("/explore");
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
-     
-     {/* ========================== TOP NAV ========================== */}
+      {/* ========================== TOP NAV ========================== */}
       <nav
         style={{
           display: "flex",
@@ -935,8 +853,9 @@ function App() {
               padding: "0.5rem 0.9rem",
               cursor: "pointer",
               textDecoration: "none",
+              fontWeight: isHome ? 600 : 400,
             }}
-            onClick={() => setPage("public")}
+            onClick={() => setPage("home")}
           >
             🏠 Home
           </Link>
@@ -947,6 +866,7 @@ function App() {
               padding: "0.5rem 0.9rem",
               cursor: "pointer",
               textDecoration: "none",
+              fontWeight: isJournal ? 600 : 400,
             }}
           >
             📓 Journal
@@ -958,7 +878,9 @@ function App() {
               padding: "0.5rem 0.9rem",
               cursor: "pointer",
               textDecoration: "none",
+              fontWeight: isExplore ? 600 : 400,
             }}
+            onClick={() => setPage("explore")}
           >
             📡 Explore
           </Link>
@@ -967,17 +889,14 @@ function App() {
         {/* RIGHT: search + auth */}
         <div
           style={{
-            marginLeft: "auto",          // push this whole group to the right
+            marginLeft: "auto",
             display: "flex",
             alignItems: "center",
             gap: "0.75rem",
           }}
         >
           {/* Search bar */}
-          <form
-            onSubmit={handleSearchSubmit}
-            style={{ position: "relative" }}
-          >
+          <form onSubmit={handleSearchSubmit} style={{ position: "relative" }}>
             <input
               type="text"
               placeholder="Search sets..."
@@ -1076,23 +995,34 @@ function App() {
         </div>
       </nav>
 
-      {/* ========================== MAIN CONTENT (ROUTED) ========================== */}
+      {/* ========================== MAIN CONTENT ========================== */}
       <div style={{ padding: "1.5rem" }}>
         <Routes>
-          {/* -------- HOME / PUBLIC LISTS PAGE -------- */}
+          {/* HOME */}
           <Route
             path="/"
             element={
               <HomePage
-                featuredSets={homeFeaturedSets}
-                dealsSets={homeDealsSets}
-                retiringSets={homeRetiringSets}
-                loading={homeLoading}
-                error={homeError}
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
               />
             }
           />
 
+          {/* JOURNAL (placeholder) */}
+          <Route
+            path="/journal"
+            element={
+              <div>
+                <h1>Journal</h1>
+                <p style={{ color: "#666" }}>Journal page coming soon.</p>
+              </div>
+            }
+          />
+
+          {/* EXPLORE (public lists) */}
           <Route
             path="/explore"
             element={
@@ -1103,14 +1033,16 @@ function App() {
                   <code>/lists/public</code>).
                 </p>
 
-                {loading && <p>Loading public lists…</p>}
-                {error && <p style={{ color: "red" }}>Error: {error}</p>}
+                {publicLoading && <p>Loading public lists…</p>}
+                {publicError && (
+                  <p style={{ color: "red" }}>Error: {publicError}</p>
+                )}
 
-                {!loading && !error && lists.length === 0 && (
+                {!publicLoading && !publicError && lists.length === 0 && (
                   <p>No public lists yet. Create one from your account page.</p>
                 )}
 
-                {!loading && !error && lists.length > 0 && (
+                {!publicLoading && !publicError && lists.length > 0 && (
                   <ul style={{ listStyle: "none", padding: 0 }}>
                     {lists.map((list) => (
                       <li
@@ -1152,16 +1084,15 @@ function App() {
                 )}
               </>
             }
-          />  
+          />
 
-          {/* -------- SEARCH RESULTS PAGE -------- */}
+          {/* SEARCH RESULTS */}
           <Route
             path="/search"
             element={
               <div>
                 <h1>Search Results</h1>
 
-                {/* Top row: "showing results" + sort dropdown */}
                 <div
                   style={{
                     display: "flex",
@@ -1172,7 +1103,6 @@ function App() {
                     flexWrap: "wrap",
                   }}
                 >
-                  {/* LEFT SIDE: query + showing X–Y of Z */}
                   <div>
                     <p style={{ color: "#666", margin: 0 }}>
                       Showing results for: <strong>{searchQuery}</strong>
@@ -1186,15 +1116,21 @@ function App() {
                       }}
                     >
                       Showing{" "}
-                      <strong>{(searchPage - 1) * searchLimit + 1}</strong> –{" "}
                       <strong>
-                        {Math.min(searchPage * searchLimit, searchTotal)}
+                        {searchTotal === 0
+                          ? 0
+                          : (searchPage - 1) * searchLimit + 1}
+                      </strong>{" "}
+                      –{" "}
+                      <strong>
+                        {searchTotal === 0
+                          ? 0
+                          : Math.min(searchPage * searchLimit, searchTotal)}
                       </strong>{" "}
                       of <strong>{searchTotal}</strong> results
                     </p>
                   </div>
 
-                  {/* RIGHT SIDE: sort dropdown */}
                   <div>
                     <label>
                       Sort by{" "}
@@ -1226,20 +1162,20 @@ function App() {
                   !searchError &&
                   searchResults.length > 0 && (
                     <div>
-
-                      {/* Results grid */}
                       <ul
                         style={{
                           listStyle: "none",
                           padding: 0,
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(240px, 1fr))",
                           columnGap: "1rem",
-                          rowGap: "1.75rem"
+                          rowGap: "1.75rem",
                         }}
                       >
                         {searchResults.map((set) => (
                           <SetCard
+                            key={set.set_num}
                             set={set}
                             isOwned={ownedSetNums.has(set.set_num)}
                             isInWishlist={wishlistSetNums.has(set.set_num)}
@@ -1250,7 +1186,6 @@ function App() {
                         ))}
                       </ul>
 
-                      {/* Pagination */}
                       <Pagination
                         currentPage={searchPage}
                         totalPages={totalPages}
@@ -1267,7 +1202,7 @@ function App() {
             }
           />
 
-          {/* -------- LIST DETAIL PAGE -------- */}
+          {/* LIST DETAIL PAGE */}
           <Route
             path="/lists/:listId"
             element={
@@ -1281,7 +1216,7 @@ function App() {
             }
           />
 
-          {/* -------- LOGIN / ACCOUNT PAGE -------- */}
+          {/* LOGIN / ACCOUNT */}
           <Route
             path="/login"
             element={
@@ -1304,7 +1239,6 @@ function App() {
 
                 {token && (
                   <div style={{ marginTop: "1.5rem" }}>
-                    {/* Top header + Create List button */}
                     <div
                       style={{
                         display: "flex",
@@ -1327,14 +1261,12 @@ function App() {
                       </button>
                     </div>
 
-                    {/* Optional: small summary line */}
                     <p style={{ color: "#666", marginTop: 0 }}>
                       Owned: <strong>{owned.length}</strong> · Wishlist:{" "}
                       <strong>{wishlist.length}</strong> · Custom lists:{" "}
                       <strong>{myLists.length}</strong>
                     </p>
 
-                    {/* Unified "My Lists" grid: Owned, Wishlist, Custom Lists */}
                     <section
                       style={{
                         marginTop: "1rem",
@@ -1349,7 +1281,7 @@ function App() {
                           marginTop: "0.5rem",
                         }}
                       >
-                        {/* Owned (system list) */}
+                        {/* Owned */}
                         <div
                           style={{
                             flex: "1 1 240px",
@@ -1361,7 +1293,9 @@ function App() {
                           <h3 style={{ marginTop: 0 }}>Owned</h3>
                           {collectionsLoading && <p>Loading…</p>}
                           {collectionsError && (
-                            <p style={{ color: "red" }}>Error: {collectionsError}</p>
+                            <p style={{ color: "red" }}>
+                              Error: {collectionsError}
+                            </p>
                           )}
 
                           {!collectionsLoading && !collectionsError && (
@@ -1372,7 +1306,8 @@ function App() {
 
                               {owned.length === 0 && (
                                 <p style={{ color: "#666" }}>
-                                  You haven&apos;t marked any sets as Owned yet.
+                                  You haven&apos;t marked any sets as Owned
+                                  yet.
                                 </p>
                               )}
 
@@ -1387,7 +1322,9 @@ function App() {
                                   {owned.map((item) => (
                                     <li key={item.set_num}>
                                       {item.set_num}{" "}
-                                      <span style={{ color: "#888" }}>({item.type})</span>
+                                      <span style={{ color: "#888" }}>
+                                        ({item.type})
+                                      </span>
                                     </li>
                                   ))}
                                 </ul>
@@ -1396,7 +1333,7 @@ function App() {
                           )}
                         </div>
 
-                        {/* Wishlist (system list) */}
+                        {/* Wishlist */}
                         <div
                           style={{
                             flex: "1 1 240px",
@@ -1408,7 +1345,9 @@ function App() {
                           <h3 style={{ marginTop: 0 }}>Wishlist</h3>
                           {collectionsLoading && <p>Loading…</p>}
                           {collectionsError && (
-                            <p style={{ color: "red" }}>Error: {collectionsError}</p>
+                            <p style={{ color: "red" }}>
+                              Error: {collectionsError}
+                            </p>
                           )}
 
                           {!collectionsLoading && !collectionsError && (
@@ -1419,7 +1358,8 @@ function App() {
 
                               {wishlist.length === 0 && (
                                 <p style={{ color: "#666" }}>
-                                  You haven&apos;t added any sets to your Wishlist yet.
+                                  You haven&apos;t added any sets to your
+                                  Wishlist yet.
                                 </p>
                               )}
 
@@ -1434,7 +1374,9 @@ function App() {
                                   {wishlist.map((item) => (
                                     <li key={item.set_num}>
                                       {item.set_num}{" "}
-                                      <span style={{ color: "#888" }}>({item.type})</span>
+                                      <span style={{ color: "#888" }}>
+                                        ({item.type})
+                                      </span>
                                     </li>
                                   ))}
                                 </ul>
@@ -1456,58 +1398,70 @@ function App() {
 
                           {myListsLoading && <p>Loading your lists…</p>}
                           {myListsError && (
-                            <p style={{ color: "red" }}>Error: {myListsError}</p>
-                          )}
-
-                          {!myListsLoading && !myListsError && myLists.length === 0 && (
-                            <p style={{ color: "#666" }}>
-                              You don&apos;t have any custom lists yet.
+                            <p style={{ color: "red" }}>
+                              Error: {myListsError}
                             </p>
                           )}
 
-                          {!myListsLoading && !myListsError && myLists.length > 0 && (
-                            <ul
-                              style={{ listStyle: "none", padding: 0, marginTop: 0 }}
-                            >
-                              {myLists.map((list) => (
-                                <li
-                                  key={list.id}
-                                  style={{
-                                    borderBottom: "1px solid #eee",
-                                    padding: "0.5rem 0",
-                                  }}
-                                >
-                                  <div style={{ fontWeight: 600 }}>{list.title}</div>
-                                  {list.description && (
-                                    <div
-                                      style={{
-                                        fontSize: "0.85rem",
-                                        color: "#666",
-                                        marginTop: "0.15rem",
-                                      }}
-                                    >
-                                      {list.description}
-                                    </div>
-                                  )}
-                                  <div
+                          {!myListsLoading &&
+                            !myListsError &&
+                            myLists.length === 0 && (
+                              <p style={{ color: "#666" }}>
+                                You don&apos;t have any custom lists yet.
+                              </p>
+                            )}
+
+                          {!myListsLoading &&
+                            !myListsError &&
+                            myLists.length > 0 && (
+                              <ul
+                                style={{
+                                  listStyle: "none",
+                                  padding: 0,
+                                  marginTop: 0,
+                                }}
+                              >
+                                {myLists.map((list) => (
+                                  <li
+                                    key={list.id}
                                     style={{
-                                      fontSize: "0.8rem",
-                                      color: "#777",
-                                      marginTop: "0.25rem",
+                                      borderBottom: "1px solid #eee",
+                                      padding: "0.5rem 0",
                                     }}
                                   >
-                                    {list.items_count} sets ·{" "}
-                                    {list.is_public ? "Public" : "Private"}
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                                    <div style={{ fontWeight: 600 }}>
+                                      {list.title}
+                                    </div>
+                                    {list.description && (
+                                      <div
+                                        style={{
+                                          fontSize: "0.85rem",
+                                          color: "#666",
+                                          marginTop: "0.15rem",
+                                        }}
+                                      >
+                                        {list.description}
+                                      </div>
+                                    )}
+                                    <div
+                                      style={{
+                                        fontSize: "0.8rem",
+                                        color: "#777",
+                                        marginTop: "0.25rem",
+                                      }}
+                                    >
+                                      {list.items_count} sets ·{" "}
+                                      {list.is_public ? "Public" : "Private"}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                         </div>
                       </div>
                     </section>
 
-                    {/* Create new list form — now at the bottom, only when toggled */}
+                    {/* Create-list form */}
                     {showCreateForm && (
                       <section
                         style={{
@@ -1555,7 +1509,9 @@ function App() {
                             </label>
                             <textarea
                               value={newListDescription}
-                              onChange={(e) => setNewListDescription(e.target.value)}
+                              onChange={(e) =>
+                                setNewListDescription(e.target.value)
+                              }
                               style={{
                                 width: "100%",
                                 padding: "0.5rem",
@@ -1605,25 +1561,13 @@ function App() {
                         </form>
                       </section>
                     )}
-
-                    {!myListsLoading && !myListsError && (
-                      <p
-                        style={{
-                          marginTop: "0.5rem",
-                          color: "green",
-                        }}
-                      >
-                        Logged in: token stored in React state and used for{" "}
-                        <code>/lists/me</code>, <code>/lists</code>, and collections.
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
             }
           />
 
-          {/* -------- SET DETAIL PAGE (PHASE 3) -------- */}
+          {/* SET DETAIL PAGE */}
           <Route
             path="/sets/:setNum"
             element={
@@ -1633,7 +1577,7 @@ function App() {
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
-                onEnsureOwned={ensureOwned} 
+                onEnsureOwned={ensureOwned}
                 myLists={myLists}
               />
             }
