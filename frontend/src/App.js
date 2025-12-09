@@ -9,7 +9,6 @@ import Pagination from "./Pagination";
 import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
-import CollectionsPage from "./CollectionsPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -1026,7 +1025,6 @@ function App() {
     searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
 
   const isHome = location.pathname === "/";
-  const isJournal = location.pathname.startsWith("/journal");
   const isExplore = location.pathname.startsWith("/explore");
 
   return (
@@ -1279,18 +1277,6 @@ function App() {
                 onAddWishlist={handleAddWishlist}
               />
             }
-          />
-          {/* JOURNAL (placeholder) */}
-          <Route
-          path="/journal"
-          element={
-            <CollectionsPage
-              ownedSets={owned}          // 👈 use 'owned' from useState
-              wishlistSets={wishlist}    // 👈 use 'wishlist' from useState
-              ownedSetNums={ownedSetNums}
-              wishlistSetNums={wishlistSetNums}
-            />
-          }
           />
 
           {/* EXPLORE (public lists) */}
