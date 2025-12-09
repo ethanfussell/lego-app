@@ -10,6 +10,10 @@ import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
 import NewSetsPage from "./NewSetsPage";
+import SalePage from "./SalePage";
+import RetiringSoonPage from "./RetiringSoonPage";
+import ThemesPage from "./ThemesPage";
+import ThemeDetailPage from "./ThemeDetailPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -1072,6 +1076,18 @@ function App() {
           🔎 Explore
         </Link>
 
+        {/* NEW: Themes link */}
+        <Link
+          to="/themes"
+          style={{
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+        >
+          🎨 Themes
+        </Link>
+
         <Link
           to="/new"
           style={{
@@ -1279,12 +1295,38 @@ function App() {
             }
           />
 
+          {/* SALE PAGE */}
           <Route
-            path="/collection"
+            path="/sale"
             element={
-              <CollectionPage
-                owned={owned}
-                wishlist={wishlist}
+              <SalePage
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            }
+          />
+
+          {/* RETIRING SOON PAGE */}
+          <Route
+            path="/retiring-soon"
+            element={
+              <RetiringSoonPage
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            }
+          />
+
+          <Route path="/themes" element={<ThemesPage />} />
+
+          <Route
+            path="/themes/:themeSlug"
+            element={
+              <ThemeDetailPage
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
