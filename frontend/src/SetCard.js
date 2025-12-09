@@ -2,27 +2,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-const cardStyle = {
-  border: "1px solid #ddd",
-  borderRadius: "10px",
-  overflow: "hidden",
-  background: "white",
-  display: "flex",
-  flexDirection: "column",
-  cursor: "pointer",
-  transition: "box-shadow 0.15s ease, transform 0.15s ease",
-};
-
-const cardHoverStyle = {
-  boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
-  transform: "translateY(-2px)",
-};
-
-function formatPrice(value) {
-  if (value == null || Number.isNaN(Number(value))) return null;
-  return `$${Number(value).toFixed(2)}`;
-}
-
 function SetCard({
   set,
   isOwned = false,
@@ -32,7 +11,6 @@ function SetCard({
   variant = "default",
 }) {
   const navigate = useNavigate();
-  const [hover, setHover] = React.useState(false);
 
   if (!set) return null;
 
@@ -43,129 +21,103 @@ function SetCard({
     theme,
     pieces,
     image_url,
-    retail_price,
-    current_price,
-    discount_percent,
+    rating,
+    user_rating,
+    my_rating,
   } = set;
 
-  const hasPrice = current_price != null || retail_price != null;
-  const displayCurrent = formatPrice(current_price);
-  const displayRetail = formatPrice(retail_price);
-  const displayDiscount =
-    discount_percent != null ? `${discount_percent}% off` : null;
+  // Try to pick a "user-ish" rating value
+  const displayRating =
+    typeof user_rating === "number"
+      ? user_rating
+      : typeof my_rating === "number"
+      ? my_rating
+      : typeof rating === "number"
+      ? rating
+      : null;
 
-  const handleCardClick = () => {
+  function handleCardClick() {
     if (!set_num) return;
     navigate(`/sets/${encodeURIComponent(set_num)}`);
-  };
+  }
 
-  const handleOwnedClick = (e) => {
-    e.stopPropagation(); // don't trigger card navigation
-    if (onMarkOwned && set_num) {
-      onMarkOwned(set_num);
-    }
-  };
-
-  const handleWishlistClick = (e) => {
-    e.stopPropagation(); // don't trigger card navigation
-    if (onAddWishlist && set_num) {
-      onAddWishlist(set_num);
-    }
-  };
-
-  const combinedStyle = hover
-    ? { ...cardStyle, ...cardHoverStyle }
-    : cardStyle;
+  const cardPadding = "0.75rem";
 
   return (
     <div
-      style={combinedStyle}
       onClick={handleCardClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      style={{
+        borderRadius: "12px",
+        border: "1px solid #e5e7eb",
+        backgroundColor: "white",
+        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+        display: "flex",
+        flexDirection: "column",
+        cursor: "pointer",
+        height: "100%",
+      }}
     >
-      {/* Image */}
+      {/* IMAGE */}
       <div
         style={{
-          width: "100%",
-          paddingTop: "65%",
-          position: "relative",
-          background: "#f5f5f5",
+          borderBottom: "1px solid #f3f4f6",
+          padding: cardPadding,
+          paddingBottom: "0.5rem",
         }}
       >
-        {image_url ? (
-          <img
-            src={image_url}
-            alt={name || set_num}
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "0.85rem",
-              color: "#888",
-            }}
-          >
-            No image
-          </div>
-        )}
-
-        {/* Badge area (e.g., Owned / Wishlist pill) */}
-        {(isOwned || isInWishlist) && (
-          <div
-            style={{
-              position: "absolute",
-              top: "0.4rem",
-              left: "0.4rem",
-              display: "flex",
-              gap: "0.25rem",
-            }}
-          >
-            {isOwned && (
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  padding: "0.1rem 0.4rem",
-                  borderRadius: "999px",
-                  background: "rgba(31, 136, 61, 0.9)",
-                  color: "white",
-                  fontWeight: 600,
-                }}
-              >
-                Owned
-              </span>
-            )}
-            {isInWishlist && (
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  padding: "0.1rem 0.4rem",
-                  borderRadius: "999px",
-                  background: "rgba(177, 107, 227, 0.9)",
-                  color: "white",
-                  fontWeight: 600,
-                }}
-              >
-                Wishlist
-              </span>
-            )}
-          </div>
-        )}
+        <div
+          style={{
+            width: "100%",
+            height: "160px",
+            borderRadius: "10px",
+            backgroundColor: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
+        >
+          {image_url ? (
+            <img
+              src={image_url}
+              alt={name || set_num}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                background:
+                  "repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 10px,#e5e7eb 10px,#e5e7eb 20px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.8rem",
+                color: "#9ca3af",
+              }}
+            >
+              No image
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Content */}
-      <div style={{ padding: "0.6rem 0.7rem 0.7rem 0.7rem", flex: "1 1 auto" }}>
+      {/* CONTENT */}
+      <div
+        style={{
+          padding: cardPadding,
+          paddingTop: "0.55rem",
+          flex: "1 1 auto",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {/* Title */}
         <div style={{ marginBottom: "0.35rem" }}>
           <div
@@ -173,120 +125,189 @@ function SetCard({
               fontSize: "0.9rem",
               fontWeight: 600,
               lineHeight: 1.2,
-              marginBottom: "0.1rem",
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
             }}
           >
             {name || "Unknown set"}
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#666" }}>
-            {set_num}
-            {year && <> · {year}</>}
+          <div
+            style={{
+              marginTop: "0.15rem",
+              fontSize: "0.8rem",
+              color: "#6b7280",
+            }}
+          >
+            <span>{set_num}</span>
+            {year && <span> · {year}</span>}
           </div>
         </div>
 
-        {/* Meta row: theme / pieces */}
-        <div
-          style={{
-            fontSize: "0.78rem",
-            color: "#777",
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "0.5rem",
-            marginBottom: "0.35rem",
-          }}
-        >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-            {theme}
-          </span>
-          {pieces && <span>{pieces} pcs</span>}
-        </div>
-
-        {/* Price row */}
-        {hasPrice && (
+        {/* Meta line */}
+        {(theme || pieces) && (
           <div
             style={{
               fontSize: "0.8rem",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
+              color: "#6b7280",
               marginBottom: "0.4rem",
-              gap: "0.4rem",
             }}
           >
-            <div>
-              {displayCurrent && (
-                <span style={{ fontWeight: 600 }}>{displayCurrent}</span>
-              )}
-              {displayRetail && displayCurrent && displayRetail !== displayCurrent && (
-                <span
-                  style={{
-                    marginLeft: "0.3rem",
-                    textDecoration: "line-through",
-                    color: "#999",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  {displayRetail}
-                </span>
-              )}
-            </div>
-            {displayDiscount && (
-              <span
-                style={{
-                  fontSize: "0.75rem",
-                  color: "#b12704",
-                  fontWeight: 600,
-                }}
-              >
-                {displayDiscount}
-              </span>
-            )}
+            {theme && <span>{theme}</span>}
+            {theme && pieces && <span> · </span>}
+            {pieces && <span>{pieces} pcs</span>}
           </div>
         )}
 
-        {/* Buttons */}
-        <div
-          style={{
-            display: "flex",
-            gap: "0.4rem",
-            marginTop: "0.3rem",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleOwnedClick}
+        {/* Rating pill */}
+        {displayRating != null && (
+          <div
             style={{
-              flex: 1,
-              padding: "0.25rem 0.4rem",
-              borderRadius: "999px",
-              border: isOwned ? "1px solid #1f883d" : "1px solid #ccc",
-              backgroundColor: isOwned ? "#1f883d" : "white",
-              color: isOwned ? "white" : "#222",
               fontSize: "0.8rem",
-              fontWeight: 500,
-              cursor: "pointer",
+              color: "#f59e0b",
+              marginBottom: "0.4rem",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
             }}
           >
-            {isOwned ? "Owned ✓" : "Mark owned"}
-          </button>
+            <span>★</span>
+            <span>{displayRating.toFixed(1)}</span>
+          </div>
+        )}
 
-          <button
-            type="button"
-            onClick={handleWishlistClick}
-            style={{
-              flex: 1,
-              padding: "0.25rem 0.4rem",
-              borderRadius: "999px",
-              border: isInWishlist ? "1px solid #b16be3" : "1px solid #ccc",
-              backgroundColor: isInWishlist ? "#b16be3" : "white",
-              color: isInWishlist ? "white" : "#222",
-              fontSize: "0.8rem",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            {isInWishlist ? "In wishlist ★" : "Wishlist"}
-          </button>
+        {/* Spacer pushes footer to bottom */}
+        <div style={{ flexGrow: 1 }} />
+
+        {/* FOOTER / ACTIONS */}
+        <div style={{ marginTop: "0.5rem" }}>
+          {variant === "collection" ? (
+            /* COLLECTION VARIANT: just user's rating */
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: "0.8rem",
+                color: "#4b5563",
+              }}
+            >
+              <span>Your rating</span>
+              {displayRating != null ? (
+                <div
+                  style={{
+                    position: "relative",
+                    display: "inline-block",
+                    fontSize: "1.2rem",
+                    lineHeight: 1,
+                  }}
+                >
+                  <div style={{ color: "#e5e7eb" }}>★★★★★</div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      color: "#f59e0b",
+                      width: `${
+                        (Math.min(Math.max(displayRating, 0), 5) / 5) * 100
+                      }%`,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    ★★★★★
+                  </div>
+                </div>
+              ) : (
+                <span style={{ color: "#9ca3af" }}>Not rated yet</span>
+              )}
+            </div>
+          ) : variant === "home" || variant === "dealRow" ? (
+            /* HOME / DEALS VARIANT: Shop now */
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCardClick();
+              }}
+              style={{
+                width: "100%",
+                padding: "0.4rem 0.75rem",
+                borderRadius: "999px",
+                border: "none",
+                backgroundColor: "#111827",
+                color: "white",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Shop now →
+            </button>
+          ) : (
+            /* DEFAULT VARIANT: Owned / Wishlist buttons */
+            <div
+              style={{
+                display: "flex",
+                gap: "0.4rem",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkOwned && onMarkOwned(set_num);
+                }}
+                style={{
+                  padding: "0.3rem 0.7rem",
+                  borderRadius: "999px",
+                  border: isOwned ? "none" : "1px solid #d1d5db",
+                  backgroundColor: isOwned ? "#16a34a" : "#f9fafb",
+                  color: isOwned ? "white" : "#111827",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {isOwned ? "Owned ✓" : "Mark Owned"}
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddWishlist && onAddWishlist(set_num);
+                }}
+                style={{
+                  padding: "0.3rem 0.7rem",
+                  borderRadius: "999px",
+                  border: isInWishlist ? "none" : "1px solid #d1d5db",
+                  backgroundColor: isInWishlist ? "#a855f7" : "#f9fafb",
+                  color: isInWishlist ? "white" : "#111827",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {isInWishlist ? "In Wishlist ★" : "Wishlist"}
+              </button>
+
+              <span
+                style={{
+                  marginLeft: "auto",
+                  fontSize: "0.8rem",
+                  color: "#6b7280",
+                }}
+              >
+                View details →
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

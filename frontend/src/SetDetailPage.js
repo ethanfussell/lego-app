@@ -1,6 +1,7 @@
 // frontend/src/SetDetailPage.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import SetCard from "./SetCard";
 
 const API_BASE = "http://localhost:8000";
 
@@ -26,7 +27,6 @@ function SetDetailPage({
   const { setNum } = useParams();
   const navigate = useNavigate();
 
-  // Prefer prop token, fall back to localStorage
   const storedToken = localStorage.getItem("lego_token") || "";
   const effectiveToken = token || storedToken || "";
   const isLoggedIn = !!effectiveToken;
@@ -63,30 +63,30 @@ function SetDetailPage({
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState(null);
 
+  // Similar sets
+  const [similarSets, setSimilarSets] = useState([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarError, setSimilarError] = useState(null);
+
+  // Ref for horizontal scroll of similar sets
+  const similarScrollRef = useRef(null);
+
+  function scrollSimilar(direction) {
+    const node = similarScrollRef.current;
+    if (!node) return;
+
+    const cardWidth = 240; // approx width of one card + gap
+    const delta = direction === "left" ? -cardWidth : cardWidth;
+
+    node.scrollBy({
+      left: delta,
+      behavior: "smooth",
+    });
+  }
+
   // Derived collection state from parent
   const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
   const isInWishlist = wishlistSetNums ? wishlistSetNums.has(setNum) : false;
-
-  // -------------------------------
-  // Custom lists (add this set to a list)
-  // -------------------------------
-  const [selectedListId, setSelectedListId] = useState(
-    myLists && myLists.length > 0 ? myLists[0].id : ""
-  );
-  const [listError, setListError] = useState("");
-  const [listSuccess, setListSuccess] = useState("");
-
-  // Keep selectedListId in sync when myLists changes
-  useEffect(() => {
-    if (myLists && myLists.length > 0) {
-      setSelectedListId((prev) => {
-        const stillExists = myLists.some((lst) => lst.id === prev);
-        return stillExists ? prev : myLists[0].id;
-      });
-    } else {
-      setSelectedListId("");
-    }
-  }, [myLists]);
 
   // -------------------------------
   // Load set detail + reviews
@@ -195,6 +195,65 @@ function SetDetailPage({
   }, [setNum]);
 
   // -------------------------------
+  // Similar sets (by theme)
+  // -------------------------------
+  useEffect(() => {
+    if (!setDetail || !setDetail.theme) {
+      setSimilarSets([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchSimilar() {
+      try {
+        setSimilarLoading(true);
+        setSimilarError(null);
+
+        const params = new URLSearchParams();
+        // Use theme text as the search query
+        params.set("q", setDetail.theme);
+        params.set("sort", "rating");
+        params.set("order", "desc");
+        params.set("page", "1");
+        params.set("limit", "24");
+
+        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Similar sets failed (${resp.status}): ${text}`);
+        }
+
+        const data = await resp.json();
+        let items = Array.isArray(data) ? data : data.results || [];
+
+        // Filter out the current set
+        items = items.filter((s) => s.set_num !== setNum);
+
+        if (!cancelled) {
+          setSimilarSets(items.slice(0, 12));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Error loading similar sets:", err);
+          setSimilarError(err.message || String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setSimilarLoading(false);
+        }
+      }
+    }
+
+    fetchSimilar();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setDetail, setNum]);
+
+  // -------------------------------
   // Handlers: Owned / Wishlist
   // -------------------------------
   function handleMarkOwnedClick() {
@@ -220,7 +279,7 @@ function SetDetailPage({
   }
 
   // -------------------------------
-  // Clear rating (double-click same stars)
+  // Clear rating
   // -------------------------------
   async function clearRating() {
     if (!isLoggedIn) {
@@ -245,9 +304,7 @@ function SetDetailPage({
         throw new Error(`Failed to clear rating (${resp.status}): ${text}`);
       }
 
-      // Clear local UI rating
       setUserRating(null);
-      // Remove this user's review from the list
       if (currentUsername) {
         setReviews((prev) =>
           prev.filter((r) => (r.user || r.username) !== currentUsername)
@@ -262,7 +319,7 @@ function SetDetailPage({
   }
 
   // -------------------------------
-  // Save rating (single click or change)
+  // Save rating
   // -------------------------------
   async function saveRating(newRating) {
     if (!isLoggedIn) {
@@ -272,7 +329,6 @@ function SetDetailPage({
     }
 
     if (newRating == null) return;
-
     const numericRating = Number(newRating);
 
     try {
@@ -281,7 +337,7 @@ function SetDetailPage({
 
       const payload = {
         rating: numericRating,
-        text: null, // rating-only here
+        text: null,
       };
 
       const resp = await fetch(`${API_BASE}/sets/${setNum}/reviews`, {
@@ -300,7 +356,6 @@ function SetDetailPage({
 
       const created = await resp.json();
 
-      // Replace any existing review from this user with the new one
       setReviews((prev) => {
         const others = prev.filter(
           (r) => (r.user || r.username) !== currentUsername
@@ -308,15 +363,13 @@ function SetDetailPage({
         return [created, ...others];
       });
 
-      // Ensure UI rating matches
       setUserRating(numericRating);
 
-      // Also mark this set as owned (but never un-own on rating changes)
+      if (typeof onMarkOwned === "function" && !isOwned) {
+        onMarkOwned(setNum);
+      }
       if (typeof onEnsureOwned === "function") {
         onEnsureOwned(setNum);
-      } else if (typeof onMarkOwned === "function" && !isOwned) {
-        // fallback if onEnsureOwned isn't provided
-        onMarkOwned(setNum);
       }
     } catch (err) {
       console.error("Error saving rating:", err);
@@ -326,7 +379,6 @@ function SetDetailPage({
     }
   }
 
-  // Handle click on stars: toggle if same rating, otherwise save
   async function handleStarClick(value) {
     if (!isLoggedIn) {
       alert("Please log in to rate this set.");
@@ -334,19 +386,17 @@ function SetDetailPage({
       return;
     }
 
-    // If clicking the same rating again → clear rating (but keep Owned)
     if (userRating != null && Number(userRating) === Number(value)) {
       await clearRating();
       return;
     }
 
-    // Otherwise: update rating
-    setUserRating(value); // immediate UI feedback
+    setUserRating(value);
     await saveRating(value);
   }
 
   // -------------------------------
-  // Review handler (rating + text)
+  // Review submit
   // -------------------------------
   async function handleReviewSubmit(e) {
     e.preventDefault();
@@ -406,58 +456,6 @@ function SetDetailPage({
   }
 
   // -------------------------------
-  // Add this set to a custom list
-  // -------------------------------
-  async function handleAddToCustomList() {
-    setListError("");
-    setListSuccess("");
-
-    if (!isLoggedIn) {
-      setListError("You must be logged in to add to a list.");
-      navigate("/login");
-      return;
-    }
-
-    if (!selectedListId) {
-      setListError("Choose a list first.");
-      return;
-    }
-
-    if (!setNum) {
-      setListError("Set info not loaded yet.");
-      return;
-    }
-
-    try {
-      const resp = await fetch(
-        `${API_BASE}/lists/${selectedListId}/items`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${effectiveToken}`,
-          },
-          body: JSON.stringify({ set_num: setNum }),
-        }
-      );
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        if (resp.status === 409) {
-          setListError("This set is already in that list.");
-          return;
-        }
-        throw new Error(`Failed to add to list (${resp.status}): ${text}`);
-      }
-
-      setListSuccess("Added to list!");
-    } catch (err) {
-      console.error("Error adding to custom list:", err);
-      setListError(err.message || String(err));
-    }
-  }
-
-  // -------------------------------
   // Loading / error / not found
   // -------------------------------
   if (loading) {
@@ -483,8 +481,11 @@ function SetDetailPage({
   }
 
   const { name, year, theme, pieces, image_url, description } = setDetail;
+  const isRetired =
+    setDetail.status === "retired" ||
+    setDetail.is_retired === true ||
+    setDetail.retired === true;
 
-  // Only show reviews that have text
   const textReviews = Array.isArray(reviews)
     ? reviews.filter(
         (r) => typeof r.text === "string" && r.text.trim() !== ""
@@ -495,11 +496,12 @@ function SetDetailPage({
   // Render
   // -------------------------------
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
+    <div style={{ padding: "1.5rem", maxWidth: "1000px", margin: "0 auto" }}>
+      {/* Back link */}
       <button
         onClick={() => navigate(-1)}
         style={{
-          marginBottom: "1rem",
+          marginBottom: "1.25rem",
           padding: "0.35rem 0.75rem",
           borderRadius: "999px",
           border: "1px solid #ddd",
@@ -511,64 +513,86 @@ function SetDetailPage({
         ← Back to results
       </button>
 
-      <div
+      {/* HERO: image + meta + actions */}
+      <section
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 280px) minmax(0, 1fr)",
-          gap: "1.5rem",
+          gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)",
+          gap: "2rem",
           alignItems: "flex-start",
         }}
       >
-        {/* Left: image */}
-        <div>
-          {image_url ? (
-            <img
-              src={image_url}
-              alt={name || setNum}
-              style={{
-                width: "100%",
-                borderRadius: "8px",
-                objectFit: "cover",
-                background: "#f5f5f5",
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: "100%",
-                paddingTop: "70%",
-                borderRadius: "8px",
-                background:
-                  "repeating-linear-gradient(45deg, #eee, #eee 10px, #f8f8f8 10px, #f8f8f8 20px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#999",
-                fontSize: "0.9rem",
-              }}
-            >
-              No image available
-            </div>
-          )}
+        {/* Left: image in a fixed white box */}
+        <div style={{ maxWidth: "360px" }}>
+          <div
+            style={{
+              borderRadius: "16px",
+              border: "1px solid #eee",
+              background: "white",
+              padding: "1.25rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "260px",
+            }}
+          >
+            {image_url ? (
+              <img
+                src={image_url}
+                alt={name || setNum}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "320px",
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  paddingTop: "70%",
+                  borderRadius: "8px",
+                  background:
+                    "repeating-linear-gradient(45deg, #eee, #eee 10px, #f8f8f8 10px, #f8f8f8 20px)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#999",
+                  fontSize: "0.9rem",
+                }}
+              >
+                No image available
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right: meta + collection + rating/review */}
+        {/* Right: title, meta, actions, rating */}
         <div>
-          <h1 style={{ margin: "0 0 0.25rem 0" }}>
-            {name || "Unknown set"}
-          </h1>
+          {/* Title + meta */}
+          <h1 style={{ margin: "0 0 0.25rem 0" }}>{name || "Unknown set"}</h1>
           <p style={{ margin: 0, color: "#555" }}>
             <strong>{setNum}</strong>
             {year && <> · {year}</>}
           </p>
           {theme && (
-            <p style={{ margin: "0.25rem 0 0 0", color: "#777" }}>
-              {theme}
-            </p>
+            <p style={{ margin: "0.25rem 0 0 0", color: "#777" }}>{theme}</p>
           )}
           {pieces && (
-            <p style={{ margin: "0.25rem 0 0 0", color: "#777" }}>
+            <p style={{ margin: "0.1rem 0 0 0", color: "#777" }}>
               {pieces} pieces
+            </p>
+          )}
+          {isRetired && (
+            <p
+              style={{
+                marginTop: "0.35rem",
+                fontSize: "0.85rem",
+                color: "#b45309",
+              }}
+            >
+              ⏳ This set is retired
             </p>
           )}
 
@@ -576,7 +600,13 @@ function SetDetailPage({
           {(ratingSummaryLoading ||
             ratingSummaryError ||
             ratingCount > 0) && (
-            <p style={{ marginTop: "0.75rem", color: "#444" }}>
+            <p
+              style={{
+                marginTop: "0.6rem",
+                color: "#444",
+                fontSize: "0.9rem",
+              }}
+            >
               ⭐{" "}
               <strong>
                 {ratingSummaryLoading
@@ -586,9 +616,7 @@ function SetDetailPage({
                   : "—"}
               </strong>{" "}
               {ratingSummaryError ? (
-                <span style={{ color: "red" }}>
-                  (error loading ratings)
-                </span>
+                <span style={{ color: "red" }}>(error loading ratings)</span>
               ) : (
                 <span style={{ color: "#777" }}>
                   (
@@ -603,7 +631,7 @@ function SetDetailPage({
             </p>
           )}
 
-          {/* Letterboxd-style panel */}
+          {/* Main interaction panel */}
           <section
             style={{
               marginTop: "1rem",
@@ -655,96 +683,6 @@ function SetDetailPage({
               </button>
             </div>
 
-            {/* ADD TO CUSTOM LIST */}
-            {isLoggedIn && myLists && myLists.length > 0 && (
-              <section
-                style={{
-                  padding: "0.75rem 0.9rem",
-                  borderRadius: "8px",
-                  border: "1px solid #eee",
-                  background: "#fdfdfd",
-                }}
-              >
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <strong>Add this set to a list</strong>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "0.5rem",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <select
-                    value={selectedListId || ""}
-                    onChange={(e) =>
-                      setSelectedListId(parseInt(e.target.value, 10))
-                    }
-                    style={{
-                      padding: "0.3rem 0.4rem",
-                      borderRadius: "4px",
-                      border: "1px solid #ccc",
-                      minWidth: "180px",
-                    }}
-                  >
-                    {myLists.map((list) => (
-                      <option key={list.id} value={list.id}>
-                        {list.title} {list.is_public ? "(Public)" : "(Private)"}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={handleAddToCustomList}
-                    style={{
-                      padding: "0.35rem 0.9rem",
-                      borderRadius: "999px",
-                      border: "none",
-                      background: "#1f883d",
-                      color: "white",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Add to List
-                  </button>
-                </div>
-
-                {listError && (
-                  <p
-                    style={{
-                      color: "red",
-                      marginTop: "0.4rem",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {listError}
-                  </p>
-                )}
-                {listSuccess && (
-                  <p
-                    style={{
-                      color: "green",
-                      marginTop: "0.4rem",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {listSuccess}
-                  </p>
-                )}
-              </section>
-            )}
-
-            {isLoggedIn && myLists && myLists.length === 0 && (
-              <p style={{ fontSize: "0.85rem", color: "#777" }}>
-                You don&apos;t have any custom lists yet. Create one on the
-                Account page to add sets.
-              </p>
-            )}
-
             {/* YOUR RATING */}
             <div
               style={{
@@ -758,7 +696,6 @@ function SetDetailPage({
                 Your rating:
               </span>
 
-              {/* 5-star bar with 0.5 increments via mouse position */}
               <div
                 style={{
                   position: "relative",
@@ -772,13 +709,11 @@ function SetDetailPage({
                   if (savingRating) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
-                  const relative = x / rect.width; // 0–1
-                  let value = relative * 5; // 0–5
-
-                  value = Math.round(value * 2) / 2; // snap to 0.5
+                  const relative = x / rect.width;
+                  let value = relative * 5;
+                  value = Math.round(value * 2) / 2;
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
-
                   setHoverRating(value);
                 }}
                 onMouseLeave={() => setHoverRating(null)}
@@ -788,18 +723,13 @@ function SetDetailPage({
                   const x = e.clientX - rect.left;
                   const relative = x / rect.width;
                   let value = relative * 5;
-
                   value = Math.round(value * 2) / 2;
                   if (value < 0.5) value = 0.5;
                   if (value > 5) value = 5;
-
                   await handleStarClick(value);
                 }}
               >
-                {/* Grey base row */}
                 <div style={{ color: "#ccc" }}>★★★★★</div>
-
-                {/* Gold overlay row, clipped to rating percentage */}
                 <div
                   style={{
                     position: "absolute",
@@ -829,7 +759,7 @@ function SetDetailPage({
               )}
             </div>
 
-            {/* REVIEW TOGGLE + FORM */}
+            {/* REVIEW TOGGLE + HINT */}
             <div
               style={{
                 display: "flex",
@@ -860,60 +790,204 @@ function SetDetailPage({
                 </span>
               )}
             </div>
-
-            {showReviewForm && (
-              <form onSubmit={handleReviewSubmit}>
-                <textarea
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  placeholder="What did you think of this set?"
-                  style={{
-                    width: "100%",
-                    minHeight: "80px",
-                    padding: "0.5rem",
-                    borderRadius: "6px",
-                    border: "1px solid #ccc",
-                    fontFamily: "inherit",
-                    fontSize: "0.95rem",
-                  }}
-                />
-
-                {reviewSubmitError && (
-                  <p style={{ color: "red", marginTop: "0.35rem" }}>
-                    {reviewSubmitError}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={reviewSubmitting}
-                  style={{
-                    marginTop: "0.5rem",
-                    padding: "0.45rem 0.9rem",
-                    borderRadius: "999px",
-                    border: "none",
-                    backgroundColor: reviewSubmitting ? "#888" : "#1f883d",
-                    color: "white",
-                    fontWeight: 600,
-                    cursor: reviewSubmitting ? "default" : "pointer",
-                  }}
-                >
-                  {reviewSubmitting ? "Posting…" : "Post review"}
-                </button>
-              </form>
-            )}
           </section>
+        </div>
+      </section>
 
-          {description && (
-            <p style={{ marginTop: "1rem", color: "#444" }}>
-              {description}
+      {/* PRICE COMPARISON SECTION */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2
+          style={{
+            margin: 0,
+            marginBottom: "0.5rem",
+            fontSize: "1.1rem",
+          }}
+        >
+          Shop & price comparison
+        </h2>
+        <div
+          style={{
+            borderRadius: "12px",
+            border: "1px dashed #d4d4d4",
+            padding: "0.9rem 1rem",
+            background: "#fafafa",
+            fontSize: "0.9rem",
+          }}
+        >
+          {isRetired ? (
+            <>
+              <p
+                style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}
+              >
+                This set is retired, so live retail prices are limited.
+              </p>
+              <p style={{ margin: 0, color: "#777" }}>
+                Later this section will show secondary-market and used prices
+                with affiliate links.
+              </p>
+            </>
+          ) : (
+            <>
+              <p
+                style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}
+              >
+                Soon you&apos;ll see real-time prices from LEGO, Amazon, and
+                other shops right here.
+              </p>
+              <button
+                type="button"
+                disabled
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  backgroundColor: "#111827",
+                  color: "white",
+                  fontWeight: 600,
+                  cursor: "not-allowed",
+                  fontSize: "0.9rem",
+                }}
+              >
+                Shop now (coming soon)
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+
+      {/* ABOUT THIS SET */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2
+          style={{
+            marginTop: 0,
+            marginBottom: "0.5rem",
+            fontSize: "1.1rem",
+          }}
+        >
+          About this set
+        </h2>
+        {description ? (
+          <p style={{ marginTop: 0, color: "#444" }}>{description}</p>
+        ) : (
+          <p style={{ marginTop: 0, color: "#777" }}>
+            No description available yet.
+          </p>
+        )}
+
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            marginTop: "0.75rem",
+            fontSize: "0.9rem",
+            color: "#555",
+          }}
+        >
+          {theme && (
+            <li>
+              <strong>Theme:</strong> {theme}
+            </li>
+          )}
+          {year && (
+            <li>
+              <strong>Year:</strong> {year}
+            </li>
+          )}
+          {pieces && (
+            <li>
+              <strong>Pieces:</strong> {pieces}
+            </li>
+          )}
+          <li>
+            <strong>Status:</strong> {isRetired ? "Retired" : "Available"}
+          </li>
+        </ul>
+      </section>
+
+      {/* YOUR ACTIVITY */}
+      <section style={{ marginTop: "1.75rem" }}>
+        <h2
+          style={{
+            marginTop: 0,
+            marginBottom: "0.5rem",
+            fontSize: "1.1rem",
+          }}
+        >
+          Your activity
+        </h2>
+
+        <div
+          style={{
+            borderRadius: "12px",
+            border: "1px solid #eee",
+            padding: "0.9rem 1rem",
+            background: "#fafafa",
+            fontSize: "0.9rem",
+          }}
+        >
+          <p style={{ marginTop: 0, marginBottom: "0.35rem" }}>
+            {isLoggedIn ? (
+              <>
+                Signed in as <strong>{currentUsername}</strong>.
+              </>
+            ) : (
+              <>You&apos;re browsing as a guest.</>
+            )}
+          </p>
+
+          <ul
+            style={{
+              listStyle: "none",
+              padding: 0,
+              margin: 0,
+              color: "#555",
+            }}
+          >
+            <li>
+              Collection:{" "}
+              {isOwned ? (
+                <span>✅ Marked as Owned</span>
+              ) : (
+                <span>Not in your Owned list yet.</span>
+              )}
+            </li>
+            <li>
+              Wishlist:{" "}
+              {isInWishlist ? (
+                <span>★ In your Wishlist</span>
+              ) : (
+                <span>Not on your Wishlist.</span>
+              )}
+            </li>
+            <li>
+              Rating:{" "}
+              {userRating != null ? (
+                <span>
+                  {userRating.toFixed(1)} ★ (you can update it any time)
+                </span>
+              ) : (
+                <span>You haven&apos;t rated this set yet.</span>
+              )}
+            </li>
+          </ul>
+
+          {isLoggedIn && myLists && myLists.length > 0 && (
+            <p
+              style={{
+                marginTop: "0.7rem",
+                marginBottom: 0,
+                color: "#666",
+              }}
+            >
+              Later, you&apos;ll be able to add this set to your custom lists
+              (you currently have {myLists.length}).
             </p>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Reviews list */}
-      <section style={{ marginTop: "2rem" }}>
+      {/* REVIEWS */}
+      <section style={{ marginTop: "2.5rem" }}>
         <h2
           style={{
             marginBottom: "0.75rem",
@@ -923,11 +997,60 @@ function SetDetailPage({
           Reviews
         </h2>
 
+        {showReviewForm && (
+          <form
+            onSubmit={handleReviewSubmit}
+            style={{
+              marginBottom: "1rem",
+              borderRadius: "8px",
+              border: "1px solid #e0e0e0",
+              padding: "0.75rem 0.9rem",
+              background: "#fafafa",
+            }}
+          >
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="What did you think of this set?"
+              style={{
+                width: "100%",
+                minHeight: "80px",
+                padding: "0.5rem",
+                borderRadius: "6px",
+                border: "1px solid #ccc",
+                fontFamily: "inherit",
+                fontSize: "0.95rem",
+              }}
+            />
+
+            {reviewSubmitError && (
+              <p style={{ color: "red", marginTop: "0.35rem" }}>
+                {reviewSubmitError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={reviewSubmitting}
+              style={{
+                marginTop: "0.5rem",
+                padding: "0.45rem 0.9rem",
+                borderRadius: "999px",
+                border: "none",
+                backgroundColor: reviewSubmitting ? "#888" : "#1f883d",
+                color: "white",
+                fontWeight: 600,
+                cursor: reviewSubmitting ? "default" : "pointer",
+              }}
+            >
+              {reviewSubmitting ? "Posting…" : "Post review"}
+            </button>
+          </form>
+        )}
+
         {reviewsLoading && <p>Loading reviews…</p>}
         {reviewsError && (
-          <p style={{ color: "red" }}>
-            Error loading reviews: {reviewsError}
-          </p>
+          <p style={{ color: "red" }}>Error loading reviews: {reviewsError}</p>
         )}
 
         {!reviewsLoading && !reviewsError && textReviews.length === 0 && (
@@ -987,6 +1110,146 @@ function SetDetailPage({
           </ul>
         )}
       </section>
+
+      {/* SIMILAR SETS */}
+      {(similarLoading ||
+        similarError ||
+        (similarSets && similarSets.length > 0)) && (
+        <section style={{ marginTop: "2.5rem", marginBottom: "1rem" }}>
+          <h2
+            style={{
+              marginTop: 0,
+              marginBottom: "0.5rem",
+              fontSize: "1.1rem",
+            }}
+          >
+            Similar sets you might like
+          </h2>
+
+          {similarLoading && <p>Loading similar sets…</p>}
+          {similarError && (
+            <p style={{ color: "red" }}>
+              Error loading similar sets: {similarError}
+            </p>
+          )}
+
+          {!similarLoading &&
+            !similarError &&
+            similarSets &&
+            similarSets.length === 0 && (
+              <p style={{ color: "#777" }}>
+                No similar sets found yet. We&apos;ll improve this later.
+              </p>
+            )}
+
+          {!similarLoading &&
+            !similarError &&
+            similarSets &&
+            similarSets.length > 0 && (
+              <div
+                style={{
+                  position: "relative",
+                  padding: "0 2rem", // space for arrows
+                }}
+              >
+                {/* Left arrow */}
+                <button
+                  type="button"
+                  onClick={() => scrollSimilar("left")}
+                  aria-label="Scroll similar sets left"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "999px",
+                    border: "1px solid #ddd",
+                    background: "white",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  ◀
+                </button>
+
+                {/* Scroll container */}
+                <div
+                  ref={similarScrollRef}
+                  style={{
+                    overflowX: "auto",
+                    paddingBottom: "0.5rem",
+                  }}
+                >
+                  <ul
+                    style={{
+                      display: "flex",
+                      gap: "0.75rem",
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                    }}
+                  >
+                    {similarSets.map((s) => (
+                      <li
+                        key={s.set_num}
+                        style={{
+                          minWidth: "220px",
+                          maxWidth: "220px",
+                          flex: "0 0 auto",
+                        }}
+                      >
+                          <SetCard
+                            set={s}
+                            isOwned={
+                              ownedSetNums ? ownedSetNums.has(s.set_num) : false
+                            }
+                            isInWishlist={
+                              wishlistSetNums
+                                ? wishlistSetNums.has(s.set_num)
+                                : false
+                            }
+                            onMarkOwned={onMarkOwned}
+                            onAddWishlist={onAddWishlist}
+                            variant="default"
+                          />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Right arrow */}
+                <button
+                  type="button"
+                  onClick={() => scrollSimilar("right")}
+                  aria-label="Scroll similar sets right"
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "999px",
+                    border: "1px solid #ddd",
+                    background: "white",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  ▶
+                </button>
+              </div>
+            )}
+        </section>
+      )}
     </div>
   );
 }

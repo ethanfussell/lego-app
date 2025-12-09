@@ -9,6 +9,7 @@ import Pagination from "./Pagination";
 import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
+import CollectionsPage from "./CollectionsPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -22,6 +23,7 @@ function SetRow({
   wishlistSetNums = new Set(),
   onMarkOwned,
   onAddWishlist,
+  variant = "default",
 }) {
   if (!sets || sets.length === 0) return null;
 
@@ -64,6 +66,7 @@ function SetRow({
                 isInWishlist={wishlistSetNums.has(set.set_num)}
                 onMarkOwned={onMarkOwned}
                 onAddWishlist={onAddWishlist}
+                variant={variant}
               />
             </li>
           ))}
@@ -163,6 +166,7 @@ function HomePage({
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        variant="home"
       />
 
       <SetRow
@@ -172,6 +176,7 @@ function HomePage({
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        variant="home"
       />
 
       <SetRow
@@ -181,6 +186,7 @@ function HomePage({
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        variant="home"
       />
 
       <SetRow
@@ -190,7 +196,184 @@ function HomePage({
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        variant="home"
       />
+    </div>
+  );
+}
+
+
+// ===================== COLLECTION PAGE =====================
+function CollectionPage({
+  owned,
+  wishlist,
+  ownedSetNums,
+  wishlistSetNums,
+  onMarkOwned,
+  onAddWishlist,
+}) {
+  const [activeTab, setActiveTab] = React.useState("owned");
+  const [tabSets, setTabSets] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadDetails() {
+      const source = activeTab === "owned" ? owned : wishlist;
+
+      if (!source || source.length === 0) {
+        setTabSets([]);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // unique set_nums from the collection
+        const uniqueSetNums = Array.from(
+          new Set(source.map((item) => item.set_num))
+        );
+
+        const results = await Promise.all(
+          uniqueSetNums.map(async (num) => {
+            try {
+              const resp = await fetch(
+                `${API_BASE}/sets/${encodeURIComponent(num)}`
+              );
+              if (!resp.ok) {
+                throw new Error(
+                  `Failed to load set ${num} (status ${resp.status})`
+                );
+              }
+              return await resp.json();
+            } catch (err) {
+              console.error("Error loading set in collection:", num, err);
+              return null; // skip this one
+            }
+          })
+        );
+
+        if (!cancelled) {
+          setTabSets(results.filter(Boolean));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, owned, wishlist]);
+
+  const totalOwned = owned ? owned.length : 0;
+  const totalWishlist = wishlist ? wishlist.length : 0;
+
+  return (
+    <div>
+      <h1>Collection</h1>
+      <p style={{ color: "#666", marginBottom: "1rem" }}>
+        View sets you&apos;ve marked as Owned or added to your Wishlist.
+      </p>
+
+      {/* Tabs */}
+      <div
+        style={{
+          display: "inline-flex",
+          borderRadius: "999px",
+          border: "1px solid #ddd",
+          padding: "0.15rem",
+          marginBottom: "1rem",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab("owned")}
+          style={{
+            padding: "0.35rem 0.9rem",
+            borderRadius: "999px",
+            border: "none",
+            backgroundColor: activeTab === "owned" ? "#111827" : "transparent",
+            color: activeTab === "owned" ? "white" : "#111827",
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          Owned ({totalOwned})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("wishlist")}
+          style={{
+            padding: "0.35rem 0.9rem",
+            borderRadius: "999px",
+            border: "none",
+            backgroundColor:
+              activeTab === "wishlist" ? "#111827" : "transparent",
+            color: activeTab === "wishlist" ? "white" : "#111827",
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          Wishlist ({totalWishlist})
+        </button>
+      </div>
+
+      {loading && <p>Loading sets…</p>}
+      {error && <p style={{ color: "red" }}>Error: {error}</p>}
+
+      {!loading && !error && tabSets.length === 0 && (
+        <p style={{ color: "#666" }}>
+          {activeTab === "owned"
+            ? "You haven\u2019t marked any sets as Owned yet. Use the “Mark Owned” button on a set page to add it here."
+            : "You haven\u2019t added any sets to your Wishlist yet. Use the “Add to Wishlist” button on a set page to add it here."}
+        </p>
+      )}
+
+      {!loading && !error && tabSets.length > 0 && (
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "1.5rem",
+          }}
+        >
+          {tabSets.map((set) => (
+            <li
+              key={set.set_num}
+              style={{
+                flex: "0 0 240px",  // fixed card width
+                maxWidth: "240px",
+              }}
+            >
+              <SetCard
+                set={set}
+                isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
+                isInWishlist={
+                  wishlistSetNums ? wishlistSetNums.has(set.set_num) : false
+                }
+                onMarkOwned={onMarkOwned}
+                onAddWishlist={onAddWishlist}
+                variant="collection"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -302,6 +485,19 @@ function App() {
     setShowSuggestions(true);
   }
 
+  function handleSearchAllClick() {
+    const trimmed = searchText.trim();
+    if (!trimmed) return;
+  
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setPage("search");
+    navigate("/search");
+  
+    // run a normal search
+    runSearch(trimmed, searchSort, 1);
+  }
+
   function handleSearchBlur() {
     setTimeout(() => {
       setShowSuggestions(false);
@@ -310,12 +506,19 @@ function App() {
 
   function handleSuggestionClick(suggestion) {
     const term = suggestion.name || suggestion.set_num || "";
+  
+    // put the text in the box just for visual feedback
     setSearchText(term);
+  
+    // hide suggestions
     setShowSuggestions(false);
-    setPage("search");
+    setSuggestions([]);
+  
+    // optional: keep this around as "last search"
     setSearchQuery(term);
-    navigate("/search");
-    runSearch(term, searchSort, 1);
+  
+    // 👇 go straight to the set detail page
+    navigate(`/sets/${encodeURIComponent(suggestion.set_num)}`);
   }
 
   useEffect(() => {
@@ -839,52 +1042,70 @@ function App() {
           gap: "1rem",
         }}
       >
-        {/* LEFT: main nav links */}
-        <div
+      {/* LEFT: main nav links */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+        }}
+      >
+        <Link
+          to="/"
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.75rem",
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+          onClick={() => setPage("public")}
+        >
+          🏠 Home
+        </Link>
+
+        <Link
+          to="/explore"
+          style={{
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
           }}
         >
-          <Link
-            to="/"
-            style={{
-              padding: "0.5rem 0.9rem",
-              cursor: "pointer",
-              textDecoration: "none",
-              fontWeight: isHome ? 600 : 400,
-            }}
-            onClick={() => setPage("home")}
-          >
-            🏠 Home
-          </Link>
+          🔎 Explore
+        </Link>
 
-          <Link
-            to="/journal"
-            style={{
-              padding: "0.5rem 0.9rem",
-              cursor: "pointer",
-              textDecoration: "none",
-              fontWeight: isJournal ? 600 : 400,
-            }}
-          >
-            📓 Journal
-          </Link>
+        <Link
+          to="/new"
+          style={{
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+        >
+          ✨ New
+        </Link>
 
-          <Link
-            to="/explore"
-            style={{
-              padding: "0.5rem 0.9rem",
-              cursor: "pointer",
-              textDecoration: "none",
-              fontWeight: isExplore ? 600 : 400,
-            }}
-            onClick={() => setPage("explore")}
-          >
-            📡 Explore
-          </Link>
-        </div>
+        <Link
+          to="/sale"
+          style={{
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+        >
+          💸 Sale
+        </Link>
+
+        <Link
+          to="/retiring"
+          style={{
+            padding: "0.5rem 0.9rem",
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+        >
+          ⏳ Retiring soon
+        </Link>
+      </div>
 
         {/* RIGHT: search + auth */}
         <div
@@ -911,42 +1132,77 @@ function App() {
               }}
             />
 
-            {showSuggestions && suggestions.length > 0 && (
-              <ul
-                style={{
-                  position: "absolute",
-                  top: "110%",
-                  left: 0,
-                  right: 0,
-                  background: "white",
-                  border: "1px solid #ddd",
-                  borderRadius: "6px",
-                  listStyle: "none",
-                  margin: 0,
-                  padding: "0.25rem 0",
-                  zIndex: 20,
-                  maxHeight: "240px",
-                  overflowY: "auto",
-                }}
-              >
-                {suggestions.map((s) => (
-                  <li
-                    key={s.set_num}
-                    onMouseDown={() => handleSuggestionClick(s)}
-                    style={{
-                      padding: "0.5rem 0.75rem",
-                      cursor: "pointer",
-                      borderBottom: "1px solid #eee",
-                    }}
-                  >
-                    <strong>{s.name}</strong>
-                    <div style={{ fontSize: "0.8rem", color: "#666" }}>
-                      {s.set_num} • {s.year}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+              {showSuggestions && (suggestions.length > 0 || searchText.trim() !== "") && (
+                <ul
+                  style={{
+                    position: "absolute",
+                    top: "110%",
+                    left: 0,
+                    right: 0,
+                    background: "white",
+                    border: "1px solid #ddd",
+                    borderRadius: "6px",
+                    listStyle: "none",
+                    margin: 0,
+                    padding: "0.25rem 0",
+                    zIndex: 20,
+                    maxHeight: "260px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {/* --- Category: Sets --- */}
+                  {suggestions.length > 0 && (
+                    <>
+                      <li
+                        style={{
+                          padding: "0.35rem 0.75rem",
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          color: "#777",
+                        }}
+                      >
+                        Sets
+                      </li>
+
+                      {suggestions.map((s) => (
+                        <li
+                          key={s.set_num}
+                          onMouseDown={() => handleSuggestionClick(s)}
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            cursor: "pointer",
+                            borderBottom: "1px solid #f3f3f3",
+                          }}
+                        >
+                          <strong>{s.name}</strong>
+                          <div style={{ fontSize: "0.8rem", color: "#666" }}>
+                            {s.set_num} • {s.year}
+                          </div>
+                        </li>
+                      ))}
+                    </>
+                  )}
+
+                  {/* --- Category: Search all (action row) --- */}
+                  {searchText.trim() !== "" && (
+                    <li
+                      onMouseDown={handleSearchAllClick}
+                      style={{
+                        padding: "0.5rem 0.75rem",
+                        cursor: "pointer",
+                        background: suggestions.length === 0 ? "white" : "#fafafa",
+                        fontSize: "0.85rem",
+                        color: "#444",
+                      }}
+                    >
+                      Search all sets for{" "}
+                      <span style={{ fontWeight: 600 }}>"{searchText.trim()}"</span>
+                    </li>
+                  )}
+                </ul>
+              )}
           </form>
 
           {/* Auth / lists links */}
@@ -1011,15 +1267,30 @@ function App() {
             }
           />
 
+          <Route
+            path="/collection"
+            element={
+              <CollectionPage
+                owned={owned}
+                wishlist={wishlist}
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            }
+          />
           {/* JOURNAL (placeholder) */}
           <Route
-            path="/journal"
-            element={
-              <div>
-                <h1>Journal</h1>
-                <p style={{ color: "#666" }}>Journal page coming soon.</p>
-              </div>
-            }
+          path="/journal"
+          element={
+            <CollectionsPage
+              ownedSets={owned}          // 👈 use 'owned' from useState
+              wishlistSets={wishlist}    // 👈 use 'wishlist' from useState
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+            />
+          }
           />
 
           {/* EXPLORE (public lists) */}
@@ -1085,6 +1356,46 @@ function App() {
               </>
             }
           />
+
+        {/* -------- NEW SETS (placeholder) -------- */}
+        <Route
+          path="/new"
+          element={
+            <div>
+              <h1>New sets</h1>
+              <p style={{ color: "#666" }}>
+                A curated feed of the latest releases will go here later.
+              </p>
+            </div>
+          }
+        />
+
+        {/* -------- SALE (placeholder) -------- */}
+        <Route
+          path="/sale"
+          element={
+            <div>
+              <h1>On sale</h1>
+              <p style={{ color: "#666" }}>
+                Soon this page will highlight sets with the best deals.
+              </p>
+            </div>
+          }
+        />
+
+        {/* -------- RETIRING SOON (placeholder) -------- */}
+        <Route
+          path="/retiring"
+          element={
+            <div>
+              <h1>Retiring soon</h1>
+              <p style={{ color: "#666" }}>
+                Eventually this page will show sets that are about to retire so
+                you can grab them in time.
+              </p>
+            </div>
+          }
+        />
 
           {/* SEARCH RESULTS */}
           <Route
@@ -1166,6 +1477,7 @@ function App() {
                         style={{
                           listStyle: "none",
                           padding: 0,
+                          margin: 0,
                           display: "grid",
                           gridTemplateColumns:
                             "repeat(auto-fit, minmax(240px, 1fr))",
@@ -1174,6 +1486,13 @@ function App() {
                         }}
                       >
                         {searchResults.map((set) => (
+                          <li
+                            key={set.set_num}
+                            style={{
+                              width: "240px",
+                              maxWidth: "240px",
+                            }}
+                          >
                           <SetCard
                             key={set.set_num}
                             set={set}
@@ -1183,6 +1502,7 @@ function App() {
                             onAddWishlist={handleAddWishlist}
                             variant="default"
                           />
+                        </li>
                         ))}
                       </ul>
 
