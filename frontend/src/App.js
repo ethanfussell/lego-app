@@ -9,6 +9,7 @@ import Pagination from "./Pagination";
 import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
+import NewSetsPage from "./NewSetsPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -1257,6 +1258,19 @@ function App() {
             path="/"
             element={
               <HomePage
+                ownedSetNums={ownedSetNums}
+                wishlistSetNums={wishlistSetNums}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            }
+          />
+
+          {/* NEW SETS PAGE */}
+          <Route
+            path="/new"
+            element={
+              <NewSetsPage
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
