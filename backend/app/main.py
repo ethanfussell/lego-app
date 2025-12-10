@@ -7,6 +7,7 @@ from .routers import reviews as reviews_router
 from .routers import custom_collections as collections_router
 from .routers import lists as lists_router
 from .routers import users as users_router
+from .api import themes
 
 app = FastAPI(title="LEGO API")
 
@@ -44,3 +45,5 @@ app.include_router(lists_router.router, tags=["lists"])
 
 # Users
 app.include_router(users_router.router, tags=["users"])
+
+app.include_router(themes.router)
