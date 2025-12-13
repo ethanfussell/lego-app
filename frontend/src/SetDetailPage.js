@@ -57,7 +57,7 @@ function SetDetailPage({
   const [ratingSummaryLoading, setRatingSummaryLoading] = useState(false);
   const [ratingSummaryError, setRatingSummaryError] = useState(null);
 
-  // Review text
+  // Reviews UI
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewText, setReviewText] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -67,22 +67,7 @@ function SetDetailPage({
   const [similarSets, setSimilarSets] = useState([]);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState(null);
-
-  // Ref for horizontal scroll of similar sets
-  const similarScrollRef = useRef(null);
-
-  function scrollSimilar(direction) {
-    const node = similarScrollRef.current;
-    if (!node) return;
-
-    const cardWidth = 240; // approx width of one card + gap
-    const delta = direction === "left" ? -cardWidth : cardWidth;
-
-    node.scrollBy({
-      left: delta,
-      behavior: "smooth",
-    });
-  }
+  const similarRowRef = useRef(null);
 
   // Derived collection state from parent
   const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
@@ -100,7 +85,7 @@ function SetDetailPage({
         setError(null);
         setUserRating(null);
 
-        // detail
+        // Set detail
         const detailResp = await fetch(`${API_BASE}/sets/${setNum}`);
         if (!detailResp.ok) {
           throw new Error(`Failed to load set (status ${detailResp.status})`);
@@ -108,7 +93,7 @@ function SetDetailPage({
         const detailData = await detailResp.json();
         setSetDetail(detailData);
 
-        // reviews
+        // Reviews
         setReviewsLoading(true);
         setReviewsError(null);
         const reviewsResp = await fetch(
@@ -122,7 +107,7 @@ function SetDetailPage({
         const reviewsData = await reviewsResp.json();
         setReviews(reviewsData);
 
-        // If logged in, try to find *your* review and set the stars to match it
+        // If logged in, find your review and sync userRating
         if (currentUsername && Array.isArray(reviewsData)) {
           const mine = reviewsData.find(
             (r) => (r.user || r.username) === currentUsername
@@ -195,7 +180,7 @@ function SetDetailPage({
   }, [setNum]);
 
   // -------------------------------
-  // Similar sets (by theme)
+  // Similar sets (same theme / vibe)
   // -------------------------------
   useEffect(() => {
     if (!setDetail || !setDetail.theme) {
@@ -211,7 +196,6 @@ function SetDetailPage({
         setSimilarError(null);
 
         const params = new URLSearchParams();
-        // Use theme text as the search query
         params.set("q", setDetail.theme);
         params.set("sort", "rating");
         params.set("order", "desc");
@@ -222,13 +206,11 @@ function SetDetailPage({
 
         if (!resp.ok) {
           const text = await resp.text();
-          throw new Error(`Similar sets failed (${resp.status}): ${text}`);
+          throw new Error(`Similar sets fetch failed (${resp.status}): ${text}`);
         }
 
         const data = await resp.json();
         let items = Array.isArray(data) ? data : data.results || [];
-
-        // Filter out the current set
         items = items.filter((s) => s.set_num !== setNum);
 
         if (!cancelled) {
@@ -453,6 +435,20 @@ function SetDetailPage({
     } finally {
       setReviewSubmitting(false);
     }
+  }
+
+  // -------------------------------
+  // Similar row scrolling
+  // -------------------------------
+  function scrollSimilar(direction) {
+    const node = similarRowRef.current;
+    if (!node) return;
+
+    const cardWidth = 240; // px to scroll per click
+    node.scrollBy({
+      left: direction * cardWidth,
+      behavior: "smooth",
+    });
   }
 
   // -------------------------------
@@ -794,68 +790,7 @@ function SetDetailPage({
         </div>
       </section>
 
-      {/* PRICE COMPARISON SECTION */}
-      <section style={{ marginTop: "2rem" }}>
-        <h2
-          style={{
-            margin: 0,
-            marginBottom: "0.5rem",
-            fontSize: "1.1rem",
-          }}
-        >
-          Shop & price comparison
-        </h2>
-        <div
-          style={{
-            borderRadius: "12px",
-            border: "1px dashed #d4d4d4",
-            padding: "0.9rem 1rem",
-            background: "#fafafa",
-            fontSize: "0.9rem",
-          }}
-        >
-          {isRetired ? (
-            <>
-              <p
-                style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}
-              >
-                This set is retired, so live retail prices are limited.
-              </p>
-              <p style={{ margin: 0, color: "#777" }}>
-                Later this section will show secondary-market and used prices
-                with affiliate links.
-              </p>
-            </>
-          ) : (
-            <>
-              <p
-                style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}
-              >
-                Soon you&apos;ll see real-time prices from LEGO, Amazon, and
-                other shops right here.
-              </p>
-              <button
-                type="button"
-                disabled
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  backgroundColor: "#111827",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: "not-allowed",
-                  fontSize: "0.9rem",
-                }}
-              >
-                Shop now (coming soon)
-              </button>
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* ABOUT THIS SET */}
+      {/* ABOUT THIS SET – under hero */}
       <section style={{ marginTop: "2rem" }}>
         <h2
           style={{
@@ -904,84 +839,59 @@ function SetDetailPage({
         </ul>
       </section>
 
-      {/* YOUR ACTIVITY */}
-      <section style={{ marginTop: "1.75rem" }}>
+      {/* PRICE COMPARISON SECTION */}
+      <section style={{ marginTop: "2rem" }}>
         <h2
           style={{
-            marginTop: 0,
+            margin: 0,
             marginBottom: "0.5rem",
             fontSize: "1.1rem",
           }}
         >
-          Your activity
+          Shop & price comparison
         </h2>
-
         <div
           style={{
             borderRadius: "12px",
-            border: "1px solid #eee",
+            border: "1px dashed #d4d4d4",
             padding: "0.9rem 1rem",
             background: "#fafafa",
             fontSize: "0.9rem",
           }}
         >
-          <p style={{ marginTop: 0, marginBottom: "0.35rem" }}>
-            {isLoggedIn ? (
-              <>
-                Signed in as <strong>{currentUsername}</strong>.
-              </>
-            ) : (
-              <>You&apos;re browsing as a guest.</>
-            )}
-          </p>
-
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              color: "#555",
-            }}
-          >
-            <li>
-              Collection:{" "}
-              {isOwned ? (
-                <span>✅ Marked as Owned</span>
-              ) : (
-                <span>Not in your Owned list yet.</span>
-              )}
-            </li>
-            <li>
-              Wishlist:{" "}
-              {isInWishlist ? (
-                <span>★ In your Wishlist</span>
-              ) : (
-                <span>Not on your Wishlist.</span>
-              )}
-            </li>
-            <li>
-              Rating:{" "}
-              {userRating != null ? (
-                <span>
-                  {userRating.toFixed(1)} ★ (you can update it any time)
-                </span>
-              ) : (
-                <span>You haven&apos;t rated this set yet.</span>
-              )}
-            </li>
-          </ul>
-
-          {isLoggedIn && myLists && myLists.length > 0 && (
-            <p
-              style={{
-                marginTop: "0.7rem",
-                marginBottom: 0,
-                color: "#666",
-              }}
-            >
-              Later, you&apos;ll be able to add this set to your custom lists
-              (you currently have {myLists.length}).
-            </p>
+          {isRetired ? (
+            <>
+              <p style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}>
+                This set is retired, so live retail prices are limited.
+              </p>
+              <p style={{ margin: 0, color: "#777" }}>
+                Later this section will show secondary-market and used prices
+                with affiliate links.
+              </p>
+            </>
+          ) : (
+            <>
+              <p style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}>
+                Soon you&apos;ll see real-time prices from LEGO, Amazon, and
+                other shops right here.
+              </p>
+              <button
+                type="button"
+                disabled
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  backgroundColor: "#111827",
+                  color: "white",
+                  fontWeight: 600,
+                  cursor: "not-allowed",
+                  fontSize: "0.9rem",
+                }}
+              >
+                Shop now (coming soon)
+              </button>
+            </>
           )}
         </div>
       </section>
@@ -1149,37 +1059,12 @@ function SetDetailPage({
               <div
                 style={{
                   position: "relative",
-                  padding: "0 2rem", // space for arrows
+                  marginTop: "0.5rem",
                 }}
               >
-                {/* Left arrow */}
-                <button
-                  type="button"
-                  onClick={() => scrollSimilar("left")}
-                  aria-label="Scroll similar sets left"
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "999px",
-                    border: "1px solid #ddd",
-                    background: "white",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                  }}
-                >
-                  ◀
-                </button>
-
-                {/* Scroll container */}
+                {/* Scrollable row */}
                 <div
-                  ref={similarScrollRef}
+                  ref={similarRowRef}
                   style={{
                     overflowX: "auto",
                     paddingBottom: "0.5rem",
@@ -1203,48 +1088,63 @@ function SetDetailPage({
                           flex: "0 0 auto",
                         }}
                       >
-                          <SetCard
-                            set={s}
-                            isOwned={
-                              ownedSetNums ? ownedSetNums.has(s.set_num) : false
-                            }
-                            isInWishlist={
-                              wishlistSetNums
-                                ? wishlistSetNums.has(s.set_num)
-                                : false
-                            }
-                            onMarkOwned={onMarkOwned}
-                            onAddWishlist={onAddWishlist}
-                            variant="default"
-                          />
+                        <SetCard
+                          set={s}
+                          isOwned={
+                            ownedSetNums ? ownedSetNums.has(s.set_num) : false
+                          }
+                          isInWishlist={
+                            wishlistSetNums
+                              ? wishlistSetNums.has(s.set_num)
+                              : false
+                          }
+                          onMarkOwned={onMarkOwned}
+                          onAddWishlist={onAddWishlist}
+                          variant="default"
+                        />
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                {/* Right arrow */}
+                {/* Left arrow */}
                 <button
                   type="button"
-                  onClick={() => scrollSimilar("right")}
-                  aria-label="Scroll similar sets right"
+                  onClick={() => scrollSimilar(-1)}
                   style={{
                     position: "absolute",
-                    right: 0,
                     top: "50%",
+                    left: 0,
                     transform: "translateY(-50%)",
-                    width: "28px",
-                    height: "28px",
                     borderRadius: "999px",
                     border: "1px solid #ddd",
                     background: "white",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    padding: "0.2rem 0.4rem",
                     cursor: "pointer",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
                   }}
                 >
-                  ▶
+                  ←
+                </button>
+
+                {/* Right arrow */}
+                <button
+                  type="button"
+                  onClick={() => scrollSimilar(1)}
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    right: 0,
+                    transform: "translateY(-50%)",
+                    borderRadius: "999px",
+                    border: "1px solid #ddd",
+                    background: "white",
+                    padding: "0.2rem 0.4rem",
+                    cursor: "pointer",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                  }}
+                >
+                  →
                 </button>
               </div>
             )}

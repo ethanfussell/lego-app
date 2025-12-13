@@ -1,51 +1,44 @@
-// frontend/src/ThemeDetailPage.js
+// frontend/src/FeedPage.js
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import SetCard from "./SetCard";
 
 const API_BASE = "http://localhost:8000";
 
-function ThemeDetailPage({
+function FeedPage({
+  title,
+  description,
+  queryParams = {},
   ownedSetNums,
   wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
+  variant = "default",   // 👈 NEW
 }) {
-  const { themeSlug } = useParams();
-
-  // Nice-looking name from slug: "lego-city" -> "Lego City"
-  const prettyName = themeSlug
-    ? decodeURIComponent(themeSlug)
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    : "Theme";
-
   const [sets, setSets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadThemeSets() {
+    async function loadSets() {
       try {
         setLoading(true);
         setError(null);
 
-        const searchTerm = decodeURIComponent(themeSlug).replace(/-/g, " ");
-
         const params = new URLSearchParams();
-        params.set("q", searchTerm);      // use existing search endpoint
-        params.set("sort", "year");       // newest first feels good here
-        params.set("order", "desc");
-        params.set("page", "1");
-        params.set("limit", "60");
+        params.set("page", queryParams.page?.toString() || "1");
+        params.set("limit", queryParams.limit?.toString() || "50");
+
+        if (queryParams.q) params.set("q", queryParams.q);
+        if (queryParams.sort) params.set("sort", queryParams.sort);
+        if (queryParams.order) params.set("order", queryParams.order);
 
         const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
 
         if (!resp.ok) {
           const text = await resp.text();
-          throw new Error(`Theme search failed (${resp.status}): ${text}`);
+          throw new Error(`Feed fetch failed (${resp.status}): ${text}`);
         }
 
         const data = await resp.json();
@@ -56,7 +49,7 @@ function ThemeDetailPage({
         }
       } catch (err) {
         if (!cancelled) {
-          console.error("Error loading theme sets:", err);
+          console.error("Error loading feed:", err);
           setError(err.message || String(err));
         }
       } finally {
@@ -66,27 +59,27 @@ function ThemeDetailPage({
       }
     }
 
-    loadThemeSets();
+    loadSets();
 
     return () => {
       cancelled = true;
     };
-  }, [themeSlug]);
+  }, [JSON.stringify(queryParams)]);
 
   const hasResults = sets && sets.length > 0;
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>{prettyName}</h1>
-      <p style={{ color: "#666", maxWidth: "600px" }}>
-        Sets that match this theme (placeholder search using the theme name).
-      </p>
+      <h1 style={{ marginTop: 0 }}>{title}</h1>
+      {description && (
+        <p style={{ color: "#666", maxWidth: "600px" }}>{description}</p>
+      )}
 
       {loading && <p>Loading sets…</p>}
       {error && <p style={{ color: "red" }}>Error: {error}</p>}
 
       {!loading && !error && !hasResults && (
-        <p style={{ color: "#777" }}>No sets found for this theme.</p>
+        <p style={{ color: "#777" }}>No sets found for this feed.</p>
       )}
 
       {!loading && !error && hasResults && (
@@ -102,14 +95,20 @@ function ThemeDetailPage({
           }}
         >
           {sets.map((set) => (
-            <li key={set.set_num}>
+            <li
+              key={set.set_num}
+              style={{
+                width: "100%",
+                maxWidth: "260px",   // 👈 helps keep consistent width
+              }}
+            >
               <SetCard
                 set={set}
                 isOwned={ownedSetNums?.has(set.set_num)}
                 isInWishlist={wishlistSetNums?.has(set.set_num)}
                 onMarkOwned={onMarkOwned}
                 onAddWishlist={onAddWishlist}
-                variant="default"
+                variant={variant}   // 👈 pass variant through
               />
             </li>
           ))}
@@ -119,4 +118,4 @@ function ThemeDetailPage({
   );
 }
 
-export default ThemeDetailPage;
+export default FeedPage;

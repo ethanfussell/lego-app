@@ -2,18 +2,17 @@
 // Main React app for LEGO tracker
 
 import React, { useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 
 import Login from "./Login";
 import Pagination from "./Pagination";
 import SetDetailPage from "./SetDetailPage";
 import SetCard from "./SetCard";
 import ListDetailPage from "./ListDetailPage";
-import NewSetsPage from "./NewSetsPage";
-import SalePage from "./SalePage";
-import RetiringSoonPage from "./RetiringSoonPage";
 import ThemesPage from "./ThemesPage";
 import ThemeDetailPage from "./ThemeDetailPage";
+import FeedPage from "./FeedPage";
+import NewSetsPage from "./NewSetsPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -22,26 +21,41 @@ const API_BASE = "http://localhost:8000";
 -------------------------------------------------------- */
 function SetRow({
   title,
+  subtitle,
   sets,
-  ownedSetNums = new Set(),
-  wishlistSetNums = new Set(),
+  ownedSetNums,
+  wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
-  variant = "default",
 }) {
   if (!sets || sets.length === 0) return null;
 
   return (
-    <section style={{ marginBottom: "1.75rem" }}>
+    <section style={{ marginBottom: "1.9rem" }}>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "baseline",
           marginBottom: "0.5rem",
+          gap: "1rem",
+          flexWrap: "wrap",
         }}
       >
-        <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
+        <div>
+          <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
+          {subtitle && (
+            <p
+              style={{
+                margin: "0.2rem 0 0 0",
+                fontSize: "0.9rem",
+                color: "#6b7280",
+              }}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
       </div>
 
       <div
@@ -70,7 +84,6 @@ function SetRow({
                 isInWishlist={wishlistSetNums.has(set.set_num)}
                 onMarkOwned={onMarkOwned}
                 onAddWishlist={onAddWishlist}
-                variant={variant}
               />
             </li>
           ))}
@@ -81,7 +94,7 @@ function SetRow({
 }
 
 /* -------------------------------------------------------
-   Home page: hero + 4 sections
+   Home page
 -------------------------------------------------------- */
 function HomePage({
   ownedSetNums,
@@ -89,14 +102,14 @@ function HomePage({
   onMarkOwned,
   onAddWishlist,
 }) {
-  const [featuredSets, setFeaturedSets] = useState([]);
-  const [dealsSets, setDealsSets] = useState([]);
-  const [retiringSets, setRetiringSets] = useState([]);
-  const [trendingSets, setTrendingSets] = useState([]);
-  const [homeLoading, setHomeLoading] = useState(false);
-  const [homeError, setHomeError] = useState(null);
+  const [featuredSets, setFeaturedSets] = React.useState([]);
+  const [dealsSets, setDealsSets] = React.useState([]);
+  const [retiringSets, setRetiringSets] = React.useState([]);
+  const [trendingSets, setTrendingSets] = React.useState([]);
+  const [homeLoading, setHomeLoading] = React.useState(false);
+  const [homeError, setHomeError] = React.useState(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     let cancelled = false;
 
     async function fetchHomeSets() {
@@ -105,7 +118,7 @@ function HomePage({
         setHomeError(null);
 
         const params = new URLSearchParams();
-        params.set("q", "lego"); // generic search term
+        params.set("q", "lego");
         params.set("sort", "rating");
         params.set("order", "desc");
         params.set("page", "1");
@@ -155,6 +168,16 @@ function HomePage({
           Log your collection, wishlist, and reviews. Discover deals, sets
           retiring soon, and what&apos;s trending with other fans.
         </p>
+        <p
+          style={{
+            marginTop: "0.4rem",
+            fontSize: "0.8rem",
+            color: "#9ca3af",
+          }}
+        >
+          Home feed placeholder · later this will be personalized and pull real
+          prices.
+        </p>
       </section>
 
       {homeLoading && <p>Loading sets…</p>}
@@ -162,222 +185,45 @@ function HomePage({
         <p style={{ color: "red" }}>Error loading homepage: {homeError}</p>
       )}
 
-      {/* Rows – they hide themselves if their set list is empty */}
       <SetRow
-        title="Featured Sets"
+        title="Featured sets"
+        subtitle="Highly-rated sets across all themes."
         sets={featuredSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
-        variant="home"
       />
 
       <SetRow
-        title="Deals & Price Drops"
+        title="Deals & price drops"
+        subtitle="Placeholder: likely to become your “best current deal” row."
         sets={dealsSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
-        variant="home"
       />
 
       <SetRow
-        title="Retiring Soon"
+        title="Retiring soon"
+        subtitle="Older sets that might not stick around forever."
         sets={retiringSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
-        variant="home"
       />
 
       <SetRow
-        title="Trending Right Now"
+        title="Trending right now"
+        subtitle="Another slice of top-rated sets as a stand-in for real trends."
         sets={trendingSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
-        variant="home"
       />
-    </div>
-  );
-}
-
-
-// ===================== COLLECTION PAGE =====================
-function CollectionPage({
-  owned,
-  wishlist,
-  ownedSetNums,
-  wishlistSetNums,
-  onMarkOwned,
-  onAddWishlist,
-}) {
-  const [activeTab, setActiveTab] = React.useState("owned");
-  const [tabSets, setTabSets] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadDetails() {
-      const source = activeTab === "owned" ? owned : wishlist;
-
-      if (!source || source.length === 0) {
-        setTabSets([]);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-
-        // unique set_nums from the collection
-        const uniqueSetNums = Array.from(
-          new Set(source.map((item) => item.set_num))
-        );
-
-        const results = await Promise.all(
-          uniqueSetNums.map(async (num) => {
-            try {
-              const resp = await fetch(
-                `${API_BASE}/sets/${encodeURIComponent(num)}`
-              );
-              if (!resp.ok) {
-                throw new Error(
-                  `Failed to load set ${num} (status ${resp.status})`
-                );
-              }
-              return await resp.json();
-            } catch (err) {
-              console.error("Error loading set in collection:", num, err);
-              return null; // skip this one
-            }
-          })
-        );
-
-        if (!cancelled) {
-          setTabSets(results.filter(Boolean));
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err.message || String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadDetails();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, owned, wishlist]);
-
-  const totalOwned = owned ? owned.length : 0;
-  const totalWishlist = wishlist ? wishlist.length : 0;
-
-  return (
-    <div>
-      <h1>Collection</h1>
-      <p style={{ color: "#666", marginBottom: "1rem" }}>
-        View sets you&apos;ve marked as Owned or added to your Wishlist.
-      </p>
-
-      {/* Tabs */}
-      <div
-        style={{
-          display: "inline-flex",
-          borderRadius: "999px",
-          border: "1px solid #ddd",
-          padding: "0.15rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setActiveTab("owned")}
-          style={{
-            padding: "0.35rem 0.9rem",
-            borderRadius: "999px",
-            border: "none",
-            backgroundColor: activeTab === "owned" ? "#111827" : "transparent",
-            color: activeTab === "owned" ? "white" : "#111827",
-            fontWeight: 500,
-            cursor: "pointer",
-          }}
-        >
-          Owned ({totalOwned})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("wishlist")}
-          style={{
-            padding: "0.35rem 0.9rem",
-            borderRadius: "999px",
-            border: "none",
-            backgroundColor:
-              activeTab === "wishlist" ? "#111827" : "transparent",
-            color: activeTab === "wishlist" ? "white" : "#111827",
-            fontWeight: 500,
-            cursor: "pointer",
-          }}
-        >
-          Wishlist ({totalWishlist})
-        </button>
-      </div>
-
-      {loading && <p>Loading sets…</p>}
-      {error && <p style={{ color: "red" }}>Error: {error}</p>}
-
-      {!loading && !error && tabSets.length === 0 && (
-        <p style={{ color: "#666" }}>
-          {activeTab === "owned"
-            ? "You haven\u2019t marked any sets as Owned yet. Use the “Mark Owned” button on a set page to add it here."
-            : "You haven\u2019t added any sets to your Wishlist yet. Use the “Add to Wishlist” button on a set page to add it here."}
-        </p>
-      )}
-
-      {!loading && !error && tabSets.length > 0 && (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "1.5rem",
-          }}
-        >
-          {tabSets.map((set) => (
-            <li
-              key={set.set_num}
-              style={{
-                flex: "0 0 240px",  // fixed card width
-                maxWidth: "240px",
-              }}
-            >
-              <SetCard
-                set={set}
-                isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
-                isInWishlist={
-                  wishlistSetNums ? wishlistSetNums.has(set.set_num) : false
-                }
-                onMarkOwned={onMarkOwned}
-                onAddWishlist={onAddWishlist}
-                variant="collection"
-              />
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -387,28 +233,21 @@ function CollectionPage({
 -------------------------------------------------------- */
 function App() {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  // -------------------------------
-  // Public lists (Explore page)
-  // -------------------------------
+  // Public lists (Explore)
   const [lists, setLists] = useState([]);
   const [publicLoading, setPublicLoading] = useState(true);
   const [publicError, setPublicError] = useState(null);
 
-  // -------------------------------
-  // Global UI state
-  // -------------------------------
-  const [page, setPage] = useState("home"); // "home", "search", "login", etc.
+  // Page mode (used for search keyboard stuff)
+  const [page, setPage] = useState("home");
 
   // Auth token
   const [token, setToken] = useState(() => {
     return localStorage.getItem("lego_token") || "";
   });
 
-  // -------------------------------
   // Search bar + suggestions
-  // -------------------------------
   const [searchText, setSearchText] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -416,16 +255,12 @@ function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchDebounceRef = useRef(null);
 
-  // -------------------------------
-  // My Lists (authed)
-  // -------------------------------
+  // My lists (authed)
   const [myLists, setMyLists] = useState([]);
   const [myListsLoading, setMyListsLoading] = useState(false);
   const [myListsError, setMyListsError] = useState(null);
 
-  // -------------------------------
   // Create-list form
-  // -------------------------------
   const [newListTitle, setNewListTitle] = useState("");
   const [newListDescription, setNewListDescription] = useState("");
   const [newListIsPublic, setNewListIsPublic] = useState(true);
@@ -433,17 +268,13 @@ function App() {
   const [createError, setCreateError] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // -------------------------------
   // Collections (Owned / Wishlist)
-  // -------------------------------
   const [owned, setOwned] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState(null);
 
-  // -------------------------------
-  // Search results state
-  // -------------------------------
+  // Search results
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -453,7 +284,7 @@ function App() {
   const [searchTotal, setSearchTotal] = useState(0);
   const searchLimit = 50;
 
-  // Persist token in localStorage
+  // Persist token
   useEffect(() => {
     if (token) {
       localStorage.setItem("lego_token", token);
@@ -462,14 +293,29 @@ function App() {
     }
   }, [token]);
 
-  /* -------------------------------
-     Helpers
-  --------------------------------*/
   function getOrderForSort(sortKey) {
     if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") {
       return "desc";
     }
     return "asc";
+  }
+
+  // ----- Nav link active styles -----
+  const navLinkBaseStyle = {
+    padding: "0.5rem 0.9rem",
+    cursor: "pointer",
+    textDecoration: "none",
+    borderRadius: "999px",
+    fontSize: "0.9rem",
+  };
+
+  function getNavLinkStyle({ isActive }) {
+    return {
+      ...navLinkBaseStyle,
+      backgroundColor: isActive ? "#111827" : "transparent",
+      color: isActive ? "#ffffff" : "#111827",
+      fontWeight: isActive ? 600 : 400,
+    };
   }
 
   /* -------------------------------
@@ -492,13 +338,11 @@ function App() {
   function handleSearchAllClick() {
     const trimmed = searchText.trim();
     if (!trimmed) return;
-  
+
     setShowSuggestions(false);
     setSuggestions([]);
     setPage("search");
     navigate("/search");
-  
-    // run a normal search
     runSearch(trimmed, searchSort, 1);
   }
 
@@ -510,18 +354,12 @@ function App() {
 
   function handleSuggestionClick(suggestion) {
     const term = suggestion.name || suggestion.set_num || "";
-  
-    // put the text in the box just for visual feedback
+
     setSearchText(term);
-  
-    // hide suggestions
     setShowSuggestions(false);
     setSuggestions([]);
-  
-    // optional: keep this around as "last search"
     setSearchQuery(term);
-  
-    // 👇 go straight to the set detail page
+
     navigate(`/sets/${encodeURIComponent(suggestion.set_num)}`);
   }
 
@@ -699,7 +537,7 @@ function App() {
   }, [token]);
 
   /* -------------------------------
-     Keyboard: search page pgUp/PgDn via arrows
+     Keyboard pagination on search page
   --------------------------------*/
   useEffect(() => {
     if (page !== "search" || searchResults.length === 0) {
@@ -1029,9 +867,6 @@ function App() {
   const totalPages =
     searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
 
-  const isHome = location.pathname === "/";
-  const isExplore = location.pathname.startsWith("/explore");
-
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
       {/* ========================== TOP NAV ========================== */}
@@ -1045,82 +880,59 @@ function App() {
           gap: "1rem",
         }}
       >
-      {/* LEFT: main nav links */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-        }}
-      >
-        <Link
-          to="/"
+        {/* LEFT: main nav links */}
+        <div
           style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
           }}
-          onClick={() => setPage("public")}
         >
-          🏠 Home
-        </Link>
+          <NavLink
+            to="/"
+            style={getNavLinkStyle}
+            end
+            onClick={() => setPage("home")}
+          >
+            🏠 Home
+          </NavLink>
 
-        <Link
-          to="/explore"
-          style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          🔎 Explore
-        </Link>
+          <NavLink
+            to="/explore"
+            style={getNavLinkStyle}
+            onClick={() => setPage("public")}
+          >
+            🔎 Explore
+          </NavLink>
 
-        {/* NEW: Themes link */}
-        <Link
-          to="/themes"
-          style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          🎨 Themes
-        </Link>
+          <NavLink
+            to="/themes"
+            style={getNavLinkStyle}
+          >
+            🎨 Themes
+          </NavLink>
 
-        <Link
-          to="/new"
-          style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          ✨ New
-        </Link>
+          <NavLink
+            to="/new"
+            style={getNavLinkStyle}
+          >
+            ✨ New
+          </NavLink>
 
-        <Link
-          to="/sale"
-          style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          💸 Sale
-        </Link>
+          <NavLink
+            to="/sale"
+            style={getNavLinkStyle}
+          >
+            💸 Sale
+          </NavLink>
 
-        <Link
-          to="/retiring"
-          style={{
-            padding: "0.5rem 0.9rem",
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
-        >
-          ⏳ Retiring soon
-        </Link>
-      </div>
+          <NavLink
+            to="/retiring-soon"
+            style={getNavLinkStyle}
+          >
+            ⏳ Retiring soon
+          </NavLink>
+        </div>
 
         {/* RIGHT: search + auth */}
         <div
@@ -1147,7 +959,8 @@ function App() {
               }}
             />
 
-              {showSuggestions && (suggestions.length > 0 || searchText.trim() !== "") && (
+            {showSuggestions &&
+              (suggestions.length > 0 || searchText.trim() !== "") && (
                 <ul
                   style={{
                     position: "absolute",
@@ -1165,57 +978,91 @@ function App() {
                     overflowY: "auto",
                   }}
                 >
-                  {/* --- Category: Sets --- */}
-                  {suggestions.length > 0 && (
-                    <>
-                      <li
-                        style={{
-                          padding: "0.35rem 0.75rem",
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.04em",
-                          color: "#777",
-                        }}
-                      >
-                        Sets
-                      </li>
-
-                      {suggestions.map((s) => (
-                        <li
-                          key={s.set_num}
-                          onMouseDown={() => handleSuggestionClick(s)}
-                          style={{
-                            padding: "0.5rem 0.75rem",
-                            cursor: "pointer",
-                            borderBottom: "1px solid #f3f3f3",
-                          }}
-                        >
-                          <strong>{s.name}</strong>
-                          <div style={{ fontSize: "0.8rem", color: "#666" }}>
-                            {s.set_num} • {s.year}
-                          </div>
-                        </li>
-                      ))}
-                    </>
-                  )}
-
-                  {/* --- Category: Search all (action row) --- */}
-                  {searchText.trim() !== "" && (
+                  {/* Loading / error states */}
+                  {suggestionsLoading && (
                     <li
-                      onMouseDown={handleSearchAllClick}
                       style={{
-                        padding: "0.5rem 0.75rem",
-                        cursor: "pointer",
-                        background: suggestions.length === 0 ? "white" : "#fafafa",
-                        fontSize: "0.85rem",
-                        color: "#444",
+                        padding: "0.45rem 0.75rem",
+                        fontSize: "0.8rem",
+                        color: "#6b7280",
                       }}
                     >
-                      Search all sets for{" "}
-                      <span style={{ fontWeight: 600 }}>"{searchText.trim()}"</span>
+                      Searching…
                     </li>
                   )}
+
+                  {suggestionsError && (
+                    <li
+                      style={{
+                        padding: "0.45rem 0.75rem",
+                        fontSize: "0.8rem",
+                        color: "red",
+                      }}
+                    >
+                      Error: {suggestionsError}
+                    </li>
+                  )}
+
+                  {/* Category: Sets */}
+                  {!suggestionsLoading &&
+                    !suggestionsError &&
+                    suggestions.length > 0 && (
+                      <>
+                        <li
+                          style={{
+                            padding: "0.35rem 0.75rem",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            color: "#777",
+                          }}
+                        >
+                          Sets
+                        </li>
+
+                        {suggestions.map((s) => (
+                          <li
+                            key={s.set_num}
+                            onMouseDown={() => handleSuggestionClick(s)}
+                            style={{
+                              padding: "0.5rem 0.75rem",
+                              cursor: "pointer",
+                              borderBottom: "1px solid #f3f3f3",
+                            }}
+                          >
+                            <strong>{s.name}</strong>
+                            <div
+                              style={{ fontSize: "0.8rem", color: "#666" }}
+                            >
+                              {s.set_num} • {s.year}
+                            </div>
+                          </li>
+                        ))}
+                      </>
+                    )}
+
+                  {/* Category: Search all */}
+                  {!suggestionsLoading &&
+                    searchText.trim() !== "" &&
+                    !suggestionsError && (
+                      <li
+                        onMouseDown={handleSearchAllClick}
+                        style={{
+                          padding: "0.5rem 0.75rem",
+                          cursor: "pointer",
+                          background:
+                            suggestions.length === 0 ? "white" : "#fafafa",
+                          fontSize: "0.85rem",
+                          color: "#444",
+                        }}
+                      >
+                        Search all sets for{" "}
+                        <span style={{ fontWeight: 600 }}>
+                          "{searchText.trim()}"
+                        </span>
+                      </li>
+                    )}
                 </ul>
               )}
           </form>
@@ -1282,7 +1129,7 @@ function App() {
             }
           />
 
-          {/* NEW SETS PAGE */}
+          {/* NEW SETS */}
           <Route
             path="/new"
             element={
@@ -1295,24 +1142,43 @@ function App() {
             }
           />
 
-          {/* SALE PAGE */}
+          {/* SALE */}
           <Route
             path="/sale"
             element={
-              <SalePage
+              <FeedPage
+                title="On sale (placeholder)"
+                description="For now this shows a curated slice of highly-rated sets. Later, this will filter by real discounts and affiliate data."
+                queryParams={{
+                  q: "lego",
+                  sort: "rating",
+                  order: "desc",
+                  page: 1,
+                  limit: 50,
+                }}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
+                variant="sale"
               />
             }
           />
 
-          {/* RETIRING SOON PAGE */}
+          {/* RETIRING SOON */}
           <Route
             path="/retiring-soon"
             element={
-              <RetiringSoonPage
+              <FeedPage
+                title="Retiring soon"
+                description="Right now this approximates older sets. Later, we'll plug in real retiring flags."
+                queryParams={{
+                  q: "lego",
+                  sort: "year",
+                  order: "asc", // older first
+                  page: 1,
+                  limit: 50,
+                }}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
@@ -1321,6 +1187,7 @@ function App() {
             }
           />
 
+          {/* THEMES */}
           <Route path="/themes" element={<ThemesPage />} />
 
           <Route
@@ -1398,46 +1265,6 @@ function App() {
               </>
             }
           />
-
-        {/* -------- NEW SETS (placeholder) -------- */}
-        <Route
-          path="/new"
-          element={
-            <div>
-              <h1>New sets</h1>
-              <p style={{ color: "#666" }}>
-                A curated feed of the latest releases will go here later.
-              </p>
-            </div>
-          }
-        />
-
-        {/* -------- SALE (placeholder) -------- */}
-        <Route
-          path="/sale"
-          element={
-            <div>
-              <h1>On sale</h1>
-              <p style={{ color: "#666" }}>
-                Soon this page will highlight sets with the best deals.
-              </p>
-            </div>
-          }
-        />
-
-        {/* -------- RETIRING SOON (placeholder) -------- */}
-        <Route
-          path="/retiring"
-          element={
-            <div>
-              <h1>Retiring soon</h1>
-              <p style={{ color: "#666" }}>
-                Eventually this page will show sets that are about to retire so
-                you can grab them in time.
-              </p>
-            </div>
-          }
-        />
 
           {/* SEARCH RESULTS */}
           <Route
@@ -1535,16 +1362,16 @@ function App() {
                               maxWidth: "240px",
                             }}
                           >
-                          <SetCard
-                            key={set.set_num}
-                            set={set}
-                            isOwned={ownedSetNums.has(set.set_num)}
-                            isInWishlist={wishlistSetNums.has(set.set_num)}
-                            onMarkOwned={handleMarkOwned}
-                            onAddWishlist={handleAddWishlist}
-                            variant="default"
-                          />
-                        </li>
+                            <SetCard
+                              key={set.set_num}
+                              set={set}
+                              isOwned={ownedSetNums.has(set.set_num)}
+                              isInWishlist={wishlistSetNums.has(set.set_num)}
+                              onMarkOwned={handleMarkOwned}
+                              onAddWishlist={handleAddWishlist}
+                              variant="default"
+                            />
+                          </li>
                         ))}
                       </ul>
 

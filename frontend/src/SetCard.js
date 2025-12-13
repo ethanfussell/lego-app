@@ -8,10 +8,10 @@ function SetCard({
   isInWishlist = false,
   onMarkOwned,
   onAddWishlist,
-  variant = "default",
+  variant = "default", // "default" | "sale" | "collection" (future)
+  userRating,
 }) {
   const navigate = useNavigate();
-
   if (!set) return null;
 
   const {
@@ -21,59 +21,111 @@ function SetCard({
     theme,
     pieces,
     image_url,
-    rating,
+    status,
+    is_retired,
+    retired,
+    average_rating,
+    rating_count,
+    price_from,
+    retail_price,
     user_rating,
-    my_rating,
   } = set;
 
-  // Try to pick a "user-ish" rating value
-  const displayRating =
-    typeof user_rating === "number"
-      ? user_rating
-      : typeof my_rating === "number"
-      ? my_rating
-      : typeof rating === "number"
-      ? rating
+  // ---- price ----
+  const priceFrom =
+    typeof price_from === "number"
+      ? price_from
+      : typeof retail_price === "number"
+      ? retail_price
       : null;
 
+  // ---- derived flags / ratings ----
+  const isRetiredFlag =
+    status === "retired" || is_retired === true || retired === true;
+
+  const displayAvg =
+    typeof average_rating === "number" ? average_rating : null;
+  const displayCount =
+    typeof rating_count === "number" ? rating_count : null;
+
+  const effectiveUserRating =
+    typeof userRating === "number"
+      ? userRating
+      : typeof user_rating === "number"
+      ? user_rating
+      : null;
+
+  // ---- handlers ----
   function handleCardClick() {
     if (!set_num) return;
     navigate(`/sets/${encodeURIComponent(set_num)}`);
   }
 
-  const cardPadding = "0.75rem";
+  function handleOwnedClick(e) {
+    e.stopPropagation();
+    if (typeof onMarkOwned === "function") {
+      onMarkOwned(set_num);
+    }
+  }
+
+  function handleWishlistClick(e) {
+    e.stopPropagation();
+    if (typeof onAddWishlist === "function") {
+      onAddWishlist(set_num);
+    }
+  }
 
   return (
     <div
       onClick={handleCardClick}
       style={{
+        width: "100%",
+        maxWidth: "260px",
+        minHeight: "360px", // 👈 cards all at least this tall
         borderRadius: "12px",
         border: "1px solid #e5e7eb",
-        backgroundColor: "white",
+        background: "white",
         boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
         display: "flex",
         flexDirection: "column",
         cursor: "pointer",
-        height: "100%",
+        transition: "transform 0.1s ease, box-shadow 0.1s ease",
+        overflow: "hidden", // nothing escapes the card
+        boxSizing: "border-box",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.boxShadow =
+          "0 6px 16px rgba(15,23,42,0.12)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "none";
+        e.currentTarget.style.boxShadow =
+          "0 1px 2px rgba(15,23,42,0.04)";
       }}
     >
-      {/* IMAGE */}
+      {/* IMAGE AREA */}
       <div
         style={{
+          padding: "0.75rem",
           borderBottom: "1px solid #f3f4f6",
-          padding: cardPadding,
-          paddingBottom: "0.5rem",
+          boxSizing: "border-box",
         }}
       >
         <div
           style={{
             width: "100%",
-            height: "160px",
+            maxWidth: "100%",
+            margin: "0 auto",
             borderRadius: "10px",
-            backgroundColor: "#ffffff",
+            background: "white",
+            border: "1px solid #e5e7eb",
+            padding: "0.75rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            height: "200px", // 👈 fixed photo-frame height
+            boxSizing: "border-box",
             overflow: "hidden",
           }}
         >
@@ -93,13 +145,14 @@ function SetCard({
               style={{
                 width: "100%",
                 height: "100%",
+                borderRadius: "8px",
                 background:
-                  "repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 10px,#e5e7eb 10px,#e5e7eb 20px)",
+                  "repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 10px, #ffffff 10px, #ffffff 20px)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "0.8rem",
                 color: "#9ca3af",
+                fontSize: "0.85rem",
               }}
             >
               No image
@@ -111,204 +164,188 @@ function SetCard({
       {/* CONTENT */}
       <div
         style={{
-          padding: cardPadding,
-          paddingTop: "0.55rem",
-          flex: "1 1 auto",
+          padding: "0.6rem 0.75rem 0.8rem 0.75rem",
           display: "flex",
           flexDirection: "column",
+          flex: "1 1 auto",
         }}
       >
         {/* Title */}
-        <div style={{ marginBottom: "0.35rem" }}>
+        <div style={{ marginBottom: "0.3rem" }}>
           <div
             style={{
-              fontSize: "0.9rem",
               fontWeight: 600,
-              lineHeight: 1.2,
-              overflow: "hidden",
+              fontSize: "0.95rem",
+              lineHeight: 1.25,
+              color: "#111827",
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
+              overflow: "hidden",
             }}
           >
             {name || "Unknown set"}
           </div>
           <div
             style={{
-              marginTop: "0.15rem",
               fontSize: "0.8rem",
               color: "#6b7280",
+              marginTop: "0.15rem",
             }}
           >
-            <span>{set_num}</span>
-            {year && <span> · {year}</span>}
+            <strong>{set_num}</strong>
+            {year && <> · {year}</>}
           </div>
         </div>
 
-        {/* Meta line */}
-        {(theme || pieces) && (
+        {/* Meta */}
+        {(theme || pieces || isRetiredFlag) && (
           <div
             style={{
               fontSize: "0.8rem",
               color: "#6b7280",
-              marginBottom: "0.4rem",
+              marginBottom: "0.35rem",
             }}
           >
-            {theme && <span>{theme}</span>}
-            {theme && pieces && <span> · </span>}
-            {pieces && <span>{pieces} pcs</span>}
+            {theme && (
+              <div
+                style={{
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {theme}
+              </div>
+            )}
+            {pieces && <div>{pieces} pieces</div>}
+            {isRetiredFlag && <div>⏳ Retired</div>}
           </div>
         )}
 
-        {/* Rating pill */}
-        {displayRating != null && (
+        {/* Rating summary */}
+        {(displayAvg !== null || displayCount !== null) && (
           <div
             style={{
               fontSize: "0.8rem",
-              color: "#f59e0b",
-              marginBottom: "0.4rem",
-              display: "inline-flex",
+              color: "#4b5563",
+              marginBottom: "0.35rem",
+              display: "flex",
               alignItems: "center",
               gap: "0.25rem",
             }}
           >
-            <span>★</span>
-            <span>{displayRating.toFixed(1)}</span>
+            <span>⭐</span>
+            <span>{displayAvg !== null ? displayAvg.toFixed(1) : "—"}</span>
+            {displayCount !== null && (
+              <span style={{ color: "#9ca3af" }}>
+                ({displayCount} rating{displayCount === 1 ? "" : "s"})
+              </span>
+            )}
           </div>
         )}
 
-        {/* Spacer pushes footer to bottom */}
-        <div style={{ flexGrow: 1 }} />
+        {/* Price line (used on Sale but harmless elsewhere) */}
+        {priceFrom !== null && (
+          <div
+            style={{
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              color: variant === "sale" ? "#16a34a" : "#111827",
+              marginBottom: "0.4rem",
+            }}
+          >
+            From ${priceFrom.toFixed(2)}
+          </div>
+        )}
 
-        {/* FOOTER / ACTIONS */}
-        <div style={{ marginTop: "0.5rem" }}>
-          {variant === "collection" ? (
-            /* COLLECTION VARIANT: just user's rating */
+        {/* Push footer to bottom */}
+        <div style={{ flex: "1 1 auto" }} />
+
+        {/* FOOTER VARIANTS */}
+        {variant === "collection" ? (
+          <div
+            style={{
+              borderTop: "1px solid #f3f4f6",
+              paddingTop: "0.4rem",
+              marginTop: "0.35rem",
+              fontSize: "0.8rem",
+              color: "#4b5563",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.5rem",
+            }}
+          >
+            <span style={{ color: "#6b7280" }}>Your rating</span>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "space-between",
-                fontSize: "0.8rem",
-                color: "#4b5563",
+                gap: "0.25rem",
               }}
             >
-              <span>Your rating</span>
-              {displayRating != null ? (
-                <div
-                  style={{
-                    position: "relative",
-                    display: "inline-block",
-                    fontSize: "1.2rem",
-                    lineHeight: 1,
-                  }}
-                >
-                  <div style={{ color: "#e5e7eb" }}>★★★★★</div>
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      overflow: "hidden",
-                      whiteSpace: "nowrap",
-                      color: "#f59e0b",
-                      width: `${
-                        (Math.min(Math.max(displayRating, 0), 5) / 5) * 100
-                      }%`,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    ★★★★★
-                  </div>
-                </div>
-              ) : (
-                <span style={{ color: "#9ca3af" }}>Not rated yet</span>
-              )}
-            </div>
-          ) : variant === "home" || variant === "dealRow" ? (
-            /* HOME / DEALS VARIANT: Shop now */
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCardClick();
-              }}
-              style={{
-                width: "100%",
-                padding: "0.4rem 0.75rem",
-                borderRadius: "999px",
-                border: "none",
-                backgroundColor: "#111827",
-                color: "white",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Shop now →
-            </button>
-          ) : (
-            /* DEFAULT VARIANT: Owned / Wishlist buttons */
-            <div
-              style={{
-                display: "flex",
-                gap: "0.4rem",
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMarkOwned && onMarkOwned(set_num);
-                }}
-                style={{
-                  padding: "0.3rem 0.7rem",
-                  borderRadius: "999px",
-                  border: isOwned ? "none" : "1px solid #d1d5db",
-                  backgroundColor: isOwned ? "#16a34a" : "#f9fafb",
-                  color: isOwned ? "white" : "#111827",
-                  fontSize: "0.8rem",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                {isOwned ? "Owned ✓" : "Mark Owned"}
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddWishlist && onAddWishlist(set_num);
-                }}
-                style={{
-                  padding: "0.3rem 0.7rem",
-                  borderRadius: "999px",
-                  border: isInWishlist ? "none" : "1px solid #d1d5db",
-                  backgroundColor: isInWishlist ? "#a855f7" : "#f9fafb",
-                  color: isInWishlist ? "white" : "#111827",
-                  fontSize: "0.8rem",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                {isInWishlist ? "In Wishlist ★" : "Wishlist"}
-              </button>
-
-              <span
-                style={{
-                  marginLeft: "auto",
-                  fontSize: "0.8rem",
-                  color: "#6b7280",
-                }}
-              >
-                View details →
+              <span style={{ fontSize: "0.95rem", color: "#f59e0b" }}>★</span>
+              <span>
+                {effectiveUserRating !== null
+                  ? effectiveUserRating.toFixed(1)
+                  : displayAvg !== null
+                  ? displayAvg.toFixed(1)
+                  : "Not rated"}
               </span>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          // default & sale both use the same two buttons for now
+          <div
+            style={{
+              borderTop: "1px solid #f3f4f6",
+              marginTop: "0.4rem",
+              paddingTop: "0.4rem",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.35rem",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleOwnedClick}
+              style={{
+                flex: "1 1 auto",
+                padding: "0.35rem 0.5rem",
+                borderRadius: "999px",
+                border: isOwned ? "none" : "1px solid #d1d5db",
+                backgroundColor: isOwned ? "#16a34a" : "#f9fafb",
+                color: isOwned ? "white" : "#111827",
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isOwned ? "Owned ✓" : "Mark owned"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleWishlistClick}
+              style={{
+                flex: "1 1 auto",
+                padding: "0.35rem 0.5rem",
+                borderRadius: "999px",
+                border: isInWishlist ? "none" : "1px solid #d1d5db",
+                backgroundColor: isInWishlist ? "#a855f7" : "#f9fafb",
+                color: isInWishlist ? "white" : "#111827",
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isInWishlist ? "In wishlist ★" : "Wishlist"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

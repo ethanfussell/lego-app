@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core import auth as auth_router
@@ -8,6 +8,8 @@ from .routers import custom_collections as collections_router
 from .routers import lists as lists_router
 from .routers import users as users_router
 from .api import themes
+from sqlalchemy.orm import Session
+from .db import get_db
 
 app = FastAPI(title="LEGO API")
 
@@ -47,3 +49,7 @@ app.include_router(lists_router.router, tags=["lists"])
 app.include_router(users_router.router, tags=["users"])
 
 app.include_router(themes.router)
+
+@app.get("/db/ping")
+def db_ping(db: Session = Depends(get_db)):
+    return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
