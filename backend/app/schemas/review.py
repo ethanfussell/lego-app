@@ -1,8 +1,24 @@
 # app/schemas/review.py
+from __future__ import annotations
+
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+class Review(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    set_num: str
+    user: str
+    rating: Optional[float] = None
+    text: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    likes_count: int = 0
+    liked_by: List[str] = []
 
 
 class ActorPayload(BaseModel):
@@ -13,27 +29,14 @@ class ActorPayload(BaseModel):
     user: str
 
 
-class Review(BaseModel):
-    id: int
-    set_num: str
-    user: str                         # ✅ must always be a string
-    rating: Optional[float] = None    # 0.5–5.0 in 0.5 steps OR None
-    text: Optional[str] = None
-    created_at: datetime
-    likes_count: int = 0
-    liked_by: List[str] = []
-
-    class Config:
-        orm_mode = True
-
-
 class ReviewCreate(BaseModel):
-    # 👇 the client (React) only sends these
-    rating: Optional[float] = None   # can be rating-only, text-only, or both
+    # the client (React) only sends these
+    rating: Optional[float] = None  # can be rating-only, text-only, or both
     text: Optional[str] = None
 
-    @validator("rating")
-    def validate_rating(cls, value: Optional[float]):
+    @field_validator("rating")
+    @classmethod
+    def validate_rating(cls, value: Optional[float]) -> Optional[float]:
         """
         Allow None, otherwise require 0.5–5.0 in 0.5 steps.
         """

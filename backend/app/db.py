@@ -1,5 +1,6 @@
 # backend/app/db.py
 import os
+print("DATABASE_URL =", os.getenv("DATABASE_URL"))
 from pathlib import Path
 
 from dotenv import load_dotenv
