@@ -23,7 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Total-Count"],
 )
-
 @app.get("/")
 def root():
     return {"status": "ok", "message": "LEGO API is running"}
@@ -40,9 +39,6 @@ app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
 # Owned / wishlist collections (POST/DELETE/GET under /collections)
 app.include_router(collections_router.router, prefix="/collections", tags=["collections"])
 
-# Custom lists
-app.include_router(lists_router.router, tags=["lists"])
-
 # Users
 app.include_router(users_router.router, tags=["users"])
 
@@ -56,3 +52,6 @@ def db_ping(db: Session = Depends(get_db)):
         .mappings()
         .one()
     )
+
+# Lists
+app.include_router(lists_router.router)
