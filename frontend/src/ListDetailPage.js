@@ -1,10 +1,43 @@
 // frontend/src/ListDetailPage.js
-import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import SetCard from "./SetCard";
 
 const API_BASE = "http://localhost:8000";
 
-function ListDetailPage({
+function getStoredToken() {
+  return localStorage.getItem("lego_token") || "";
+}
+
+function getUsernameFromToken(token) {
+  if (!token) return null;
+  const prefix = "fake-token-for-";
+  if (token.startsWith(prefix)) return token.slice(prefix.length);
+  return token;
+}
+
+async function apiFetch(path, { token, ...opts } = {}) {
+  const headers = new Headers(opts.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_BASE}${path}`, { ...opts, headers });
+}
+
+async function fetchSetDetail(setNum) {
+  try {
+    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+function countForList(list) {
+  const c = list?.items_count ?? (Array.isArray(list?.items) ? list.items.length : 0);
+  return Number.isFinite(c) ? c : 0;
+}
+
+export default function ListDetailPage({
   token,
   ownedSetNums,
   wishlistSetNums,
@@ -12,91 +45,130 @@ function ListDetailPage({
   onAddWishlist,
 }) {
   const { listId } = useParams();
-  const [list, setList] = useState(null);        // metadata (title, owner, etc.)
-  const [sets, setSets] = useState([]);          // full set objects
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
-  const [newSetNum, setNewSetNum] = useState("");
+  const effectiveToken = token || getStoredToken();
+  const currentUsername = useMemo(
+    () => getUsernameFromToken(effectiveToken),
+    [effectiveToken]
+  );
+
+  const [list, setList] = useState(null);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState(null);
+
+  const [setDetails, setSetDetails] = useState([]);
+  const [setsLoading, setSetsLoading] = useState(false);
+  const [setsError, setSetsError] = useState(null);
+
+  // owner-only editing
+  const [addValue, setAddValue] = useState("");
   const [addError, setAddError] = useState(null);
-  const [addLoading, setAddLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
 
-  // Load list detail (including item set_nums) and then fetch each set
-  useEffect(() => {
-    async function loadList() {
-      try {
-        setLoading(true);
-        setError(null);
+  const [removing, setRemoving] = useState(null); // set_num being removed
+  const [removeError, setRemoveError] = useState(null);
 
-        const headers = {};
-        if (token) {
-          headers["Authorization"] = `Bearer ${token}`;
-        }
+  const isOwner =
+    !!list?.owner && !!currentUsername && list.owner === currentUsername;
 
-        const resp = await fetch(`${API_BASE}/lists/${listId}`, { headers });
+  async function loadList() {
+    if (!listId) return;
 
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Failed to load list (${resp.status}): ${text}`);
-        }
+    setListLoading(true);
+    setListError(null);
 
-        const data = await resp.json();
-        setList(data);
-
-        const itemSetNums = Array.isArray(data.items) ? data.items : [];
-
-        if (itemSetNums.length === 0) {
-          setSets([]);
-          return;
-        }
-
-        // fetch each set detail in parallel
-        const setPromises = itemSetNums.map(async (setNum) => {
-          const sResp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
-          if (!sResp.ok) {
-            // if a particular set fails to load, just skip it
-            return null;
-          }
-          return await sResp.json();
-        });
-
-        const loadedSets = (await Promise.all(setPromises)).filter(Boolean);
-        setSets(loadedSets);
-      } catch (err) {
-        console.error("Error loading list detail:", err);
-        setError(err.message || String(err));
-      } finally {
-        setLoading(false);
+    try {
+      const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`);
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Failed to load list (${resp.status}): ${text}`);
       }
+      const data = await resp.json();
+      setList(data);
+      return data;
+    } catch (err) {
+      setList(null);
+      setSetDetails([]);
+      setListError(err?.message || String(err));
+      return null;
+    } finally {
+      setListLoading(false);
     }
+  }
 
-    loadList();
-  }, [listId, token]);
+  async function loadSetCards(listData) {
+    const items = Array.isArray(listData?.items) ? listData.items : [];
 
-  async function handleAddSet(e) {
+    setSetsLoading(true);
+    setSetsError(null);
+
+    try {
+      // Load all set details; keep only the ones we can fetch.
+      const results = await Promise.all(items.map(fetchSetDetail));
+      const ok = results.filter(Boolean);
+
+      // If some failed, surface a gentle message.
+      if (ok.length !== items.length && items.length > 0) {
+        setSetsError(
+          `Loaded ${ok.length}/${items.length} sets (some set numbers may not exist yet).`
+        );
+      }
+
+      setSetDetails(ok);
+    } catch (err) {
+      setSetDetails([]);
+      setSetsError(err?.message || String(err));
+    } finally {
+      setSetsLoading(false);
+    }
+  }
+
+  async function loadAll() {
+    const data = await loadList();
+    if (data) await loadSetCards(data);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      await loadAll();
+      if (cancelled) return;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listId]);
+
+  async function handleAddItem(e) {
     e.preventDefault();
-    if (!token) {
-      setAddError("You must be logged in to modify this list.");
+    setAddError(null);
+    setRemoveError(null);
+
+    const setNum = addValue.trim();
+    if (!setNum) return;
+
+    if (!effectiveToken) {
+      setAddError("Log in to edit your list.");
+      navigate("/login");
       return;
     }
-
-    const trimmed = newSetNum.trim();
-    if (!trimmed) {
-      setAddError("Please enter a set number (e.g. 75395-1).");
+    if (!isOwner) {
+      setAddError("Only the list owner can add items.");
       return;
     }
 
     try {
-      setAddLoading(true);
-      setAddError(null);
+      setAdding(true);
 
-      const resp = await fetch(`${API_BASE}/lists/${listId}/items`, {
+      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
+        token: effectiveToken,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ set_num: trimmed }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ set_num: setNum }),
       });
 
       if (!resp.ok) {
@@ -104,284 +176,222 @@ function ListDetailPage({
         throw new Error(`Add failed (${resp.status}): ${text}`);
       }
 
-      // Re-fetch the list after adding
-      setNewSetNum("");
-      // simplest: trigger full reload by calling the effect again:
-      // (change listId dep won't help, so we just call loadList-like logic again)
-      // For clarity, do a small helper:
-      await reloadList();
+      setAddValue("");
+      await loadAll();
     } catch (err) {
-      console.error("Error adding set to list:", err);
-      setAddError(err.message || String(err));
+      setAddError(err?.message || String(err));
     } finally {
-      setAddLoading(false);
+      setAdding(false);
     }
   }
 
-  // helper to re-load list after adding/removing
-  async function reloadList() {
+  async function handleRemoveItem(setNum) {
+    setRemoveError(null);
+    setAddError(null);
+
+    if (!effectiveToken) {
+      setRemoveError("Log in to edit your list.");
+      navigate("/login");
+      return;
+    }
+    if (!isOwner) {
+      setRemoveError("Only the list owner can remove items.");
+      return;
+    }
+
     try {
-      setLoading(true);
-      setError(null);
+      setRemoving(setNum);
 
-      const headers = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const resp = await fetch(`${API_BASE}/lists/${listId}`, { headers });
+      const resp = await apiFetch(
+        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
+        { token: effectiveToken, method: "DELETE" }
+      );
 
       if (!resp.ok) {
         const text = await resp.text();
-        throw new Error(`Failed to load list (${resp.status}): ${text}`);
+        throw new Error(`Remove failed (${resp.status}): ${text}`);
       }
 
-      const data = await resp.json();
-      setList(data);
-
-      const itemSetNums = Array.isArray(data.items) ? data.items : [];
-
-      if (itemSetNums.length === 0) {
-        setSets([]);
-        return;
-      }
-
-      const setPromises = itemSetNums.map(async (setNum) => {
-        const sResp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
-        if (!sResp.ok) {
-          return null;
-        }
-        return await sResp.json();
-      });
-
-      const loadedSets = (await Promise.all(setPromises)).filter(Boolean);
-      setSets(loadedSets);
+      await loadAll();
     } catch (err) {
-      console.error("Error reloading list detail:", err);
-      setError(err.message || String(err));
+      setRemoveError(err?.message || String(err));
     } finally {
-      setLoading(false);
+      setRemoving(null);
     }
   }
 
-  if (loading && !list) {
-    return <p>Loading list…</p>;
+  if (listLoading) {
+    return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
   }
 
-  if (error && !list) {
-    return <p style={{ color: "red" }}>Error: {error}</p>;
+  if (listError) {
+    return (
+      <div style={{ padding: "1.5rem" }}>
+        <p style={{ color: "red" }}>Error: {listError}</p>
+        <button onClick={() => navigate(-1)}>← Back</button>
+      </div>
+    );
   }
 
   if (!list) {
-    return <p>List not found.</p>;
+    return (
+      <div style={{ padding: "1.5rem" }}>
+        <p>List not found.</p>
+        <button onClick={() => navigate(-1)}>← Back</button>
+      </div>
+    );
   }
 
-  const isOwner = !!token && list.owner; // simple check for now
+  const totalCount = countForList(list);
 
   return (
-    <div>
-      <h1>{list.title}</h1>
-      <p style={{ color: "#666" }}>
-        Owner: <strong>{list.owner}</strong>{" "}
-        · Visibility: <strong>{list.is_public ? "Public" : "Private"}</strong>
+    <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          marginBottom: "1rem",
+          padding: "0.35rem 0.75rem",
+          borderRadius: "999px",
+          border: "1px solid #ddd",
+          background: "white",
+          cursor: "pointer",
+        }}
+      >
+        ← Back
+      </button>
+
+      <h1 style={{ margin: 0 }}>{list.title}</h1>
+
+      <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
+        By <strong>{list.owner}</strong> ·{" "}
+        <strong>{list.is_public ? "Public" : "Private"}</strong> ·{" "}
+        <strong>{totalCount}</strong> set{totalCount === 1 ? "" : "s"}
       </p>
+
       {list.description && (
-        <p style={{ maxWidth: "40rem" }}>{list.description}</p>
+        <p style={{ marginTop: "0.75rem", color: "#444" }}>{list.description}</p>
       )}
 
-      {/* Add-set form (owner only) */}
+      {/* Owner-only editor */}
       {isOwner && (
         <section
           style={{
             marginTop: "1.25rem",
-            marginBottom: "1.5rem",
-            border: "1px solid #ddd",
-            borderRadius: "8px",
-            padding: "1rem",
+            padding: "0.9rem 1rem",
+            border: "1px solid #e6e6e6",
+            borderRadius: "12px",
             background: "#fafafa",
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Add a set to this list</h3>
-          <p style={{ color: "#666", marginTop: 0 }}>
-            Enter a set number like <code>75395-1</code>. Later we can add a
-            fancy &quot;Add to list&quot; button from search/set pages.
-          </p>
+          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Edit list</h2>
 
-          <form onSubmit={handleAddSet}>
-            <div style={{ marginBottom: "0.75rem" }}>
-              <label style={{ display: "block", marginBottom: "0.25rem" }}>
-                Set number
-              </label>
-              <input
-                type="text"
-                value={newSetNum}
-                onChange={(e) => setNewSetNum(e.target.value)}
-                placeholder="e.g. 75395-1"
-                style={{
-                  width: "100%",
-                  maxWidth: "260px",
-                  padding: "0.5rem",
-                  borderRadius: "4px",
-                  border: "1px solid #ccc",
-                }}
-              />
-            </div>
-
-            {addError && (
-              <p style={{ color: "red", marginBottom: "0.5rem" }}>{addError}</p>
-            )}
-
+          <form
+            onSubmit={handleAddItem}
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <input
+              value={addValue}
+              onChange={(e) => setAddValue(e.target.value)}
+              placeholder='Add set number (e.g. "21354-1")'
+              style={{
+                flex: "1 1 260px",
+                padding: "0.5rem 0.65rem",
+                borderRadius: "10px",
+                border: "1px solid #ddd",
+              }}
+            />
             <button
               type="submit"
-              disabled={addLoading}
+              disabled={adding}
               style={{
-                padding: "0.5rem 1rem",
-                cursor: addLoading ? "default" : "pointer",
+                padding: "0.5rem 0.9rem",
+                borderRadius: "999px",
+                border: "none",
+                background: adding ? "#888" : "#111",
+                color: "white",
+                cursor: adding ? "default" : "pointer",
               }}
             >
-              {addLoading ? "Adding…" : "Add Set"}
+              {adding ? "Adding…" : "Add"}
             </button>
           </form>
+
+          {addError && <p style={{ color: "red", marginTop: "0.5rem" }}>{addError}</p>}
         </section>
       )}
 
-      {/* Sets in this list */}
-      <section style={{ marginTop: "1rem" }}>
-        <h3>Sets in this list</h3>
+      <section style={{ marginTop: "1.5rem" }}>
+        <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Sets</h2>
 
-        {sets.length === 0 && <p>No sets in this list yet.</p>}
+        {setsLoading && <p>Loading sets…</p>}
+        {setsError && <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>{setsError}</p>}
 
-        {sets.length > 0 && (
+        {!setsLoading && setDetails.length === 0 && (
+          <p style={{ color: "#777" }}>
+            No sets in this list yet. {isOwner ? "Add one above." : ""}
+          </p>
+        )}
+
+        {!setsLoading && setDetails.length > 0 && (
           <ul
             style={{
               listStyle: "none",
               padding: 0,
+              margin: 0,
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-              columnGap: "1rem",
-              rowGap: "1.75rem",
+              gap: "1rem",
+              alignItems: "start",
             }}
           >
-            {sets.map((set) => {
-              const setNum = set.set_num;
-              const isOwned = ownedSetNums.has(setNum);
-              const isInWishlist = wishlistSetNums.has(setNum);
+            {setDetails.map((set) => (
+              <li key={set.set_num} style={{ maxWidth: 260 }}>
+                <SetCard
+                  set={set}
+                  isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
+                  isInWishlist={wishlistSetNums ? wishlistSetNums.has(set.set_num) : false}
+                  onMarkOwned={onMarkOwned}
+                  onAddWishlist={onAddWishlist}
+                  variant="default"
+                />
 
-              return (
-                <li
-                  key={setNum}
-                  style={{
-                    border: "1px solid #ddd",
-                    borderRadius: "12px",
-                    padding: "0.75rem",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.5rem",
-                    background: "white",
-                  }}
-                >
-                  <Link
-                    to={`/sets/${setNum}`}
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveItem(set.set_num)}
+                    disabled={removing === set.set_num}
                     style={{
-                      textDecoration: "none",
-                      color: "inherit",
-                      display: "block",
+                      marginTop: "0.5rem",
+                      padding: "0.35rem 0.75rem",
+                      borderRadius: "999px",
+                      border: "1px solid #ddd",
+                      background: "white",
+                      color: "#b42318",
+                      cursor: removing === set.set_num ? "default" : "pointer",
+                      width: "100%",
                     }}
                   >
-                    {set.image_url && (
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "190px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          marginBottom: "0.5rem",
-                        }}
-                      >
-                        <img
-                          src={set.image_url}
-                          alt={set.name || setNum}
-                          style={{
-                            maxWidth: "100%",
-                            maxHeight: "100%",
-                            objectFit: "contain",
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    <h3
-                      style={{
-                        margin: "0 0 0.25rem 0",
-                        fontSize: "1rem",
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      {set.name || "Unknown set"}
-                    </h3>
-                    <p style={{ margin: 0, color: "#555" }}>
-                      <strong>{setNum}</strong>
-                      {set.year && <> · {set.year}</>}
-                    </p>
-                    {set.theme && (
-                      <p style={{ margin: 0, color: "#777" }}>{set.theme}</p>
-                    )}
-                    {set.pieces && (
-                      <p style={{ margin: 0, color: "#777" }}>
-                        {set.pieces} pieces
-                      </p>
-                    )}
-                  </Link>
-
-                  <div
-                    style={{
-                      marginTop: "auto",
-                      display: "flex",
-                      gap: "0.5rem",
-                      paddingTop: "0.75rem",
-                    }}
-                  >
-                    <button
-                      onClick={() => onMarkOwned(setNum)}
-                      style={{
-                        flex: 1,
-                        padding: "0.4rem 0.6rem",
-                        borderRadius: "999px",
-                        border: isOwned ? "none" : "1px solid #ccc",
-                        backgroundColor: isOwned ? "#1f883d" : "#f5f5f5",
-                        color: isOwned ? "white" : "#333",
-                        fontWeight: isOwned ? 600 : 500,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {isOwned ? "Owned ✓" : "Mark Owned"}
-                    </button>
-
-                    <button
-                      onClick={() => onAddWishlist(setNum)}
-                      style={{
-                        flex: 1,
-                        padding: "0.4rem 0.6rem",
-                        borderRadius: "999px",
-                        border: isInWishlist ? "none" : "1px solid #ccc",
-                        backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
-                        color: isInWishlist ? "white" : "#333",
-                        fontWeight: isInWishlist ? 600 : 500,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+                    {removing === set.set_num ? "Removing…" : "Remove from list"}
+                  </button>
+                )}
+              </li>
+            ))}
           </ul>
         )}
+
+        {removeError && <p style={{ color: "red", marginTop: "0.75rem" }}>{removeError}</p>}
       </section>
+
+      <div style={{ marginTop: "2rem", color: "#777" }}>
+        <Link to="/explore" style={{ color: "inherit" }}>
+          Browse more public lists →
+        </Link>
+      </div>
     </div>
   );
 }
-
-export default ListDetailPage;

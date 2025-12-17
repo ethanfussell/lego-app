@@ -2,7 +2,7 @@
 // Main React app for LEGO tracker
 
 import React, { useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, NavLink, useNavigate } from "react-router-dom";
 
 import Login from "./Login";
 import Pagination from "./Pagination";
@@ -13,6 +13,9 @@ import ThemesPage from "./ThemesPage";
 import ThemeDetailPage from "./ThemeDetailPage";
 import FeedPage from "./FeedPage";
 import NewSetsPage from "./NewSetsPage";
+import CollectionsPage from "./CollectionsPage";
+import OwnedPage from "./OwnedPage";
+import WishlistPage from "./WishlistPage";
 
 const API_BASE = "http://localhost:8000";
 
@@ -605,7 +608,7 @@ function App() {
         is_public: newListIsPublic,
       };
 
-      const resp = await fetch(`${API_BASE}/lists/`, {
+      const resp = await fetch(`${API_BASE}/lists`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -894,7 +897,7 @@ function App() {
             end
             onClick={() => setPage("home")}
           >
-            🏠 Home
+            Home
           </NavLink>
 
           <NavLink
@@ -902,35 +905,42 @@ function App() {
             style={getNavLinkStyle}
             onClick={() => setPage("public")}
           >
-            🔎 Explore
+            Explore
           </NavLink>
 
           <NavLink
             to="/themes"
             style={getNavLinkStyle}
           >
-            🎨 Themes
+            Themes
           </NavLink>
 
           <NavLink
             to="/new"
             style={getNavLinkStyle}
           >
-            ✨ New
+            New
           </NavLink>
 
           <NavLink
             to="/sale"
             style={getNavLinkStyle}
           >
-            💸 Sale
+            Sale
           </NavLink>
 
           <NavLink
             to="/retiring-soon"
             style={getNavLinkStyle}
           >
-            ⏳ Retiring soon
+            Retiring soon
+          </NavLink>
+
+          <NavLink
+            to="/collection"
+            style={getNavLinkStyle}
+          >
+            Collection
           </NavLink>
         </div>
 
@@ -1093,7 +1103,7 @@ function App() {
                 }}
                 onClick={() => setPage("login")}
               >
-                📋 My Lists
+                My Lists
               </Link>
 
               <button
@@ -1391,6 +1401,43 @@ function App() {
             }
           />
 
+            <Route
+              path="/collection"
+              element={
+                <CollectionsPage
+                  ownedSets={owned}
+                  wishlistSets={wishlist}
+                  token={token}
+                />
+              }
+            />
+
+            <Route
+              path="/collection/owned"
+              element={
+                <OwnedPage
+                  ownedSets={owned}
+                  ownedSetNums={ownedSetNums}
+                  wishlistSetNums={wishlistSetNums}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
+              }
+            />
+
+            <Route
+              path="/collection/wishlist"
+              element={
+                <WishlistPage
+                  wishlistSets={wishlist}
+                  ownedSetNums={ownedSetNums}
+                  wishlistSetNums={wishlistSetNums}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
+              }
+            />
+
           {/* LIST DETAIL PAGE */}
           <Route
             path="/lists/:listId"
@@ -1479,7 +1526,14 @@ function App() {
                             padding: "1rem",
                           }}
                         >
-                          <h3 style={{ marginTop: 0 }}>Owned</h3>
+                          <h3 style={{ marginTop: 0 }}>
+                            <Link
+                              to="/collection/owned"
+                              style={{ textDecoration: "none", color: "inherit" }}
+                            >
+                              Owned →
+                            </Link>
+                          </h3>
                           {collectionsLoading && <p>Loading…</p>}
                           {collectionsError && (
                             <p style={{ color: "red" }}>
@@ -1531,7 +1585,14 @@ function App() {
                             padding: "1rem",
                           }}
                         >
-                          <h3 style={{ marginTop: 0 }}>Wishlist</h3>
+                          <h3 style={{ marginTop: 0 }}>
+                            <Link
+                              to="/collection/wishlist"
+                              style={{ textDecoration: "none", color: "inherit" }}
+                            >
+                              Wishlist →
+                            </Link>
+                          </h3>
                           {collectionsLoading && <p>Loading…</p>}
                           {collectionsError && (
                             <p style={{ color: "red" }}>
@@ -1619,7 +1680,12 @@ function App() {
                                     }}
                                   >
                                     <div style={{ fontWeight: 600 }}>
-                                      {list.title}
+                                      <Link
+                                        to={`/lists/${list.id}`}
+                                        style={{ textDecoration: "none", color: "inherit" }}
+                                      >
+                                        {list.title}
+                                      </Link>
                                     </div>
                                     {list.description && (
                                       <div
