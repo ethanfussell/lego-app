@@ -1,54 +1,68 @@
-from datetime import datetime
-from typing import List as TypingList, Dict, Any, Optional
-from types import SimpleNamespace
+# backend/app/routers/lists.py
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from datetime import datetime
+from types import SimpleNamespace
+from typing import Any, Dict, List as TypingList, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
+
+from app.data import lists as store
+
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
 
-# ---------- Simple auth dependency (matches your fake token) ----------
-
+# -------------------------
+# Auth (fake token)
+# -------------------------
 def get_current_user(authorization: str = Header(default=None)):
     """
-    Very simple auth:
-    - Expects Authorization header like "Bearer fake-token-for-ethan"
-    - Extracts username "ethan"
+    Expects Authorization header like:
+      Authorization: Bearer fake-token-for-ethan
+
+    Extracts username: "ethan"
     """
     if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     parts = authorization.split()
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        token = parts[1]
-    else:
-        token = authorization
+    token = parts[1] if (len(parts) == 2 and parts[0].lower() == "bearer") else authorization
 
-    username = token
     prefix = "fake-token-for-"
-    if token.startswith(prefix):
-        username = token[len(prefix):]
+    username = token[len(prefix):] if token.startswith(prefix) else token
 
     if not username:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    # mimic a user object
     return SimpleNamespace(username=username)
 
 
-# ---------- Pydantic models ----------
+def get_current_user_optional(authorization: str = Header(default=None)):
+    if not authorization:
+        return None
+    try:
+        return get_current_user(authorization)
+    except HTTPException:
+        return None
 
+
+# -------------------------
+# Pydantic models
+# -------------------------
 class ListCreate(BaseModel):
     title: str
     description: Optional[str] = None
     is_public: bool = True
+
+
+class ListItemCreate(BaseModel):
+    set_num: str
+
+
+class ListOrderUpdate(BaseModel):
+    ordered_ids: TypingList[int]
 
 
 class ListDetail(BaseModel):
@@ -59,25 +73,15 @@ class ListDetail(BaseModel):
     owner: str
     items: TypingList[str] = []
     items_count: int
+    position: int = 0
     created_at: datetime
     updated_at: datetime
 
     class Config:
-        from_attributes = True  # Pydantic v2 replacement for orm_mode
-
-
-class ListItemCreate(BaseModel):
-    set_num: str
-
-
-# ---------- In-memory store ----------
-
-LISTS: TypingList[Dict[str, Any]] = []
-NEXT_LIST_ID: int = 1
+        from_attributes = True  # ok if you're on pydantic v2; harmless for dict output
 
 
 def _to_detail_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize our internal dict into the shape ListDetail expects."""
     items = raw.get("items") or []
     return {
         "id": raw["id"],
@@ -87,63 +91,58 @@ def _to_detail_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
         "owner": raw["owner"],
         "items": items,
         "items_count": len(items),
+        "position": int(raw.get("position", 0) or 0),
         "created_at": raw["created_at"],
         "updated_at": raw["updated_at"],
     }
 
 
-# ---------- Public lists ----------
+# -------------------------
+# Routes
+# -------------------------
 
 @router.get("/public", response_model=TypingList[ListDetail])
 def get_public_lists() -> TypingList[ListDetail]:
-    public_lists = [lst for lst in LISTS if lst.get("is_public", True)]
+    public_lists = store.list_public()
     return [_to_detail_dict(lst) for lst in public_lists]
 
 
-# ---------- My lists (requires auth) ----------
-
 @router.get("/me", response_model=TypingList[ListDetail])
 def get_my_lists(current_user=Depends(get_current_user)) -> TypingList[ListDetail]:
-    username = current_user.username
-    my_lists = [lst for lst in LISTS if lst.get("owner") == username]
-    return [_to_detail_dict(lst) for lst in my_lists]
+    mine = store.list_for_user(current_user.username)
+    return [_to_detail_dict(lst) for lst in mine]
 
-
-# ---------- Single list detail (view only) ----------
 
 @router.get("/{list_id}", response_model=ListDetail)
-def get_list_detail(list_id: int) -> ListDetail:
-    for lst in LISTS:
-        if lst["id"] == list_id:
-            return _to_detail_dict(lst)
+def get_list_detail(list_id: int, current_user=Depends(get_current_user_optional)) -> ListDetail:
+    try:
+        lst = store.get_list(list_id)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    # If private, only owner can view
+    is_public = lst.get("is_public", True)
+    if not is_public:
+        if not current_user or lst.get("owner") != current_user.username:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This list is private")
 
+    return _to_detail_dict(lst)
 
-# ---------- Create list (requires auth) ----------
 
 @router.post("", response_model=ListDetail, status_code=status.HTTP_201_CREATED)
 def create_list(payload: ListCreate, current_user=Depends(get_current_user)) -> ListDetail:
-    global NEXT_LIST_ID
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Title is required")
 
-    now = datetime.utcnow()
-    new_list = {
-        "id": NEXT_LIST_ID,
-        "title": payload.title,
-        "description": payload.description,
-        "is_public": payload.is_public,
-        "owner": current_user.username,
-        "items": [],
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    LISTS.append(new_list)
-    NEXT_LIST_ID += 1
+    new_list = store.create_list(
+        owner=current_user.username,
+        title=title,
+        description=(payload.description.strip() if payload.description else None),
+        is_public=payload.is_public,
+    )
     return _to_detail_dict(new_list)
 
-
-# ---------- Add item to list (requires owner) ----------
 
 @router.post("/{list_id}/items", status_code=status.HTTP_201_CREATED)
 def add_list_item(
@@ -151,35 +150,22 @@ def add_list_item(
     payload: ListItemCreate,
     current_user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """
-    POST /lists/{list_id}/items
-    Body: { "set_num": "75395-1" }
-    Only the owner can modify their list.
-    """
-    for lst in LISTS:
-        if lst["id"] == list_id:
-            if lst.get("owner") != current_user.username:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You do not own this list",
-                )
+    set_num = (payload.set_num or "").strip()
+    if not set_num:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="set_num is required")
 
-            items = lst.setdefault("items", [])
+    try:
+        count = store.add_item(current_user.username, list_id, set_num)
+        return {"ok": True, "items_count": count}
+    except KeyError as e:
+        if str(e) == "'list_not_found'" or str(e) == "list_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this list")
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Set already in list")
 
-            if payload.set_num in items:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Set already in list",
-                )
-
-            items.append(payload.set_num)
-            lst["updated_at"] = datetime.utcnow()
-            return {"ok": True, "items_count": len(items)}
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
-
-
-# ---------- Remove item from list (requires owner) ----------
 
 @router.delete("/{list_id}/items/{set_num}", status_code=status.HTTP_200_OK)
 def remove_list_item(
@@ -187,26 +173,30 @@ def remove_list_item(
     set_num: str,
     current_user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """
-    DELETE /lists/{list_id}/items/{set_num}
-    """
-    for lst in LISTS:
-        if lst["id"] == list_id:
-            if lst.get("owner") != current_user.username:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You do not own this list",
-                )
+    set_num = (set_num or "").strip()
+    if not set_num:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="set_num is required")
 
-            items = lst.setdefault("items", [])
-            if set_num not in items:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Set not in list",
-                )
+    try:
+        count = store.remove_item(current_user.username, list_id, set_num)
+        return {"ok": True, "items_count": count}
+    except KeyError as e:
+        if str(e) == "'list_not_found'" or str(e) == "list_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+        if str(e) == "'set_not_in_list'" or str(e) == "set_not_in_list":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Set not in list")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this list")
 
-            items.remove(set_num)
-            lst["updated_at"] = datetime.utcnow()
-            return {"ok": True, "items_count": len(items)}
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+@router.put("/me/order", response_model=TypingList[ListDetail])
+def reorder_my_lists(
+    payload: ListOrderUpdate,
+    current_user=Depends(get_current_user),
+) -> TypingList[ListDetail]:
+    try:
+        ordered = store.reorder_lists(current_user.username, payload.ordered_ids)
+        return [_to_detail_dict(lst) for lst in ordered]
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
