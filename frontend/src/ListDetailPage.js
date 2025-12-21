@@ -22,11 +22,12 @@ async function apiFetch(path, { token, ...opts } = {}) {
   return fetch(`${API_BASE}${path}`, { ...opts, headers });
 }
 
-async function fetchSetDetail(setNum) {
+async function fetchSetDetail(setNum, token) {
   try {
-    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
     if (!resp.ok) return null;
-    return await resp.json();
+    return await resp.json(); // includes user_rating when token provided
   } catch {
     return null;
   }
@@ -48,10 +49,7 @@ export default function ListDetailPage({
   const navigate = useNavigate();
 
   const effectiveToken = token || getStoredToken();
-  const currentUsername = useMemo(
-    () => getUsernameFromToken(effectiveToken),
-    [effectiveToken]
-  );
+  const currentUsername = useMemo(() => getUsernameFromToken(effectiveToken), [effectiveToken]);
 
   const [list, setList] = useState(null);
   const [listLoading, setListLoading] = useState(true);
@@ -69,11 +67,14 @@ export default function ListDetailPage({
   const [removing, setRemoving] = useState(null); // set_num being removed
   const [removeError, setRemoveError] = useState(null);
 
-  const isOwner =
-    !!list?.owner && !!currentUsername && list.owner === currentUsername;
+  // delete list
+  const [deletingList, setDeletingList] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  const isOwner = !!list?.owner && !!currentUsername && list.owner === currentUsername;
 
   async function loadList() {
-    if (!listId) return;
+    if (!listId) return null;
 
     setListLoading(true);
     setListError(null);
@@ -104,15 +105,12 @@ export default function ListDetailPage({
     setSetsError(null);
 
     try {
-      // Load all set details; keep only the ones we can fetch.
-      const results = await Promise.all(items.map(fetchSetDetail));
+      // one request per set, includes user_rating when logged in
+      const results = await Promise.all(items.map((n) => fetchSetDetail(n, effectiveToken)));
       const ok = results.filter(Boolean);
 
-      // If some failed, surface a gentle message.
       if (ok.length !== items.length && items.length > 0) {
-        setSetsError(
-          `Loaded ${ok.length}/${items.length} sets (some set numbers may not exist yet).`
-        );
+        setSetsError(`Loaded ${ok.length}/${items.length} sets (some set numbers may not exist yet).`);
       }
 
       setSetDetails(ok);
@@ -141,12 +139,13 @@ export default function ListDetailPage({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listId]);
+  }, [listId, effectiveToken]);
 
   async function handleAddItem(e) {
     e.preventDefault();
     setAddError(null);
     setRemoveError(null);
+    setDeleteError(null);
 
     const setNum = addValue.trim();
     if (!setNum) return;
@@ -188,6 +187,7 @@ export default function ListDetailPage({
   async function handleRemoveItem(setNum) {
     setRemoveError(null);
     setAddError(null);
+    setDeleteError(null);
 
     if (!effectiveToken) {
       setRemoveError("Log in to edit your list.");
@@ -220,9 +220,47 @@ export default function ListDetailPage({
     }
   }
 
-  if (listLoading) {
-    return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
+  async function handleDeleteList() {
+    setDeleteError(null);
+    setAddError(null);
+    setRemoveError(null);
+
+    if (!effectiveToken) {
+      setDeleteError("Log in to delete your list.");
+      navigate("/login");
+      return;
+    }
+    if (!isOwner) {
+      setDeleteError("Only the list owner can delete this list.");
+      return;
+    }
+
+    const ok = window.confirm(`Delete "${list?.title || "this list"}"? This cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      setDeletingList(true);
+
+      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
+        token: effectiveToken,
+        method: "DELETE",
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Delete failed (${resp.status}): ${text}`);
+      }
+
+      // send them back to Collection after delete
+      navigate("/collection");
+    } catch (err) {
+      setDeleteError(err?.message || String(err));
+    } finally {
+      setDeletingList(false);
+    }
   }
+
+  if (listLoading) return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
 
   if (listError) {
     return (
@@ -322,6 +360,27 @@ export default function ListDetailPage({
           </form>
 
           {addError && <p style={{ color: "red", marginTop: "0.5rem" }}>{addError}</p>}
+
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              onClick={handleDeleteList}
+              disabled={deletingList}
+              style={{
+                padding: "0.5rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid #f3b4b4",
+                background: "white",
+                color: "#b42318",
+                cursor: deletingList ? "default" : "pointer",
+                fontWeight: 700,
+              }}
+            >
+              {deletingList ? "Deleting…" : "Delete list"}
+            </button>
+
+            {deleteError && <p style={{ color: "red", marginTop: "0.5rem" }}>{deleteError}</p>}
+          </div>
         </section>
       )}
 
@@ -329,7 +388,11 @@ export default function ListDetailPage({
         <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Sets</h2>
 
         {setsLoading && <p>Loading sets…</p>}
-        {setsError && <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>{setsError}</p>}
+        {setsError && (
+          <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>
+            {setsError}
+          </p>
+        )}
 
         {!setsLoading && setDetails.length === 0 && (
           <p style={{ color: "#777" }}>

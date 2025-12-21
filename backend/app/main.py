@@ -1,4 +1,4 @@
-# app/main.py
+# backend/app/main.py
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -15,6 +15,7 @@ from .routers import users as users_router
 
 app = FastAPI(title="LEGO API")
 
+# ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,28 +24,29 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Total-Count"],
 )
-@app.get("/")
+
+# ---- basic routes ----
+@app.get("/", tags=["meta"])
 def root():
     return {"status": "ok", "message": "LEGO API is running"}
 
-# Auth (defines /auth/login, /auth/me, etc inside the router)
+@app.get("/health", tags=["meta"])
+def health():
+    return {"ok": True}
+
+# ---- routers ----
 app.include_router(auth_router.router, tags=["auth"])
 
-# Sets search + detail (GET /sets, /sets/{set_num}, /sets/{set_num}/rating, /sets/{set_num}/offers, /sets/suggest)
 app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
-
-# Reviews (attached under /sets: /sets/{set_num}/reviews, /sets/{set_num}/reviews/me)
 app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
 
-# Owned / wishlist collections (POST/DELETE/GET under /collections)
 app.include_router(collections_router.router, prefix="/collections", tags=["collections"])
-
-# Users
 app.include_router(users_router.router, tags=["users"])
-
-# Themes
 app.include_router(themes.router, tags=["themes"])
 
+app.include_router(lists_router.router)  # lists router already has prefix="/lists"
+
+# ---- debug ----
 @app.get("/db/ping", tags=["debug"])
 def db_ping(db: Session = Depends(get_db)):
     return (
@@ -52,6 +54,3 @@ def db_ping(db: Session = Depends(get_db)):
         .mappings()
         .one()
     )
-
-# Lists
-app.include_router(lists_router.router)

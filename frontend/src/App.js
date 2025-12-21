@@ -16,6 +16,7 @@ import NewSetsPage from "./NewSetsPage";
 import CollectionsPage from "./CollectionsPage";
 import OwnedPage from "./OwnedPage";
 import WishlistPage from "./WishlistPage";
+import ProfileMenu from "./ProfileMenu";
 
 const API_BASE = "http://localhost:8000";
 
@@ -939,6 +940,7 @@ function App() {
           <NavLink
             to="/collection"
             style={getNavLinkStyle}
+            onClick={() => setPage ("collection")}
           >
             Collection
           </NavLink>
@@ -1092,34 +1094,7 @@ function App() {
             </Link>
           )}
 
-          {token && (
-            <>
-              <Link
-                to="/login"
-                style={{
-                  padding: "0.5rem 0.9rem",
-                  cursor: "pointer",
-                  textDecoration: "none",
-                }}
-                onClick={() => setPage("login")}
-              >
-                My Lists
-              </Link>
-
-              <button
-                onClick={handleLogout}
-                style={{
-                  padding: "0.4rem 0.9rem",
-                  cursor: "pointer",
-                  borderRadius: "999px",
-                  border: "1px solid #ddd",
-                  background: "white",
-                }}
-              >
-                Log out
-              </button>
-            </>
-          )}
+          {token && <ProfileMenu token={token} onLogout={handleLogout} />}
         </div>
       </nav>
 
