@@ -8,23 +8,20 @@ const PREVIEW_COUNT = 10;
 
 // ---------------- utils ----------------
 function getStoredToken() {
-  return localStorage.getItem("lego_token") || "";
-}
-
-function getUsernameFromToken(token) {
-  if (!token) return null;
-  const prefix = "fake-token-for-";
-  return token.startsWith(prefix) ? token.slice(prefix.length) : token;
+  try {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("lego_token") || "";
+  } catch {
+    return "";
+  }
 }
 
 async function fetchSetDetail(setNum, token) {
   try {
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, {
-      headers,
-    });
+    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
     if (!resp.ok) return null;
-    return await resp.json(); // includes user_rating when token provided
+    return await resp.json();
   } catch {
     return null;
   }
@@ -65,6 +62,7 @@ function CollectionRow({
   onViewAll,
   emptyText,
   rightActions,
+  cardProps = {},
 }) {
   const preview = Array.isArray(sets) ? sets.slice(0, PREVIEW_COUNT) : [];
 
@@ -118,14 +116,20 @@ function CollectionRow({
               margin: 0,
               display: "flex",
               gap: "0.75rem",
+              alignItems: "stretch", // ✅ HERE
             }}
           >
             {preview.map((set) => (
               <li
-                key={set.set_num}
-                style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}
+                key={set?.set_num || `${title}-${Math.random()}`}
+                style={{
+                  minWidth: "220px",
+                  maxWidth: "220px",
+                  flex: "0 0 auto",
+                  display: "flex", // ✅ HERE
+                }}
               >
-                <SetCard set={set} variant="collection" />
+                <SetCard set={set} variant="collection" {...cardProps} />
               </li>
             ))}
           </ul>
@@ -136,15 +140,7 @@ function CollectionRow({
 }
 
 // ---------------- UI: mobile reorder sheet ----------------
-function ReorderSheet({
-  open,
-  onClose,
-  draftLists,
-  setDraftLists,
-  onSave,
-  saving,
-  error,
-}) {
+function ReorderSheet({ open, onClose, draftLists, setDraftLists, onSave, saving, error }) {
   if (!open) return null;
 
   function moveDraft(listId, dir) {
@@ -152,6 +148,7 @@ function ReorderSheet({
       const idx = prev.findIndex((l) => l.id === listId);
       const newIdx = idx + dir;
       if (idx < 0 || newIdx < 0 || newIdx >= prev.length) return prev;
+
       const copy = [...prev];
       const tmp = copy[idx];
       copy[idx] = copy[newIdx];
@@ -280,8 +277,7 @@ function ReorderSheet({
                     borderRadius: "999px",
                     border: "1px solid #ddd",
                     background: "white",
-                    cursor:
-                      saving || idx === draftLists.length - 1 ? "not-allowed" : "pointer",
+                    cursor: saving || idx === draftLists.length - 1 ? "not-allowed" : "pointer",
                     opacity: saving || idx === draftLists.length - 1 ? 0.5 : 1,
                   }}
                   title="Move down"
@@ -321,6 +317,7 @@ function ListMenuButton({ open, onToggle }) {
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -487,9 +484,7 @@ function EditListModal({
           </label>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: "0.9rem", color: "#333" }}>
-              Description (optional)
-            </span>
+            <span style={{ fontSize: "0.9rem", color: "#333" }}>Description (optional)</span>
             <input
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
@@ -538,17 +533,34 @@ function EditListModal({
 }
 
 // ---------------- main page ----------------
-export default function CollectionsPage({ ownedSets = [], wishlistSets = [], token }) {
+export default function CollectionsPage({
+  ownedSets = [],
+  wishlistSets = [],
+  token,
+  onMarkOwned,
+  onAddWishlist,
+}) {
   const navigate = useNavigate();
   const isMobile = useIsMobile(720);
 
   const effectiveToken = token || getStoredToken();
   const isLoggedIn = !!effectiveToken;
 
-  // (not required for this page, but kept in case you want it later)
-  const currentUsername = useMemo(
-    () => getUsernameFromToken(effectiveToken),
-    [effectiveToken]
+  // normalize incoming owned/wishlist props:
+  const ownedNums = useMemo(
+    () =>
+      (ownedSets || [])
+        .map((x) => (typeof x === "string" ? x : x?.set_num))
+        .filter(Boolean),
+    [ownedSets]
+  );
+
+  const wishlistNums = useMemo(
+    () =>
+      (wishlistSets || [])
+        .map((x) => (typeof x === "string" ? x : x?.set_num))
+        .filter(Boolean),
+    [wishlistSets]
   );
 
   // menu + edit/delete state
@@ -603,28 +615,11 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return await resp.json();
   }
 
-  // normalize incoming owned/wishlist props:
-  const ownedNums = useMemo(
-    () =>
-      (ownedSets || [])
-        .map((x) => (typeof x === "string" ? x : x?.set_num))
-        .filter(Boolean),
-    [ownedSets]
-  );
-
-  const wishlistNums = useMemo(
-    () =>
-      (wishlistSets || [])
-        .map((x) => (typeof x === "string" ? x : x?.set_num))
-        .filter(Boolean),
-    [wishlistSets]
-  );
-
   // previews
   const [ownedDetails, setOwnedDetails] = useState([]);
   const [wishlistDetails, setWishlistDetails] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [collectionError, setCollectionError] = useState(null);
 
   // lists
   const [myLists, setMyLists] = useState([]);
@@ -725,7 +720,6 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
       }
 
       const updated = await apiUpdateList(editTarget.id, payload);
-
       setMyLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setEditOpen(false);
     } catch (err) {
@@ -775,16 +769,12 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     async function loadOwnedWishlist() {
       try {
         setLoading(true);
-        setError(null);
+        setCollectionError(null);
 
         const [ownedFull, wishlistFull] = await Promise.all([
+          Promise.all(ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
           Promise.all(
-            ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))
-          ),
-          Promise.all(
-            wishlistNums
-              .slice(0, PREVIEW_COUNT)
-              .map((n) => fetchSetDetail(n, effectiveToken))
+            wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))
           ),
         ]);
 
@@ -793,7 +783,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
           setWishlistDetails(wishlistFull.filter(Boolean));
         }
       } catch (err) {
-        if (!cancelled) setError(err?.message || String(err));
+        if (!cancelled) setCollectionError(err?.message || String(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -983,9 +973,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
   }
 
   const hasAny =
-    ownedDetails.length > 0 ||
-    wishlistDetails.length > 0 ||
-    (myLists && myLists.length > 0);
+    ownedDetails.length > 0 || wishlistDetails.length > 0 || (myLists && myLists.length > 0);
 
   const showReorderButton = isLoggedIn && myLists.length > 1;
 
@@ -1076,9 +1064,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
             </label>
 
             <label style={{ display: "grid", gap: "0.25rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>
-                Description (optional)
-              </span>
+              <span style={{ fontSize: "0.9rem", color: "#333" }}>Description (optional)</span>
               <input
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
@@ -1150,13 +1136,13 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
       )}
 
       {loading && <p>Loading collection…</p>}
-      {error && <p style={{ color: "red" }}>Error loading collection: {error}</p>}
+      {collectionError && <p style={{ color: "red" }}>Error loading collection: {collectionError}</p>}
 
       {myListsLoadError && <p style={{ color: "red" }}>Error loading lists: {myListsLoadError}</p>}
       {reorderError && <p style={{ color: "red" }}>Reorder error: {reorderError}</p>}
       {deleteError && <p style={{ color: "red" }}>Delete error: {deleteError}</p>}
 
-      {!loading && !error && !hasAny && (
+      {!loading && !collectionError && !hasAny && (
         <p style={{ marginTop: "1rem", color: "#777" }}>
           You haven&apos;t marked any sets as Owned or added them to your Wishlist yet.
         </p>
@@ -1170,6 +1156,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
         viewAllLabel="View all"
         onViewAll={() => navigate("/collection/owned")}
         emptyText="No owned sets yet."
+        cardProps={{ collectionFooter: "rating" }}
       />
 
       {/* Wishlist */}
@@ -1180,6 +1167,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
         viewAllLabel="View all"
         onViewAll={() => navigate("/collection/wishlist")}
         emptyText="No wishlist sets yet."
+        cardProps={{ collectionFooter: "shop" }}
       />
 
       {/* Custom lists */}
@@ -1197,8 +1185,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
             !myListsLoadError &&
             myLists.length > 0 &&
             myLists.map((l, idx) => {
-              const count =
-                l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
+              const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
               const sets = listPreviewSets[l.id] || [];
 
               const desktopReorderButtons = (
@@ -1230,9 +1217,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
                       border: "1px solid #ddd",
                       background: "white",
                       cursor:
-                        reorderSaving || idx === myLists.length - 1
-                          ? "not-allowed"
-                          : "pointer",
+                        reorderSaving || idx === myLists.length - 1 ? "not-allowed" : "pointer",
                       opacity: reorderSaving || idx === myLists.length - 1 ? 0.5 : 1,
                     }}
                   >
@@ -1255,9 +1240,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
 
                   <ListMenuButton
                     open={menuOpenFor === l.id}
-                    onToggle={() =>
-                      setMenuOpenFor((prev) => (prev === l.id ? null : l.id))
-                    }
+                    onToggle={() => setMenuOpenFor((prev) => (prev === l.id ? null : l.id))}
                   />
 
                   {menuOpenFor === l.id && (

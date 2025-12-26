@@ -1,7 +1,8 @@
 // frontend/src/SetDetailPage.js
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import SetCard from "./SetCard";
+import AddToListMenu from "./AddToListMenu";
 
 const API_BASE = "http://localhost:8000";
 
@@ -23,9 +24,11 @@ function SetDetailPage({
   onAddWishlist,
   onEnsureOwned,
   myLists,
+  onRemoveWishlist,
 }) {
   const { setNum } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const storedToken = localStorage.getItem("lego_token") || "";
   const effectiveToken = token || storedToken || "";
@@ -73,6 +76,23 @@ function SetDetailPage({
   const isOwned = ownedSetNums ? ownedSetNums.has(setNum) : false;
   const isInWishlist = wishlistSetNums ? wishlistSetNums.has(setNum) : false;
 
+  // Shop offers
+  const [offers, setOffers] = useState([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offersError, setOffersError] = useState(null);
+  const shopRef = useRef(null);
+
+  useEffect(() => {
+    if (location.hash !== "#shop") return;
+    if (loading) return; // ✅ wait until the page content exists
+  
+    const t = setTimeout(() => {
+      shopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  
+    return () => clearTimeout(t);
+  }, [location.hash, loading]);
+
   // -------------------------------
   // Load set detail + reviews
   // -------------------------------
@@ -86,7 +106,7 @@ function SetDetailPage({
         setUserRating(null);
 
         // Set detail
-        const detailResp = await fetch(`${API_BASE}/sets/${setNum}`);
+        const detailResp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
         if (!detailResp.ok) {
           throw new Error(`Failed to load set (status ${detailResp.status})`);
         }
@@ -127,6 +147,50 @@ function SetDetailPage({
 
     fetchData();
   }, [setNum, currentUsername]);
+
+  useEffect(() => {
+    if (!setNum) return;
+  
+    let cancelled = false;
+  
+    async function fetchOffers() {
+      try {
+        setOffersLoading(true);
+        setOffersError(null);
+  
+        const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}/offers`);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Offers fetch failed (${resp.status}): ${text}`);
+        }
+  
+        const data = await resp.json(); // expected: array of {store, price, currency, url, in_stock}
+        const list = Array.isArray(data) ? data : [];
+  
+        // sort: in stock first, then lowest price
+        list.sort((a, b) => {
+          const aStock = a?.in_stock ? 0 : 1;
+          const bStock = b?.in_stock ? 0 : 1;
+          if (aStock !== bStock) return aStock - bStock;
+          const ap = typeof a?.price === "number" ? a.price : Number.POSITIVE_INFINITY;
+          const bp = typeof b?.price === "number" ? b.price : Number.POSITIVE_INFINITY;
+          return ap - bp;
+        });
+  
+        if (!cancelled) setOffers(list);
+      } catch (err) {
+        if (!cancelled) setOffersError(err.message || String(err));
+      } finally {
+        if (!cancelled) setOffersLoading(false);
+      }
+    }
+  
+    fetchOffers();
+  
+    return () => {
+      cancelled = true;
+    };
+  }, [setNum]);
 
   // -------------------------------
   // Rating summary (avg + count)
@@ -246,17 +310,6 @@ function SetDetailPage({
     }
     if (typeof onMarkOwned === "function") {
       onMarkOwned(setNum);
-    }
-  }
-
-  function handleAddWishlistClick() {
-    if (!isLoggedIn) {
-      alert("Please log in to track your collection.");
-      navigate("/login");
-      return;
-    }
-    if (typeof onAddWishlist === "function") {
-      onAddWishlist(setNum);
     }
   }
 
@@ -506,7 +559,7 @@ function SetDetailPage({
           fontSize: "0.9rem",
         }}
       >
-        ← Back to results
+        ← Back
       </button>
 
       {/* HERO: image + meta + actions */}
@@ -641,13 +694,7 @@ function SetDetailPage({
             }}
           >
             {/* OWNED / WISHLIST */}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "0.5rem",
-              }}
-            >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
               <button
                 onClick={handleMarkOwnedClick}
                 style={{
@@ -663,20 +710,23 @@ function SetDetailPage({
                 {isOwned ? "Owned ✓" : "Mark Owned"}
               </button>
 
-              <button
-                onClick={handleAddWishlistClick}
-                style={{
+              <AddToListMenu
+                setNum={setNum}
+                includeOwned={false}
+                includeWishlist={true}
+                wishlistSelected={isInWishlist}                 // ✅ show checkmark
+                onAddWishlist={() => onAddWishlist?.(setNum)}   // ✅ add
+                onRemoveWishlist={() => onRemoveWishlist?.(setNum)} // ✅ remove
+                buttonLabel="Add to list"
+                buttonStyle={{
                   padding: "0.45rem 0.9rem",
                   borderRadius: "999px",
-                  border: isInWishlist ? "none" : "1px solid #ccc",
-                  backgroundColor: isInWishlist ? "#b16be3" : "#f5f5f5",
-                  color: isInWishlist ? "white" : "#222",
+                  border: "1px solid #ccc",
+                  background: "#f5f5f5",
+                  color: "#222",
                   fontWeight: 500,
-                  cursor: "pointer",
                 }}
-              >
-                {isInWishlist ? "In Wishlist ★" : "Add to Wishlist"}
-              </button>
+              />
             </div>
 
             {/* YOUR RATING */}
@@ -839,59 +889,115 @@ function SetDetailPage({
         </ul>
       </section>
 
-      {/* PRICE COMPARISON SECTION */}
-      <section style={{ marginTop: "2rem" }}>
-        <h2
-          style={{
-            margin: 0,
-            marginBottom: "0.5rem",
-            fontSize: "1.1rem",
-          }}
-        >
+      {/* SHOP */}
+      <section ref={shopRef} id="shop" style={{ marginTop: "2rem" }}>
+        <h2 style={{ margin: 0, marginTop: "2rem", scrollMarginTop: 90, marginBottom: "0.5rem", fontSize: "1.1rem" }}>
           Shop & price comparison
         </h2>
+
         <div
           style={{
             borderRadius: "12px",
-            border: "1px dashed #d4d4d4",
+            border: "1px solid #e5e7eb",
             padding: "0.9rem 1rem",
             background: "#fafafa",
-            fontSize: "0.9rem",
+            fontSize: "0.95rem",
           }}
         >
-          {isRetired ? (
-            <>
-              <p style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}>
-                This set is retired, so live retail prices are limited.
-              </p>
-              <p style={{ margin: 0, color: "#777" }}>
-                Later this section will show secondary-market and used prices
-                with affiliate links.
-              </p>
-            </>
-          ) : (
-            <>
-              <p style={{ marginTop: 0, marginBottom: "0.5rem", color: "#555" }}>
-                Soon you&apos;ll see real-time prices from LEGO, Amazon, and
-                other shops right here.
-              </p>
-              <button
-                type="button"
-                disabled
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  backgroundColor: "#111827",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: "not-allowed",
-                  fontSize: "0.9rem",
-                }}
-              >
-                Shop now (coming soon)
-              </button>
-            </>
+          {offersLoading && <p style={{ margin: 0 }}>Loading offers…</p>}
+
+          {!offersLoading && offersError && (
+            <p style={{ margin: 0, color: "red" }}>Error: {offersError}</p>
+          )}
+
+          {!offersLoading && !offersError && offers.length === 0 && (
+            <p style={{ margin: 0, color: "#666" }}>
+              No offers yet. (We’ll add more stores soon.)
+            </p>
+          )}
+
+          {!offersLoading && !offersError && offers.length > 0 && (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.5rem" }}>
+              {offers.map((o, idx) => {
+                const price =
+                  typeof o?.price === "number"
+                    ? `${o.price.toFixed(2)}${o.currency ? ` ${o.currency}` : ""}`
+                    : "—";
+
+                const bestBadge = idx === 0 ? "Best price" : null;
+
+                return (
+                  <li
+                    key={`${o.store}-${o.url}-${idx}`}
+                    style={{
+                      background: "white",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: "0.75rem 0.85rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "0.75rem",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ fontWeight: 800 }}>{o.store || "Store"}</div>
+
+                        {bestBadge && (
+                          <span
+                            style={{
+                              fontSize: "0.75rem",
+                              fontWeight: 800,
+                              padding: "0.15rem 0.5rem",
+                              borderRadius: "999px",
+                              background: "#dcfce7",
+                              border: "1px solid #86efac",
+                              color: "#166534",
+                            }}
+                          >
+                            {bestBadge}
+                          </span>
+                        )}
+
+                        {!o?.in_stock && (
+                          <span style={{ fontSize: "0.8rem", color: "#b45309", fontWeight: 700 }}>
+                            Out of stock
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: 4, color: "#374151", fontWeight: 700 }}>
+                        {price}
+                      </div>
+                    </div>
+
+                    <a
+                      href={o.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => {
+                        // super simple tracking for now
+                        console.log("shop_click", { setNum, store: o.store, url: o.url });
+                      }}
+                      style={{
+                        textDecoration: "none",
+                        padding: "0.45rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "none",
+                        background: "#111827",
+                        color: "white",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                        opacity: o?.in_stock === false ? 0.6 : 1,
+                      }}
+                    >
+                      Shop →
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </section>

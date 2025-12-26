@@ -188,7 +188,7 @@ export default function ListDetailPage({
     setRemoveError(null);
     setAddError(null);
     setDeleteError(null);
-
+  
     if (!effectiveToken) {
       setRemoveError("Log in to edit your list.");
       navigate("/login");
@@ -198,22 +198,36 @@ export default function ListDetailPage({
       setRemoveError("Only the list owner can remove items.");
       return;
     }
-
+  
+    const prevSetDetails = setDetails;
+    const prevList = list;
+  
     try {
       setRemoving(setNum);
-
+  
+      // ✅ optimistic UI: remove immediately
+      setSetDetails((cur) => cur.filter((s) => s.set_num !== setNum));
+      setList((cur) => {
+        if (!cur) return cur;
+        const items = Array.isArray(cur.items) ? cur.items : [];
+        return { ...cur, items: items.filter((n) => n !== setNum) };
+      });
+  
       const resp = await apiFetch(
         `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
         { token: effectiveToken, method: "DELETE" }
       );
-
+  
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Remove failed (${resp.status}): ${text}`);
       }
-
-      await loadAll();
+  
+      // ✅ no need to loadAll() if optimistic worked
     } catch (err) {
+      // rollback if request fails
+      setSetDetails(prevSetDetails);
+      setList(prevList);
       setRemoveError(err?.message || String(err));
     } finally {
       setRemoving(null);
