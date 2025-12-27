@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "./Toast";
 
 const API_BASE = "http://localhost:8000";
 
@@ -50,6 +51,8 @@ export default function AddToListMenu({
   buttonStyle = {},
 }) {
   const navigate = useNavigate();
+  const { push: toast } = useToast();
+
   const token = getStoredToken();
 
   const btnRef = useRef(null);
@@ -78,7 +81,8 @@ export default function AddToListMenu({
 
   const shouldScrollLists = customLists.length > 3;
 
-  function goToCreateList() {
+  function goToCreateList(e) {
+    e?.stopPropagation?.();
     setOpen(false);
     setConfirm(null);
     navigate("/collection?create=1");
@@ -113,6 +117,7 @@ export default function AddToListMenu({
     setPos({ left, top, width: desiredWidth });
   }
 
+  // Outside click / escape / reposition
   useEffect(() => {
     if (!open) return;
 
@@ -182,6 +187,7 @@ export default function AddToListMenu({
         const normalized = Array.isArray(baseLists) ? baseLists : [];
         setLists(normalized);
 
+        // membership map
         const map = {};
         await Promise.all(
           normalized
@@ -226,6 +232,17 @@ export default function AddToListMenu({
     return false;
   }
 
+  function resolveTitleForAction(action) {
+    if (action.type === "owned") return "Owned";
+    if (action.type === "wishlist") return "Wishlist";
+    if (action.type === "list") {
+      return (
+        customLists.find((l) => String(l.id) === String(action.listId))?.title || "this list"
+      );
+    }
+    return "this item";
+  }
+
   async function addToCustomList(listId) {
     if (typeof onAddToList === "function") return onAddToList(listId);
     if (!token) throw new Error("Please log in to use lists.");
@@ -265,14 +282,7 @@ export default function AddToListMenu({
       setErr(null);
 
       if (isSelected(action)) {
-        const title =
-          action.type === "list"
-            ? customLists.find((l) => String(l.id) === String(action.listId))?.title || "this list"
-            : action.type === "wishlist"
-            ? "Wishlist"
-            : "Owned";
-
-        setConfirm({ ...action, title });
+        setConfirm({ ...action, title: resolveTitleForAction(action) });
         return;
       }
 
@@ -280,13 +290,16 @@ export default function AddToListMenu({
         if (!onAddOwned) throw new Error("Missing onAddOwned handler.");
         await onAddOwned();
         setOwnedLocal(true);
+        toast?.("Added to Owned ✅");
       } else if (action.type === "wishlist") {
         if (!onAddWishlist) throw new Error("Missing onAddWishlist handler.");
         await onAddWishlist();
         setWishlistLocal(true);
+        toast?.("Added to Wishlist ✅");
       } else if (action.type === "list") {
         await addToCustomList(action.listId);
         setSelectedMap((prev) => ({ ...prev, [action.listId]: true }));
+        toast?.(`Added to ${resolveTitleForAction(action)} ✅`);
       }
 
       setOpen(false);
@@ -305,10 +318,12 @@ export default function AddToListMenu({
         if (!onRemoveOwned) throw new Error("Missing onRemoveOwned handler.");
         await onRemoveOwned();
         setOwnedLocal(false);
+        toast?.("Removed from Owned");
       } else if (confirm.type === "wishlist") {
         if (!onRemoveWishlist) throw new Error("Missing onRemoveWishlist handler.");
         await onRemoveWishlist();
         setWishlistLocal(false);
+        toast?.("Removed from Wishlist");
       } else if (confirm.type === "list") {
         await removeFromCustomList(confirm.listId);
         setSelectedMap((prev) => {
@@ -316,6 +331,7 @@ export default function AddToListMenu({
           delete copy[confirm.listId];
           return copy;
         });
+        toast?.(`Removed from ${confirm.title}`);
       }
 
       setConfirm(null);
@@ -326,7 +342,7 @@ export default function AddToListMenu({
     }
   }
 
-  // IMPORTANT: give the label room + pin caret on right
+  // Button style (label room + caret pinned right)
   const baseButtonStyle = {
     height: 32,
     padding: "0 12px",
@@ -340,18 +356,17 @@ export default function AddToListMenu({
     cursor: "pointer",
     boxSizing: "border-box",
     whiteSpace: "nowrap",
-    minWidth: 124, // ✅ prevents "A" / super aggressive truncation
+    minWidth: 124,
+    maxWidth: "100%",
 
     ...buttonStyle,
 
-    // enforced last
     position: "relative",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
-    paddingRight: 28, // ✅ space so caret doesn't overlap text
-    maxWidth: "100%",
+    paddingRight: 28,
   };
 
   return (
@@ -489,8 +504,11 @@ export default function AddToListMenu({
                   padding: "1rem",
                 }}
                 onMouseDown={(e) => {
+                  // IMPORTANT: stop propagation so SetCard onClick doesn't fire
+                  e.stopPropagation();
                   if (e.target === e.currentTarget) setConfirm(null);
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
                 <div
                   style={{
@@ -502,6 +520,7 @@ export default function AddToListMenu({
                     padding: "1rem",
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
                     Remove from {confirm.title}?
@@ -513,7 +532,10 @@ export default function AddToListMenu({
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
                     <button
                       type="button"
-                      onClick={() => setConfirm(null)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirm(null);
+                      }}
                       style={{
                         height: 32,
                         padding: "0 12px",
@@ -528,7 +550,10 @@ export default function AddToListMenu({
                     </button>
                     <button
                       type="button"
-                      onClick={confirmRemove}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmRemove();
+                      }}
                       style={{
                         height: 32,
                         padding: "0 12px",

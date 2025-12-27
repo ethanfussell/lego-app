@@ -1,6 +1,7 @@
 // frontend/src/CollectionsPage.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useToast } from "./Toast";
 import SetCard from "./SetCard";
 
 const API_BASE = "http://localhost:8000";
@@ -51,6 +52,779 @@ function useIsMobile(breakpointPx = 720) {
   }, [breakpointPx]);
 
   return isMobile;
+}
+
+// ---------------- main page ----------------
+export default function CollectionsPage({
+  ownedSets = [],
+  wishlistSets = [],
+  token,
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { push: toast } = useToast();
+
+  const isMobile = useIsMobile(720);
+
+  const effectiveToken = token || getStoredToken();
+  const isLoggedIn = !!effectiveToken;
+
+  // Accept arrays OR Sets OR array-of-objects
+  const ownedNums = useMemo(() => {
+    const src = ownedSets instanceof Set ? Array.from(ownedSets) : ownedSets || [];
+    return src
+      .map((x) => (typeof x === "string" ? x : x?.set_num))
+      .filter(Boolean);
+  }, [ownedSets]);
+
+  const wishlistNums = useMemo(() => {
+    const src = wishlistSets instanceof Set ? Array.from(wishlistSets) : wishlistSets || [];
+    return src
+      .map((x) => (typeof x === "string" ? x : x?.set_num))
+      .filter(Boolean);
+  }, [wishlistSets]);
+
+  // ---------------- Create list modal via ?create=1 ----------------
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    setCreateOpen(params.get("create") === "1");
+  }, [location.search]);
+
+  function openCreate() {
+    if (!isLoggedIn) {
+      toast?.("Log in to create lists.");
+      navigate("/login");
+      return;
+    }
+    navigate("/collection?create=1");
+  }
+
+  function closeCreate() {
+    setCreateErr(null);
+    setNewTitle("");
+    navigate("/collection", { replace: true });
+  }
+
+  // ---------------- Menu + edit/delete state ----------------
+  const [menuOpenFor, setMenuOpenFor] = useState(null);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editIsPublic, setEditIsPublic] = useState(true);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
+
+  const [deleteError, setDeleteError] = useState(null);
+
+  // close menu on outside click
+  useEffect(() => {
+    function onDocMouseDown() {
+      setMenuOpenFor(null);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, []);
+
+  // ---------------- API helpers ----------------
+  async function apiUpdateList(listId, payload) {
+    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${effectiveToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Update failed (${resp.status}): ${text}`);
+    }
+    return await resp.json();
+  }
+
+  async function apiDeleteList(listId) {
+    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${effectiveToken}` },
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Delete failed (${resp.status}): ${text}`);
+    }
+    return await resp.json();
+  }
+
+  async function fetchMyLists() {
+    if (!isLoggedIn) return [];
+
+    const resp = await fetch(`${API_BASE}/lists/me`, {
+      headers: { Authorization: `Bearer ${effectiveToken}` },
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Failed to load my lists (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function persistListOrder(orderedLists) {
+    const orderedIds = orderedLists.map((l) => l.id);
+
+    const resp = await fetch(`${API_BASE}/lists/me/order`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${effectiveToken}`,
+      },
+      body: JSON.stringify({ ordered_ids: orderedIds }),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Reorder failed (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    return Array.isArray(data) ? data : orderedLists;
+  }
+
+  // ---------------- Previews: owned/wishlist ----------------
+  const [ownedDetails, setOwnedDetails] = useState([]);
+  const [wishlistDetails, setWishlistDetails] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [collectionError, setCollectionError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOwnedWishlist() {
+      try {
+        setLoading(true);
+        setCollectionError(null);
+
+        const [ownedFull, wishlistFull] = await Promise.all([
+          Promise.all(ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
+          Promise.all(
+            wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))
+          ),
+        ]);
+
+        if (!cancelled) {
+          setOwnedDetails(ownedFull.filter(Boolean));
+          setWishlistDetails(wishlistFull.filter(Boolean));
+        }
+      } catch (err) {
+        if (!cancelled) setCollectionError(err?.message || String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadOwnedWishlist();
+    return () => {
+      cancelled = true;
+    };
+  }, [ownedNums, wishlistNums, effectiveToken]);
+
+  // ---------------- Lists ----------------
+  const [myLists, setMyLists] = useState([]);
+  const myListsRef = useRef([]);
+  useEffect(() => {
+    myListsRef.current = myLists;
+  }, [myLists]);
+
+  const [myListsLoading, setMyListsLoading] = useState(false);
+  const [myListsLoadError, setMyListsLoadError] = useState(null);
+
+  const [reorderSaving, setReorderSaving] = useState(false);
+  const [reorderError, setReorderError] = useState(null);
+
+  const [listPreviewSets, setListPreviewSets] = useState({}); // { [listId]: [setObj,...] }
+
+  // Load my lists
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (!isLoggedIn) {
+        setMyLists([]);
+        setListPreviewSets({});
+        return;
+      }
+
+      try {
+        setMyListsLoading(true);
+        setMyListsLoadError(null);
+        const data = await fetchMyLists();
+        if (!cancelled) setMyLists(data);
+      } catch (e) {
+        if (!cancelled) setMyListsLoadError(e?.message || String(e));
+      } finally {
+        if (!cancelled) setMyListsLoading(false);
+      }
+    }
+
+    load();
+  }, [effectiveToken, isLoggedIn]);
+
+  // Load preview set cards for each list
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadListPreviews() {
+      if (!myLists || myLists.length === 0) {
+        setListPreviewSets({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        myLists.map(async (l) => {
+          const items = Array.isArray(l.items) ? l.items : [];
+          const first = items.slice(0, PREVIEW_COUNT);
+          const full = await Promise.all(first.map((n) => fetchSetDetail(n, effectiveToken)));
+          return [l.id, full.filter(Boolean)];
+        })
+      );
+
+      if (!cancelled) {
+        const map = {};
+        for (const [id, sets] of entries) map[id] = sets;
+        setListPreviewSets(map);
+      }
+    }
+
+    loadListPreviews();
+    return () => {
+      cancelled = true;
+    };
+  }, [myLists, effectiveToken]);
+
+  // ---------------- Create list (modal submit) ----------------
+  async function submitCreateList(e) {
+    e.preventDefault();
+
+    if (!isLoggedIn) return;
+
+    const title = newTitle.trim();
+    if (!title) {
+      setCreateErr("Please enter a list name.");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setCreateErr(null);
+      setMyListsLoadError(null);
+      setReorderError(null);
+
+      const resp = await fetch(`${API_BASE}/lists`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${effectiveToken}`,
+        },
+        body: JSON.stringify({
+          title,
+          description: null,
+          is_public: true,
+        }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Create list failed (${resp.status}): ${text}`);
+      }
+
+      const created = await resp.json();
+
+      // Put it at top in UI, then persist that order so backend matches.
+      const optimistic = [created, ...myListsRef.current];
+      setMyLists(optimistic);
+
+      setReorderSaving(true);
+      try {
+        const saved = await persistListOrder(optimistic);
+        setMyLists(saved);
+      } finally {
+        setReorderSaving(false);
+      }
+
+      toast?.("List created!");
+      closeCreate();
+    } catch (err) {
+      setCreateErr(err?.message || String(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // ---------------- Edit/Delete ----------------
+  function openEditForList(list) {
+    setMenuOpenFor(null);
+    setEditTarget(list);
+    setEditTitle(list.title || "");
+    setEditDesc(list.description || "");
+    setEditIsPublic(!!list.is_public);
+    setEditError(null);
+    setEditOpen(true);
+  }
+
+  async function handleSaveEdit(e) {
+    e.preventDefault();
+    if (!editTarget) return;
+
+    try {
+      setEditSaving(true);
+      setEditError(null);
+
+      const payload = {
+        title: editTitle.trim(),
+        description: editDesc.trim() || null,
+        is_public: !!editIsPublic,
+      };
+
+      if (!payload.title) {
+        setEditError("Title is required.");
+        return;
+      }
+
+      const updated = await apiUpdateList(editTarget.id, payload);
+      setMyLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setEditOpen(false);
+    } catch (err) {
+      setEditError(err?.message || String(err));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleDeleteList(list) {
+    setMenuOpenFor(null);
+    setDeleteError(null);
+
+    const ok = window.confirm(`Delete "${list.title}"? This cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      await apiDeleteList(list.id);
+
+      const remaining = myListsRef.current.filter((x) => x.id !== list.id);
+      setMyLists(remaining);
+
+      setListPreviewSets((prev) => {
+        const copy = { ...prev };
+        delete copy[list.id];
+        return copy;
+      });
+
+      // keep backend order consistent
+      if (remaining.length > 0) {
+        try {
+          const saved = await persistListOrder(remaining);
+          setMyLists(saved);
+        } catch {
+          // ignore reorder failure here; UI already updated
+        }
+      }
+    } catch (err) {
+      setDeleteError(err?.message || String(err));
+    }
+  }
+
+  // ---------------- Desktop reorder ----------------
+  async function moveListDesktop(listId, dir) {
+    if (!isLoggedIn || reorderSaving) return;
+
+    setReorderError(null);
+
+    const prev = myListsRef.current;
+    const idx = prev.findIndex((l) => l.id === listId);
+    const newIdx = idx + dir;
+    if (idx < 0 || newIdx < 0 || newIdx >= prev.length) return;
+
+    const updated = [...prev];
+    const tmp = updated[idx];
+    updated[idx] = updated[newIdx];
+    updated[newIdx] = tmp;
+
+    setMyLists(updated);
+
+    try {
+      setReorderSaving(true);
+      const saved = await persistListOrder(updated);
+      setMyLists(saved);
+    } catch (e) {
+      setMyLists(prev);
+      setReorderError(e?.message || String(e));
+    } finally {
+      setReorderSaving(false);
+    }
+  }
+
+  // ---------------- Mobile reorder sheet ----------------
+  const [showReorderSheet, setShowReorderSheet] = useState(false);
+  const [draftLists, setDraftLists] = useState([]);
+
+  function openReorder() {
+    setReorderError(null);
+    setDraftLists(myListsRef.current);
+    setShowReorderSheet(true);
+  }
+
+  async function saveReorderSheet() {
+    if (!isLoggedIn || reorderSaving) return;
+
+    const prev = myListsRef.current;
+    const draft = draftLists;
+
+    setMyLists(draft); // optimistic
+
+    try {
+      setReorderSaving(true);
+      const saved = await persistListOrder(draft);
+      setMyLists(saved);
+      setShowReorderSheet(false);
+    } catch (e) {
+      setMyLists(prev);
+      setReorderError(e?.message || String(e));
+    } finally {
+      setReorderSaving(false);
+    }
+  }
+
+  const hasAny =
+    ownedDetails.length > 0 || wishlistDetails.length > 0 || (myLists && myLists.length > 0);
+
+  const showReorderButton = isLoggedIn && myLists.length > 1;
+
+  return (
+    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          gap: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h1 style={{ margin: 0, fontSize: "1.7rem" }}>My Collection</h1>
+          <p style={{ marginTop: "0.4rem", color: "#666" }}>
+            View your Owned, Wishlist, and custom Lists in one place.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          {showReorderButton && isMobile && (
+            <button
+              type="button"
+              onClick={openReorder}
+              disabled={reorderSaving}
+              style={{
+                padding: "0.45rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid #ddd",
+                background: "white",
+                cursor: reorderSaving ? "not-allowed" : "pointer",
+                opacity: reorderSaving ? 0.6 : 1,
+                fontWeight: 600,
+              }}
+            >
+              ⇅ Reorder
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={openCreate}
+            disabled={!isLoggedIn}
+            style={{
+              padding: "0.45rem 0.9rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: isLoggedIn ? "pointer" : "not-allowed",
+              opacity: isLoggedIn ? 1 : 0.6,
+              fontWeight: 600,
+            }}
+            title={isLoggedIn ? "Create a new list" : "Log in to create lists"}
+          >
+            ➕ Create list
+          </button>
+        </div>
+      </div>
+
+      {!isLoggedIn && (
+        <p style={{ marginTop: "0.75rem", color: "#777" }}>
+          Log in to create and view your custom lists here.
+        </p>
+      )}
+
+      {loading && <p>Loading collection…</p>}
+      {collectionError && <p style={{ color: "red" }}>Error loading collection: {collectionError}</p>}
+
+      {myListsLoadError && <p style={{ color: "red" }}>Error loading lists: {myListsLoadError}</p>}
+      {reorderError && <p style={{ color: "red" }}>Reorder error: {reorderError}</p>}
+      {deleteError && <p style={{ color: "red" }}>Delete error: {deleteError}</p>}
+
+      {!loading && !collectionError && !hasAny && (
+        <p style={{ marginTop: "1rem", color: "#777" }}>
+          You haven&apos;t marked any sets as Owned or added them to your Wishlist yet.
+        </p>
+      )}
+
+      {/* ✅ Create list modal (from ?create=1) */}
+      {createOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            zIndex: 15000,
+            display: "grid",
+            placeItems: "center",
+            padding: "1rem",
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeCreate();
+          }}
+        >
+          <form
+            onSubmit={submitCreateList}
+            style={{
+              width: "min(420px, 100%)",
+              background: "white",
+              borderRadius: 14,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 12px 35px rgba(0,0,0,0.18)",
+              padding: "1rem",
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 900, fontSize: "1.05rem" }}>Create a new list</div>
+
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="e.g. Favorite builds"
+              autoFocus
+              style={{
+                width: "100%",
+                marginTop: 10,
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid #d1d5db",
+                fontSize: "0.95rem",
+                boxSizing: "border-box",
+              }}
+            />
+
+            {createErr && (
+              <div style={{ marginTop: 10, color: "#b42318", fontWeight: 700, fontSize: "0.9rem" }}>
+                {createErr}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={closeCreate}
+                style={{
+                  height: 32,
+                  padding: "0 12px",
+                  borderRadius: "999px",
+                  border: "1px solid #ddd",
+                  background: "white",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating}
+                style={{
+                  height: 32,
+                  padding: "0 12px",
+                  borderRadius: "999px",
+                  border: "none",
+                  background: creating ? "#6b7280" : "#111827",
+                  color: "white",
+                  cursor: creating ? "default" : "pointer",
+                  fontWeight: 900,
+                }}
+              >
+                {creating ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Owned */}
+      <CollectionRow
+        title="Owned"
+        totalCount={ownedNums.length}
+        sets={ownedDetails}
+        viewAllLabel="View all"
+        onViewAll={() => navigate("/collection/owned")}
+        emptyText="No owned sets yet."
+        cardProps={{ collectionFooter: "rating" }}
+      />
+
+      {/* Wishlist */}
+      <CollectionRow
+        title="Wishlist"
+        totalCount={wishlistNums.length}
+        sets={wishlistDetails}
+        viewAllLabel="View all"
+        onViewAll={() => navigate("/collection/wishlist")}
+        emptyText="No wishlist sets yet."
+        cardProps={{ collectionFooter: "shop" }}
+      />
+
+      {/* Custom lists */}
+      {isLoggedIn && (
+        <>
+          {myListsLoading && <p style={{ marginTop: "1.25rem" }}>Loading your lists…</p>}
+
+          {!myListsLoading && !myListsLoadError && myLists.length === 0 && (
+            <p style={{ marginTop: "1.25rem", color: "#777" }}>
+              No custom lists yet. Click <strong>Create list</strong> to make one.
+            </p>
+          )}
+
+          {!myListsLoading &&
+            !myListsLoadError &&
+            myLists.length > 0 &&
+            myLists.map((l, idx) => {
+              const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
+              const sets = listPreviewSets[l.id] || [];
+
+              const desktopReorderButtons = (
+                <div style={{ display: "flex", gap: "0.35rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => moveListDesktop(l.id, -1)}
+                    disabled={reorderSaving || idx === 0}
+                    title="Move up"
+                    style={{
+                      padding: "0.25rem 0.55rem",
+                      borderRadius: "999px",
+                      border: "1px solid #ddd",
+                      background: "white",
+                      cursor: reorderSaving || idx === 0 ? "not-allowed" : "pointer",
+                      opacity: reorderSaving || idx === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveListDesktop(l.id, +1)}
+                    disabled={reorderSaving || idx === myLists.length - 1}
+                    title="Move down"
+                    style={{
+                      padding: "0.25rem 0.55rem",
+                      borderRadius: "999px",
+                      border: "1px solid #ddd",
+                      background: "white",
+                      cursor:
+                        reorderSaving || idx === myLists.length - 1 ? "not-allowed" : "pointer",
+                      opacity: reorderSaving || idx === myLists.length - 1 ? 0.5 : 1,
+                    }}
+                  >
+                    ↓
+                  </button>
+                </div>
+              );
+
+              const actions = (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.35rem",
+                    alignItems: "center",
+                    position: "relative",
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  {!isMobile && desktopReorderButtons}
+
+                  <ListMenuButton
+                    open={menuOpenFor === l.id}
+                    onToggle={() => setMenuOpenFor((prev) => (prev === l.id ? null : l.id))}
+                  />
+
+                  {menuOpenFor === l.id && (
+                    <ListMenuDropdown
+                      onEdit={() => openEditForList(l)}
+                      onDelete={() => handleDeleteList(l)}
+                    />
+                  )}
+                </div>
+              );
+
+              return (
+                <CollectionRow
+                  key={l.id}
+                  title={l.title}
+                  totalCount={count}
+                  sets={sets}
+                  viewAllLabel="View all"
+                  onViewAll={() => navigate(`/lists/${l.id}`)}
+                  emptyText="No sets in this list yet."
+                  rightActions={actions}
+                />
+              );
+            })}
+        </>
+      )}
+
+      {/* Mobile reorder sheet */}
+      <ReorderSheet
+        open={showReorderSheet}
+        onClose={() => setShowReorderSheet(false)}
+        draftLists={draftLists}
+        setDraftLists={setDraftLists}
+        onSave={saveReorderSheet}
+        saving={reorderSaving}
+        error={reorderError}
+      />
+
+      {/* Edit modal */}
+      <EditListModal
+        open={editOpen}
+        title={editTitle}
+        setTitle={setEditTitle}
+        desc={editDesc}
+        setDesc={setEditDesc}
+        isPublic={editIsPublic}
+        setIsPublic={setEditIsPublic}
+        saving={editSaving}
+        error={editError}
+        onClose={() => setEditOpen(false)}
+        onSave={handleSaveEdit}
+      />
+    </div>
+  );
 }
 
 // ---------------- UI: reusable horizontal row ----------------
@@ -116,7 +890,7 @@ function CollectionRow({
               margin: 0,
               display: "flex",
               gap: "0.75rem",
-              alignItems: "stretch", // ✅ HERE
+              alignItems: "stretch",
             }}
           >
             {preview.map((set) => (
@@ -126,7 +900,7 @@ function CollectionRow({
                   minWidth: "220px",
                   maxWidth: "220px",
                   flex: "0 0 auto",
-                  display: "flex", // ✅ HERE
+                  display: "flex",
                 }}
               >
                 <SetCard set={set} variant="collection" {...cardProps} />
@@ -502,9 +1276,7 @@ function EditListModal({
               checked={isPublic}
               onChange={(e) => setIsPublic(e.target.checked)}
             />
-            <span style={{ fontSize: "0.9rem", color: "#333" }}>
-              Public (shows up in Explore)
-            </span>
+            <span style={{ fontSize: "0.9rem", color: "#333" }}>Public (shows up in Explore)</span>
           </label>
 
           {error && <div style={{ color: "red" }}>{error}</div>}
@@ -528,771 +1300,6 @@ function EditListModal({
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-// ---------------- main page ----------------
-export default function CollectionsPage({
-  ownedSets = [],
-  wishlistSets = [],
-  token,
-  onMarkOwned,
-  onAddWishlist,
-}) {
-  const navigate = useNavigate();
-  const isMobile = useIsMobile(720);
-
-  const effectiveToken = token || getStoredToken();
-  const isLoggedIn = !!effectiveToken;
-
-  // normalize incoming owned/wishlist props:
-  const ownedNums = useMemo(
-    () =>
-      (ownedSets || [])
-        .map((x) => (typeof x === "string" ? x : x?.set_num))
-        .filter(Boolean),
-    [ownedSets]
-  );
-
-  const wishlistNums = useMemo(
-    () =>
-      (wishlistSets || [])
-        .map((x) => (typeof x === "string" ? x : x?.set_num))
-        .filter(Boolean),
-    [wishlistSets]
-  );
-
-  // menu + edit/delete state
-  const [menuOpenFor, setMenuOpenFor] = useState(null);
-
-  const [editOpen, setEditOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editIsPublic, setEditIsPublic] = useState(true);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState(null);
-
-  const [deleteError, setDeleteError] = useState(null);
-
-  // close menu on outside click
-  useEffect(() => {
-    function onDocMouseDown() {
-      setMenuOpenFor(null);
-    }
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, []);
-
-  async function apiUpdateList(listId, payload) {
-    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Update failed (${resp.status}): ${text}`);
-    }
-    return await resp.json();
-  }
-
-  async function apiDeleteList(listId) {
-    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${effectiveToken}` },
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Delete failed (${resp.status}): ${text}`);
-    }
-    return await resp.json();
-  }
-
-  // previews
-  const [ownedDetails, setOwnedDetails] = useState([]);
-  const [wishlistDetails, setWishlistDetails] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [collectionError, setCollectionError] = useState(null);
-
-  // lists
-  const [myLists, setMyLists] = useState([]);
-  const myListsRef = useRef([]);
-  useEffect(() => {
-    myListsRef.current = myLists;
-  }, [myLists]);
-
-  const [myListsLoading, setMyListsLoading] = useState(false);
-  const [myListsLoadError, setMyListsLoadError] = useState(null);
-
-  const [reorderSaving, setReorderSaving] = useState(false);
-  const [reorderError, setReorderError] = useState(null);
-
-  const [listPreviewSets, setListPreviewSets] = useState({}); // { [listId]: [setObj,...] }
-
-  // create list UI
-  const [showCreate, setShowCreate] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newIsPublic, setNewIsPublic] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [createErr, setCreateErr] = useState(null);
-
-  // mobile reorder sheet state
-  const [showReorderSheet, setShowReorderSheet] = useState(false);
-  const [draftLists, setDraftLists] = useState([]);
-
-  // ------------ data helpers ------------
-  async function fetchMyLists() {
-    if (!isLoggedIn) {
-      setMyLists([]);
-      setListPreviewSets({});
-      return [];
-    }
-
-    const resp = await fetch(`${API_BASE}/lists/me`, {
-      headers: { Authorization: `Bearer ${effectiveToken}` },
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Failed to load my lists (${resp.status}): ${text}`);
-    }
-
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
-  }
-
-  async function persistListOrder(orderedLists) {
-    const orderedIds = orderedLists.map((l) => l.id);
-
-    const resp = await fetch(`${API_BASE}/lists/me/order`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveToken}`,
-      },
-      body: JSON.stringify({ ordered_ids: orderedIds }),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Reorder failed (${resp.status}): ${text}`);
-    }
-
-    const data = await resp.json();
-    return Array.isArray(data) ? data : orderedLists;
-  }
-
-  function openEditForList(list) {
-    setMenuOpenFor(null);
-    setEditTarget(list);
-    setEditTitle(list.title || "");
-    setEditDesc(list.description || "");
-    setEditIsPublic(!!list.is_public);
-    setEditError(null);
-    setEditOpen(true);
-  }
-
-  async function handleSaveEdit(e) {
-    e.preventDefault();
-    if (!editTarget) return;
-
-    try {
-      setEditSaving(true);
-      setEditError(null);
-
-      const payload = {
-        title: editTitle.trim(),
-        description: editDesc.trim() || null,
-        is_public: !!editIsPublic,
-      };
-
-      if (!payload.title) {
-        setEditError("Title is required.");
-        return;
-      }
-
-      const updated = await apiUpdateList(editTarget.id, payload);
-      setMyLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      setEditOpen(false);
-    } catch (err) {
-      setEditError(err?.message || String(err));
-    } finally {
-      setEditSaving(false);
-    }
-  }
-
-  async function handleDeleteList(list) {
-    setMenuOpenFor(null);
-    setDeleteError(null);
-
-    const ok = window.confirm(`Delete "${list.title}"? This cannot be undone.`);
-    if (!ok) return;
-
-    try {
-      await apiDeleteList(list.id);
-
-      const remaining = myListsRef.current.filter((x) => x.id !== list.id);
-      setMyLists(remaining);
-
-      setListPreviewSets((prev) => {
-        const copy = { ...prev };
-        delete copy[list.id];
-        return copy;
-      });
-
-      // keep backend order consistent
-      if (remaining.length > 0) {
-        try {
-          const saved = await persistListOrder(remaining);
-          setMyLists(saved);
-        } catch {
-          // ignore reorder failure here; UI already updated
-        }
-      }
-    } catch (err) {
-      setDeleteError(err?.message || String(err));
-    }
-  }
-
-  // ------------ Owned/Wishlist previews ------------
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadOwnedWishlist() {
-      try {
-        setLoading(true);
-        setCollectionError(null);
-
-        const [ownedFull, wishlistFull] = await Promise.all([
-          Promise.all(ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
-          Promise.all(
-            wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))
-          ),
-        ]);
-
-        if (!cancelled) {
-          setOwnedDetails(ownedFull.filter(Boolean));
-          setWishlistDetails(wishlistFull.filter(Boolean));
-        }
-      } catch (err) {
-        if (!cancelled) setCollectionError(err?.message || String(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadOwnedWishlist();
-    return () => {
-      cancelled = true;
-    };
-  }, [ownedNums, wishlistNums, effectiveToken]);
-
-  // ------------ Load my lists ------------
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      if (!isLoggedIn) {
-        setMyLists([]);
-        setListPreviewSets({});
-        return;
-      }
-
-      try {
-        setMyListsLoading(true);
-        setMyListsLoadError(null);
-        const data = await fetchMyLists();
-        if (!cancelled) setMyLists(data);
-      } catch (e) {
-        if (!cancelled) setMyListsLoadError(e?.message || String(e));
-      } finally {
-        if (!cancelled) setMyListsLoading(false);
-      }
-    }
-
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveToken, isLoggedIn]);
-
-  // ------------ Load preview set cards for each list ------------
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadListPreviews() {
-      if (!myLists || myLists.length === 0) {
-        setListPreviewSets({});
-        return;
-      }
-
-      const entries = await Promise.all(
-        myLists.map(async (l) => {
-          const items = Array.isArray(l.items) ? l.items : [];
-          const first = items.slice(0, PREVIEW_COUNT);
-          const full = await Promise.all(first.map((n) => fetchSetDetail(n, effectiveToken)));
-          return [l.id, full.filter(Boolean)];
-        })
-      );
-
-      if (!cancelled) {
-        const map = {};
-        for (const [id, sets] of entries) map[id] = sets;
-        setListPreviewSets(map);
-      }
-    }
-
-    loadListPreviews();
-    return () => {
-      cancelled = true;
-    };
-  }, [myLists, effectiveToken]);
-
-  // ------------ Create list ------------
-  async function handleCreateList(e) {
-    e.preventDefault();
-    if (!isLoggedIn) return;
-
-    const t = newTitle.trim();
-    if (!t) {
-      setCreateErr("Title is required.");
-      return;
-    }
-
-    try {
-      setCreating(true);
-      setCreateErr(null);
-      setMyListsLoadError(null);
-      setReorderError(null);
-
-      const resp = await fetch(`${API_BASE}/lists`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${effectiveToken}`,
-        },
-        body: JSON.stringify({
-          title: t,
-          description: newDesc.trim() || null,
-          is_public: !!newIsPublic,
-        }),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Create list failed (${resp.status}): ${text}`);
-      }
-
-      const created = await resp.json();
-
-      // Put it at top in UI, then persist that order so backend matches.
-      const optimistic = [created, ...myListsRef.current];
-      setMyLists(optimistic);
-
-      setReorderSaving(true);
-      try {
-        const saved = await persistListOrder(optimistic);
-        setMyLists(saved);
-      } finally {
-        setReorderSaving(false);
-      }
-
-      setNewTitle("");
-      setNewDesc("");
-      setNewIsPublic(true);
-      setShowCreate(false);
-    } catch (err) {
-      setCreateErr(err?.message || String(err));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  // ------------ Desktop reorder ------------
-  async function moveListDesktop(listId, dir) {
-    if (!isLoggedIn || reorderSaving) return;
-
-    setReorderError(null);
-
-    const prev = myListsRef.current;
-    const idx = prev.findIndex((l) => l.id === listId);
-    const newIdx = idx + dir;
-    if (idx < 0 || newIdx < 0 || newIdx >= prev.length) return;
-
-    const updated = [...prev];
-    const tmp = updated[idx];
-    updated[idx] = updated[newIdx];
-    updated[newIdx] = tmp;
-
-    setMyLists(updated);
-
-    try {
-      setReorderSaving(true);
-      const saved = await persistListOrder(updated);
-      setMyLists(saved);
-    } catch (e) {
-      setMyLists(prev);
-      setReorderError(e?.message || String(e));
-    } finally {
-      setReorderSaving(false);
-    }
-  }
-
-  // ------------ Mobile reorder sheet ------------
-  function openReorder() {
-    setReorderError(null);
-    setDraftLists(myListsRef.current);
-    setShowReorderSheet(true);
-  }
-
-  async function saveReorderSheet() {
-    if (!isLoggedIn || reorderSaving) return;
-
-    const prev = myListsRef.current;
-    const draft = draftLists;
-
-    setMyLists(draft); // optimistic
-
-    try {
-      setReorderSaving(true);
-      const saved = await persistListOrder(draft);
-      setMyLists(saved);
-      setShowReorderSheet(false);
-    } catch (e) {
-      setMyLists(prev);
-      setReorderError(e?.message || String(e));
-    } finally {
-      setReorderSaving(false);
-    }
-  }
-
-  const hasAny =
-    ownedDetails.length > 0 || wishlistDetails.length > 0 || (myLists && myLists.length > 0);
-
-  const showReorderButton = isLoggedIn && myLists.length > 1;
-
-  return (
-    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
-      {/* Header actions */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h1 style={{ margin: 0, fontSize: "1.7rem" }}>My Collection</h1>
-          <p style={{ marginTop: "0.4rem", color: "#666" }}>
-            View your Owned, Wishlist, and custom Lists in one place.
-          </p>
-        </div>
-
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          {showReorderButton && isMobile && (
-            <button
-              type="button"
-              onClick={openReorder}
-              disabled={reorderSaving}
-              style={{
-                padding: "0.45rem 0.9rem",
-                borderRadius: "999px",
-                border: "1px solid #ddd",
-                background: "white",
-                cursor: reorderSaving ? "not-allowed" : "pointer",
-                opacity: reorderSaving ? 0.6 : 1,
-                fontWeight: 600,
-              }}
-            >
-              ⇅ Reorder
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowCreate((p) => !p)}
-            disabled={!isLoggedIn}
-            style={{
-              padding: "0.45rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-              background: "white",
-              cursor: isLoggedIn ? "pointer" : "not-allowed",
-              opacity: isLoggedIn ? 1 : 0.6,
-              fontWeight: 600,
-            }}
-            title={isLoggedIn ? "Create a new list" : "Log in to create lists"}
-          >
-            ➕ Create list
-          </button>
-        </div>
-      </div>
-
-      {/* Create list form */}
-      {showCreate && isLoggedIn && (
-        <form
-          onSubmit={handleCreateList}
-          style={{
-            marginTop: "0.9rem",
-            border: "1px solid #e5e7eb",
-            borderRadius: "12px",
-            padding: "0.9rem",
-            background: "#fafafa",
-          }}
-        >
-          <div style={{ display: "grid", gap: "0.6rem" }}>
-            <label style={{ display: "grid", gap: "0.25rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>Title</span>
-              <input
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="e.g. My Favorites"
-                style={{
-                  padding: "0.5rem 0.6rem",
-                  borderRadius: "8px",
-                  border: "1px solid #d1d5db",
-                }}
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: "0.25rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>Description (optional)</span>
-              <input
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
-                placeholder="e.g. sets I loved"
-                style={{
-                  padding: "0.5rem 0.6rem",
-                  borderRadius: "8px",
-                  border: "1px solid #d1d5db",
-                }}
-              />
-            </label>
-
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={newIsPublic}
-                onChange={(e) => setNewIsPublic(e.target.checked)}
-              />
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>
-                Public (shows up in Explore)
-              </span>
-            </label>
-
-            {createErr && <div style={{ color: "red" }}>{createErr}</div>}
-
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                type="submit"
-                disabled={creating}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  background: creating ? "#888" : "#111827",
-                  color: "white",
-                  cursor: creating ? "not-allowed" : "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                {creating ? "Creating…" : "Create"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCreate(false);
-                  setCreateErr(null);
-                }}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "1px solid #ddd",
-                  background: "white",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
-
-      {!isLoggedIn && (
-        <p style={{ marginTop: "0.75rem", color: "#777" }}>
-          Log in to create and view your custom lists here.
-        </p>
-      )}
-
-      {loading && <p>Loading collection…</p>}
-      {collectionError && <p style={{ color: "red" }}>Error loading collection: {collectionError}</p>}
-
-      {myListsLoadError && <p style={{ color: "red" }}>Error loading lists: {myListsLoadError}</p>}
-      {reorderError && <p style={{ color: "red" }}>Reorder error: {reorderError}</p>}
-      {deleteError && <p style={{ color: "red" }}>Delete error: {deleteError}</p>}
-
-      {!loading && !collectionError && !hasAny && (
-        <p style={{ marginTop: "1rem", color: "#777" }}>
-          You haven&apos;t marked any sets as Owned or added them to your Wishlist yet.
-        </p>
-      )}
-
-      {/* Owned */}
-      <CollectionRow
-        title="Owned"
-        totalCount={ownedNums.length}
-        sets={ownedDetails}
-        viewAllLabel="View all"
-        onViewAll={() => navigate("/collection/owned")}
-        emptyText="No owned sets yet."
-        cardProps={{ collectionFooter: "rating" }}
-      />
-
-      {/* Wishlist */}
-      <CollectionRow
-        title="Wishlist"
-        totalCount={wishlistNums.length}
-        sets={wishlistDetails}
-        viewAllLabel="View all"
-        onViewAll={() => navigate("/collection/wishlist")}
-        emptyText="No wishlist sets yet."
-        cardProps={{ collectionFooter: "shop" }}
-      />
-
-      {/* Custom lists */}
-      {isLoggedIn && (
-        <>
-          {myListsLoading && <p style={{ marginTop: "1.25rem" }}>Loading your lists…</p>}
-
-          {!myListsLoading && !myListsLoadError && myLists.length === 0 && (
-            <p style={{ marginTop: "1.25rem", color: "#777" }}>
-              No custom lists yet. Click <strong>Create list</strong> to make one.
-            </p>
-          )}
-
-          {!myListsLoading &&
-            !myListsLoadError &&
-            myLists.length > 0 &&
-            myLists.map((l, idx) => {
-              const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
-              const sets = listPreviewSets[l.id] || [];
-
-              const desktopReorderButtons = (
-                <div style={{ display: "flex", gap: "0.35rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => moveListDesktop(l.id, -1)}
-                    disabled={reorderSaving || idx === 0}
-                    title="Move up"
-                    style={{
-                      padding: "0.25rem 0.55rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ddd",
-                      background: "white",
-                      cursor: reorderSaving || idx === 0 ? "not-allowed" : "pointer",
-                      opacity: reorderSaving || idx === 0 ? 0.5 : 1,
-                    }}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveListDesktop(l.id, +1)}
-                    disabled={reorderSaving || idx === myLists.length - 1}
-                    title="Move down"
-                    style={{
-                      padding: "0.25rem 0.55rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ddd",
-                      background: "white",
-                      cursor:
-                        reorderSaving || idx === myLists.length - 1 ? "not-allowed" : "pointer",
-                      opacity: reorderSaving || idx === myLists.length - 1 ? 0.5 : 1,
-                    }}
-                  >
-                    ↓
-                  </button>
-                </div>
-              );
-
-              const actions = (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "0.35rem",
-                    alignItems: "center",
-                    position: "relative",
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  {!isMobile && desktopReorderButtons}
-
-                  <ListMenuButton
-                    open={menuOpenFor === l.id}
-                    onToggle={() => setMenuOpenFor((prev) => (prev === l.id ? null : l.id))}
-                  />
-
-                  {menuOpenFor === l.id && (
-                    <ListMenuDropdown
-                      onEdit={() => openEditForList(l)}
-                      onDelete={() => handleDeleteList(l)}
-                    />
-                  )}
-                </div>
-              );
-
-              return (
-                <CollectionRow
-                  key={l.id}
-                  title={l.title}
-                  totalCount={count}
-                  sets={sets}
-                  viewAllLabel="View all"
-                  onViewAll={() => navigate(`/lists/${l.id}`)}
-                  emptyText="No sets in this list yet."
-                  rightActions={actions}
-                />
-              );
-            })}
-        </>
-      )}
-
-      {/* Mobile reorder sheet */}
-      <ReorderSheet
-        open={showReorderSheet}
-        onClose={() => setShowReorderSheet(false)}
-        draftLists={draftLists}
-        setDraftLists={setDraftLists}
-        onSave={saveReorderSheet}
-        saving={reorderSaving}
-        error={reorderError}
-      />
-
-      {/* Edit modal */}
-      <EditListModal
-        open={editOpen}
-        title={editTitle}
-        setTitle={setEditTitle}
-        desc={editDesc}
-        setDesc={setEditDesc}
-        isPublic={editIsPublic}
-        setIsPublic={setEditIsPublic}
-        saving={editSaving}
-        error={editError}
-        onClose={() => setEditOpen(false)}
-        onSave={handleSaveEdit}
-      />
     </div>
   );
 }
