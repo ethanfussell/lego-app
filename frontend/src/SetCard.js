@@ -1,4 +1,4 @@
-// src/SetCard.js
+// frontend/src/SetCard.js
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import AddToListMenu from "./AddToListMenu";
@@ -12,6 +12,10 @@ function SetCard({
   variant = "default",
   userRating,
   collectionFooter = "rating",
+
+  // "equal" (grid): Shop and Add take equal space
+  // "carousel": Shop fixed smaller, Add fills remaining
+  actionsLayout = "equal",
 }) {
   const navigate = useNavigate();
   if (!set) return null;
@@ -33,6 +37,8 @@ function SetCard({
     user_rating,
   } = set;
 
+  const isCarouselActions = actionsLayout === "carousel";
+
   const priceFrom =
     typeof price_from === "number"
       ? price_from
@@ -40,8 +46,7 @@ function SetCard({
       ? retail_price
       : null;
 
-  const isRetiredFlag =
-    status === "retired" || is_retired === true || retired === true;
+  const isRetiredFlag = status === "retired" || is_retired === true || retired === true;
 
   const displayAvg = typeof average_rating === "number" ? average_rating : null;
   const displayCount = typeof rating_count === "number" ? rating_count : null;
@@ -63,12 +68,16 @@ function SetCard({
     navigate(`/sets/${encodeURIComponent(set_num)}#shop`);
   }
 
-  // shared button base
+  // ✅ button sizing: slightly smaller in carousel
+  const btnH = isCarouselActions ? 28 : 32;
+  const btnPad = isCarouselActions ? "0.25rem 0.55rem" : "0.35rem 0.6rem";
+  const btnFont = isCarouselActions ? "0.8rem" : "0.85rem";
+
   const actionBtnBase = {
-    height: 32,
+    height: btnH,
     padding: "0.35rem 0.5rem",
     borderRadius: "999px",
-    fontSize: "0.85rem",
+    fontSize: btnFont,
     fontWeight: 600,
     lineHeight: 1.2,
     whiteSpace: "nowrap",
@@ -76,26 +85,28 @@ function SetCard({
     alignItems: "center",
     justifyContent: "center",
     boxSizing: "border-box",
+    minWidth: 0,
     border: "1px solid #d1d5db",
     background: "white",
     color: "#111827",
   };
 
-  // key change: make Shop a fixed small pill; let Add-to-list fill remaining space
   const shopBtnStyle = {
     ...actionBtnBase,
-    flex: "0 0 76px",
-    width: 76,
-    minWidth: 76,
+    flex: isCarouselActions ? "0 0 70px" : "1 1 0",
   };
 
-  const addWrapStyle = { flex: "1 1 auto", minWidth: 0 };
+  const addWrapStyle = {
+    flex: "1 1 0",
+    minWidth: 124,
+    display: "flex",
+  };
 
+  // Make AddToList match exactly (same height/padding/font) and fill its wrapper
   const addBtnStyle = {
     ...actionBtnBase,
     width: "100%",
-    minWidth: 0,
-    justifyContent: "space-between",
+    flex: "1 1 0",
   };
 
   return (
@@ -103,9 +114,8 @@ function SetCard({
       onClick={handleCardClick}
       style={{
         width: "100%",
-        maxWidth: "260px",
-        height: "100%",          // ✅ lets parent stretch it
-        minHeight: "360px",      // ✅ keeps a baseline
+        // ❗ removed maxWidth so carousel/list parent controls width
+        minHeight: "360px",
         borderRadius: "12px",
         border: "1px solid #e5e7eb",
         background: "white",
@@ -113,6 +123,7 @@ function SetCard({
         display: "flex",
         flexDirection: "column",
         cursor: "pointer",
+        transition: "transform 0.1s ease, box-shadow 0.1s ease",
         overflow: "hidden",
         boxSizing: "border-box",
       }}
@@ -185,21 +196,20 @@ function SetCard({
       >
         {/* Title */}
         <div style={{ marginBottom: "0.3rem" }}>
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: "0.95rem",
-            lineHeight: 1.25,
-            minHeight: "2.5em",     // ✅ always takes 2 lines (2 * 1.25 = 2.5em)
-            color: "#111827",
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          {name || "Unknown set"}
-        </div>
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              lineHeight: 1.25,
+              color: "#111827",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {name || "Unknown set"}
+          </div>
           <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.15rem" }}>
             <strong>{set_num}</strong>
             {year && <> · {year}</>}
@@ -317,7 +327,7 @@ function SetCard({
                 onRemoveOwned={() => onMarkOwned?.(set_num)}
                 onAddWishlist={() => onAddWishlist?.(set_num)}
                 onRemoveWishlist={() => onAddWishlist?.(set_num)}
-                buttonLabel="Add to list"
+                buttonLabel={actionsLayout === "carousel" ? "Add" : "Add to list"}
                 buttonStyle={addBtnStyle}
               />
             </div>

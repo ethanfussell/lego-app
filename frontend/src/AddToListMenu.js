@@ -1,11 +1,17 @@
-// src/AddToListMenu.js
+// frontend/src/AddToListMenu.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 
 const API_BASE = "http://localhost:8000";
 
 function getStoredToken() {
-  return localStorage.getItem("lego_token") || "";
+  try {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("lego_token") || "";
+  } catch {
+    return "";
+  }
 }
 
 async function apiFetch(path, { token, ...opts } = {}) {
@@ -43,13 +49,14 @@ export default function AddToListMenu({
   buttonLabel = "Add to list",
   buttonStyle = {},
 }) {
+  const navigate = useNavigate();
   const token = getStoredToken();
 
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ left: 0, top: 0, width: 240 });
+  const [pos, setPos] = useState({ left: 0, top: 0, width: 260 });
 
   const [lists, setLists] = useState(Array.isArray(listsProp) ? listsProp : []);
   const [loadingLists, setLoadingLists] = useState(false);
@@ -59,7 +66,7 @@ export default function AddToListMenu({
   const [wishlistLocal, setWishlistLocal] = useState(!!wishlistSelected);
 
   const [selectedMap, setSelectedMap] = useState({});
-  const [confirm, setConfirm] = useState(null);
+  const [confirm, setConfirm] = useState(null); // { type, listId?, title? }
 
   const customLists = useMemo(() => {
     const arr = Array.isArray(lists) ? lists : [];
@@ -69,14 +76,22 @@ export default function AddToListMenu({
   useEffect(() => setOwnedLocal(!!ownedSelected), [ownedSelected]);
   useEffect(() => setWishlistLocal(!!wishlistSelected), [wishlistSelected]);
 
+  const shouldScrollLists = customLists.length > 3;
+
+  function goToCreateList() {
+    setOpen(false);
+    setConfirm(null);
+    navigate("/collection?create=1");
+  }
+
   function computePosition() {
     const el = btnRef.current;
     if (!el) return;
 
     const r = el.getBoundingClientRect();
     const gap = 8;
-    const desiredWidth = Math.max(220, Math.min(320, r.width * 1.35));
 
+    const desiredWidth = Math.max(240, Math.min(320, r.width * 1.25));
     let left = r.left;
     let top = r.bottom + gap;
 
@@ -85,10 +100,11 @@ export default function AddToListMenu({
     left = Math.max(pad, Math.min(left, maxLeft));
 
     const estimatedHeight =
-      56 +
+      16 +
       (includeOwned ? 42 : 0) +
       (includeWishlist ? 42 : 0) +
-      customLists.length * 42;
+      Math.min(customLists.length, 3) * 42 +
+      56;
 
     if (top + estimatedHeight > window.innerHeight - pad) {
       top = Math.max(pad, r.top - gap - estimatedHeight);
@@ -131,6 +147,7 @@ export default function AddToListMenu({
     };
   }, [open, includeOwned, includeWishlist, customLists.length]);
 
+  // Load lists + membership map on open
   useEffect(() => {
     if (!open) return;
 
@@ -151,6 +168,7 @@ export default function AddToListMenu({
             }
             return;
           }
+
           const resp = await apiFetch("/lists/me", { token });
           if (!resp.ok) {
             const text = await resp.text();
@@ -175,12 +193,15 @@ export default function AddToListMenu({
                   map[l.id] = true;
                   return;
                 }
-                const resp = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token });
-                if (!resp.ok) return;
-                const detail = await safeJson(resp);
+                if (!token) return;
+                const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token });
+                if (!r.ok) return;
+                const detail = await safeJson(r);
                 const items = Array.isArray(detail?.items) ? detail.items : [];
                 if (items.includes(setNum)) map[l.id] = true;
-              } catch {}
+              } catch {
+                // ignore per-list failure
+              }
             })
         );
 
@@ -216,7 +237,8 @@ export default function AddToListMenu({
       body: JSON.stringify({ set_num: setNum }),
     });
 
-    if (resp.status !== 409 && !resp.ok) {
+    if (resp.status === 409) return;
+    if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Add failed (${resp.status}): ${text}`);
     }
@@ -231,7 +253,8 @@ export default function AddToListMenu({
       { token, method: "DELETE" }
     );
 
-    if (resp.status !== 404 && !resp.ok) {
+    if (resp.status === 404) return;
+    if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Remove failed (${resp.status}): ${text}`);
     }
@@ -244,8 +267,7 @@ export default function AddToListMenu({
       if (isSelected(action)) {
         const title =
           action.type === "list"
-            ? (customLists.find((l) => String(l.id) === String(action.listId))?.title ||
-                "this list")
+            ? customLists.find((l) => String(l.id) === String(action.listId))?.title || "this list"
             : action.type === "wishlist"
             ? "Wishlist"
             : "Owned";
@@ -304,26 +326,34 @@ export default function AddToListMenu({
     }
   }
 
-  // ✅ Keep defaults minimal; let SetCard control sizing via buttonStyle.
+  // IMPORTANT: give the label room + pin caret on right
   const baseButtonStyle = {
-    // keep your existing stuff, but change to grid for better centering
-    display: "grid",
-    gridTemplateColumns: "16px 1fr 16px", // left spacer, label, caret
-    alignItems: "center",
-    whiteSpace: "nowrap",
-    padding: "0.35rem 0.6rem",
+    height: 32,
+    padding: "0 12px",
     borderRadius: "999px",
     border: "1px solid #d1d5db",
     background: "white",
-    cursor: "pointer",
-    fontSize: "0.85rem",
+    color: "#111827",
     fontWeight: 600,
-    lineHeight: 1.2,
+    fontSize: "0.85rem",
+    lineHeight: 1,
+    cursor: "pointer",
     boxSizing: "border-box",
-    minWidth: 0,
-    ...buttonStyle, // still allow SetCard to control width/height
+    whiteSpace: "nowrap",
+    minWidth: 124, // ✅ prevents "A" / super aggressive truncation
+
+    ...buttonStyle,
+
+    // enforced last
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    paddingRight: 28, // ✅ space so caret doesn't overlap text
+    maxWidth: "100%",
   };
-  
+
   return (
     <>
       <button
@@ -340,27 +370,32 @@ export default function AddToListMenu({
         aria-expanded={open ? "true" : "false"}
         title={buttonLabel}
       >
-        {/* left spacer (keeps label truly centered even with a caret on the right) */}
-        <span />
-  
-        {/* centered label, truncates nicely in carousels */}
         <span
           style={{
-            minWidth: 0,
+            width: "100%",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            textAlign: "center",
+            padding: "0 2px",
           }}
         >
           {buttonLabel}
         </span>
-  
-        {/* caret on the right */}
-        <span aria-hidden style={{ fontSize: "0.75rem", textAlign: "right" }}>
+
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            right: 10,
+            top: "50%",
+            transform: "translateY(-50%)",
+            fontSize: "0.75rem",
+            pointerEvents: "none",
+          }}
+        >
           ▼
         </span>
       </button>
-      
+
       {open &&
         createPortal(
           <>
@@ -410,97 +445,107 @@ export default function AddToListMenu({
                 </div>
               )}
 
-              {!loadingLists &&
-                customLists.map((l) => (
-                  <MenuItem
-                    key={l.id}
-                    label={l.title}
-                    selected={!!selectedMap[l.id]}
-                    onClick={() => handleClickItem({ type: "list", listId: l.id })}
-                    title={l.title}
-                  />
-                ))}
+              <div
+                style={{
+                  maxHeight: shouldScrollLists ? 42 * 3 : "none",
+                  overflowY: shouldScrollLists ? "auto" : "visible",
+                  overscrollBehavior: "contain",
+                }}
+              >
+                {!loadingLists &&
+                  customLists.map((l) => (
+                    <MenuItem
+                      key={l.id}
+                      label={l.title}
+                      selected={!!selectedMap[l.id]}
+                      onClick={() => handleClickItem({ type: "list", listId: l.id })}
+                      title={l.title}
+                    />
+                  ))}
 
-              {!loadingLists && customLists.length === 0 && (
-                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
-                  No custom lists yet.
-                </div>
-              )}
+                {!loadingLists && customLists.length === 0 && (
+                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                    No custom lists yet.
+                  </div>
+                )}
+              </div>
+
+              <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6 }}>
+                <MenuItem label="➕ Create list" selected={false} onClick={goToCreateList} />
+              </div>
             </div>
 
-            {confirm &&
-              createPortal(
+            {confirm && (
+              <div
+                role="dialog"
+                aria-modal="true"
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.35)",
+                  zIndex: 10000,
+                  display: "grid",
+                  placeItems: "center",
+                  padding: "1rem",
+                }}
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) setConfirm(null);
+                }}
+              >
                 <div
-                  role="dialog"
-                  aria-modal="true"
                   style={{
-                    position: "fixed",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.35)",
-                    zIndex: 10000,
-                    display: "grid",
-                    placeItems: "center",
+                    width: "min(420px, 100%)",
+                    background: "white",
+                    borderRadius: 14,
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 12px 35px rgba(0,0,0,0.18)",
                     padding: "1rem",
                   }}
-                  onMouseDown={(e) => {
-                    if (e.target === e.currentTarget) setConfirm(null);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <div
-                    style={{
-                      width: "min(420px, 100%)",
-                      background: "white",
-                      borderRadius: 14,
-                      border: "1px solid #e5e7eb",
-                      boxShadow: "0 12px 35px rgba(0,0,0,0.18)",
-                      padding: "1rem",
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
-                      Remove from {confirm.title}?
-                    </div>
-                    <div style={{ color: "#666", fontSize: "0.9rem", marginTop: 6 }}>
-                      This will remove the set from that list.
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-                      <button
-                        type="button"
-                        onClick={() => setConfirm(null)}
-                        style={{
-                          padding: "0.45rem 0.8rem",
-                          borderRadius: "999px",
-                          border: "1px solid #ddd",
-                          background: "white",
-                          cursor: "pointer",
-                          fontWeight: 700,
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={confirmRemove}
-                        style={{
-                          padding: "0.45rem 0.8rem",
-                          borderRadius: "999px",
-                          border: "none",
-                          background: "#b42318",
-                          color: "white",
-                          cursor: "pointer",
-                          fontWeight: 800,
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
+                  <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
+                    Remove from {confirm.title}?
                   </div>
-                </div>,
-                document.body
-              )}
+                  <div style={{ color: "#666", fontSize: "0.9rem", marginTop: 6 }}>
+                    This will remove the set from that list.
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      onClick={() => setConfirm(null)}
+                      style={{
+                        height: 32,
+                        padding: "0 12px",
+                        borderRadius: "999px",
+                        border: "1px solid #ddd",
+                        background: "white",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmRemove}
+                      style={{
+                        height: 32,
+                        padding: "0 12px",
+                        borderRadius: "999px",
+                        border: "none",
+                        background: "#b42318",
+                        color: "white",
+                        cursor: "pointer",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>,
           document.body
         )}
