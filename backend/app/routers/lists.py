@@ -2,10 +2,16 @@
 from typing import Any, Dict, List as TypingList
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
 
-
-from app.schemas.list import ListCreate, ListDetail, ListItemCreate, ListOrderUpdate, ListUpdate
+from app.schemas.list import (
+    ListCreate,
+    ListDetail,
+    ListItemCreate,
+    ListOrderUpdate,
+    ListSummary,
+    ListUpdate,
+)
 from app.data.lists import (
     ListsDataError,
     add_list_item,
@@ -22,7 +28,7 @@ from app.data.lists import (
 router = APIRouter(prefix="/lists", tags=["lists"])
 
 
-# ---------- Simple auth dependency (matches your fake token) ----------
+# ---------- Simple auth dependency ----------
 def get_current_user(authorization: str = Header(default=None)):
     """
     Very simple auth:
@@ -39,7 +45,7 @@ def get_current_user(authorization: str = Header(default=None)):
     token = parts[1] if (len(parts) == 2 and parts[0].lower() == "bearer") else authorization
 
     prefix = "fake-token-for-"
-    username = token[len(prefix):] if token.startswith(prefix) else token
+    username = token[len(prefix) :] if token.startswith(prefix) else token
 
     if not username:
         raise HTTPException(
@@ -56,15 +62,22 @@ def _handle_data_error(e: ListsDataError) -> None:
 
 
 # ---------- Public lists ----------
-@router.get("/public", response_model=TypingList[ListDetail])
-def api_get_public_lists() -> TypingList[ListDetail]:
+@router.get("/public", response_model=TypingList[ListSummary])
+def api_get_public_lists() -> TypingList[ListSummary]:
+    """
+    Public discovery endpoint.
+    Returns SUMMARY objects (no 'items' array).
+    """
     return get_public_lists()
 
 
 # ---------- My lists (requires auth) ----------
-@router.get("/me", response_model=TypingList[ListDetail])
-def api_get_my_lists(current_user=Depends(get_current_user)) -> TypingList[ListDetail]:
-    return get_my_lists(current_user.username)
+@router.get("/me", response_model=TypingList[ListSummary])
+def api_get_my_lists(
+    include_system: bool = Query(default=True),
+    current_user=Depends(get_current_user),
+) -> TypingList[ListSummary]:
+    return get_my_lists(current_user.username, include_system=include_system)
 
 
 # ---------- Reorder my lists (requires auth) ----------
@@ -139,14 +152,7 @@ def api_remove_list_item(
         _handle_data_error(e)
 
 
-@router.delete("/{list_id}", status_code=status.HTTP_200_OK)
-def api_delete_list(list_id: int, current_user=Depends(get_current_user)) -> Dict[str, Any]:
-    try:
-        return delete_list(owner=current_user.username, list_id=list_id)
-    except ListsDataError as e:
-        _handle_data_error(e)
-
-
+# ---------- Update list (requires owner) ----------
 @router.patch("/{list_id}", response_model=ListDetail)
 def api_update_list(
     list_id: int,
@@ -165,6 +171,7 @@ def api_update_list(
         _handle_data_error(e)
 
 
+# ---------- Delete list (requires owner) ----------
 @router.delete("/{list_id}", status_code=status.HTTP_200_OK)
 def api_delete_list(
     list_id: int,

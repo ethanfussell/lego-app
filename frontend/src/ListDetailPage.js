@@ -2,11 +2,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SetCard from "./SetCard";
+import { useToast } from "./Toast";
 
 const API_BASE = "http://localhost:8000";
 
 function getStoredToken() {
-  return localStorage.getItem("lego_token") || "";
+  try {
+    return localStorage.getItem("lego_token") || "";
+  } catch {
+    return "";
+  }
 }
 
 function getUsernameFromToken(token) {
@@ -27,7 +32,7 @@ async function fetchSetDetail(setNum, token) {
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
     const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
     if (!resp.ok) return null;
-    return await resp.json(); // includes user_rating when token provided
+    return await resp.json();
   } catch {
     return null;
   }
@@ -36,6 +41,24 @@ async function fetchSetDetail(setNum, token) {
 function countForList(list) {
   const c = list?.items_count ?? (Array.isArray(list?.items) ? list.items.length : 0);
   return Number.isFinite(c) ? c : 0;
+}
+
+function sortSets(arr, sortKey) {
+  const items = Array.isArray(arr) ? [...arr] : [];
+
+  const byName = (a, b) =>
+    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
+
+  if (sortKey === "name_asc") items.sort(byName);
+  else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
+  else if (sortKey === "year_desc") items.sort((a, b) => (Number(b?.year || 0) - Number(a?.year || 0)) || byName(a, b));
+  else if (sortKey === "year_asc") items.sort((a, b) => (Number(a?.year || 0) - Number(b?.year || 0)) || byName(a, b));
+  else if (sortKey === "pieces_desc") items.sort((a, b) => (Number(b?.pieces || 0) - Number(a?.pieces || 0)) || byName(a, b));
+  else if (sortKey === "pieces_asc") items.sort((a, b) => (Number(a?.pieces || 0) - Number(b?.pieces || 0)) || byName(a, b));
+  else if (sortKey === "rating_desc") items.sort((a, b) => (Number(b?.rating || 0) - Number(a?.rating || 0)) || byName(a, b));
+  else if (sortKey === "rating_asc") items.sort((a, b) => (Number(a?.rating || 0) - Number(b?.rating || 0)) || byName(a, b));
+
+  return items;
 }
 
 export default function ListDetailPage({
@@ -47,6 +70,7 @@ export default function ListDetailPage({
 }) {
   const { listId } = useParams();
   const navigate = useNavigate();
+  const { push: toast } = useToast();
 
   const effectiveToken = token || getStoredToken();
   const currentUsername = useMemo(() => getUsernameFromToken(effectiveToken), [effectiveToken]);
@@ -59,17 +83,9 @@ export default function ListDetailPage({
   const [setsLoading, setSetsLoading] = useState(false);
   const [setsError, setSetsError] = useState(null);
 
-  // owner-only editing
-  const [addValue, setAddValue] = useState("");
-  const [addError, setAddError] = useState(null);
-  const [adding, setAdding] = useState(false);
-
-  const [removing, setRemoving] = useState(null); // set_num being removed
-  const [removeError, setRemoveError] = useState(null);
-
-  // delete list
-  const [deletingList, setDeletingList] = useState(false);
-  const [deleteError, setDeleteError] = useState(null);
+  // ✅ Sort feature (same style as owned/wishlist)
+  const [sortKey, setSortKey] = useState("name_asc");
+  const sortedSetDetails = useMemo(() => sortSets(setDetails, sortKey), [setDetails, sortKey]);
 
   const isOwner = !!list?.owner && !!currentUsername && list.owner === currentUsername;
 
@@ -80,11 +96,15 @@ export default function ListDetailPage({
     setListError(null);
 
     try {
-      const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`);
+      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
+        token: effectiveToken || "",
+      });
+
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Failed to load list (${resp.status}): ${text}`);
       }
+
       const data = await resp.json();
       setList(data);
       return data;
@@ -105,7 +125,6 @@ export default function ListDetailPage({
     setSetsError(null);
 
     try {
-      // one request per set, includes user_rating when logged in
       const results = await Promise.all(items.map((n) => fetchSetDetail(n, effectiveToken)));
       const ok = results.filter(Boolean);
 
@@ -122,17 +141,13 @@ export default function ListDetailPage({
     }
   }
 
-  async function loadAll() {
-    const data = await loadList();
-    if (data) await loadSetCards(data);
-  }
-
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      await loadAll();
+      const data = await loadList();
       if (cancelled) return;
+      if (data) await loadSetCards(data);
     })();
 
     return () => {
@@ -140,139 +155,6 @@ export default function ListDetailPage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listId, effectiveToken]);
-
-  async function handleAddItem(e) {
-    e.preventDefault();
-    setAddError(null);
-    setRemoveError(null);
-    setDeleteError(null);
-
-    const setNum = addValue.trim();
-    if (!setNum) return;
-
-    if (!effectiveToken) {
-      setAddError("Log in to edit your list.");
-      navigate("/login");
-      return;
-    }
-    if (!isOwner) {
-      setAddError("Only the list owner can add items.");
-      return;
-    }
-
-    try {
-      setAdding(true);
-
-      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
-        token: effectiveToken,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ set_num: setNum }),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Add failed (${resp.status}): ${text}`);
-      }
-
-      setAddValue("");
-      await loadAll();
-    } catch (err) {
-      setAddError(err?.message || String(err));
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function handleRemoveItem(setNum) {
-    setRemoveError(null);
-    setAddError(null);
-    setDeleteError(null);
-  
-    if (!effectiveToken) {
-      setRemoveError("Log in to edit your list.");
-      navigate("/login");
-      return;
-    }
-    if (!isOwner) {
-      setRemoveError("Only the list owner can remove items.");
-      return;
-    }
-  
-    const prevSetDetails = setDetails;
-    const prevList = list;
-  
-    try {
-      setRemoving(setNum);
-  
-      // ✅ optimistic UI: remove immediately
-      setSetDetails((cur) => cur.filter((s) => s.set_num !== setNum));
-      setList((cur) => {
-        if (!cur) return cur;
-        const items = Array.isArray(cur.items) ? cur.items : [];
-        return { ...cur, items: items.filter((n) => n !== setNum) };
-      });
-  
-      const resp = await apiFetch(
-        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
-        { token: effectiveToken, method: "DELETE" }
-      );
-  
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Remove failed (${resp.status}): ${text}`);
-      }
-  
-      // ✅ no need to loadAll() if optimistic worked
-    } catch (err) {
-      // rollback if request fails
-      setSetDetails(prevSetDetails);
-      setList(prevList);
-      setRemoveError(err?.message || String(err));
-    } finally {
-      setRemoving(null);
-    }
-  }
-
-  async function handleDeleteList() {
-    setDeleteError(null);
-    setAddError(null);
-    setRemoveError(null);
-
-    if (!effectiveToken) {
-      setDeleteError("Log in to delete your list.");
-      navigate("/login");
-      return;
-    }
-    if (!isOwner) {
-      setDeleteError("Only the list owner can delete this list.");
-      return;
-    }
-
-    const ok = window.confirm(`Delete "${list?.title || "this list"}"? This cannot be undone.`);
-    if (!ok) return;
-
-    try {
-      setDeletingList(true);
-
-      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
-        token: effectiveToken,
-        method: "DELETE",
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Delete failed (${resp.status}): ${text}`);
-      }
-
-      // send them back to Collection after delete
-      navigate("/collection");
-    } catch (err) {
-      setDeleteError(err?.message || String(err));
-    } finally {
-      setDeletingList(false);
-    }
-  }
 
   if (listLoading) return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
 
@@ -298,6 +180,7 @@ export default function ListDetailPage({
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
+      {/* ✅ Back button already matches */}
       <button
         onClick={() => navigate(-1)}
         style={{
@@ -314,107 +197,62 @@ export default function ListDetailPage({
 
       <h1 style={{ margin: 0 }}>{list.title}</h1>
 
+      {/* ✅ Hide your name if you're the owner */}
       <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
-        By <strong>{list.owner}</strong> ·{" "}
+        {!isOwner && (
+          <>
+            By <strong>{list.owner}</strong> ·{" "}
+          </>
+        )}
         <strong>{list.is_public ? "Public" : "Private"}</strong> ·{" "}
         <strong>{totalCount}</strong> set{totalCount === 1 ? "" : "s"}
       </p>
 
-      {list.description && (
-        <p style={{ marginTop: "0.75rem", color: "#444" }}>{list.description}</p>
-      )}
+      {list.description && <p style={{ marginTop: "0.75rem", color: "#444" }}>{list.description}</p>}
 
-      {/* Owner-only editor */}
-      {isOwner && (
-        <section
-          style={{
-            marginTop: "1.25rem",
-            padding: "0.9rem 1rem",
-            border: "1px solid #e6e6e6",
-            borderRadius: "12px",
-            background: "#fafafa",
-          }}
-        >
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Edit list</h2>
-
-          <form
-            onSubmit={handleAddItem}
-            style={{
-              display: "flex",
-              gap: "0.5rem",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <input
-              value={addValue}
-              onChange={(e) => setAddValue(e.target.value)}
-              placeholder='Add set number (e.g. "21354-1")'
-              style={{
-                flex: "1 1 260px",
-                padding: "0.5rem 0.65rem",
-                borderRadius: "10px",
-                border: "1px solid #ddd",
-              }}
-            />
-            <button
-              type="submit"
-              disabled={adding}
-              style={{
-                padding: "0.5rem 0.9rem",
-                borderRadius: "999px",
-                border: "none",
-                background: adding ? "#888" : "#111",
-                color: "white",
-                cursor: adding ? "default" : "pointer",
-              }}
-            >
-              {adding ? "Adding…" : "Add"}
-            </button>
-          </form>
-
-          {addError && <p style={{ color: "red", marginTop: "0.5rem" }}>{addError}</p>}
-
-          <div style={{ marginTop: "0.75rem" }}>
-            <button
-              type="button"
-              onClick={handleDeleteList}
-              disabled={deletingList}
-              style={{
-                padding: "0.5rem 0.9rem",
-                borderRadius: "999px",
-                border: "1px solid #f3b4b4",
-                background: "white",
-                color: "#b42318",
-                cursor: deletingList ? "default" : "pointer",
-                fontWeight: 700,
-              }}
-            >
-              {deletingList ? "Deleting…" : "Delete list"}
-            </button>
-
-            {deleteError && <p style={{ color: "red", marginTop: "0.5rem" }}>{deleteError}</p>}
-          </div>
-        </section>
-      )}
+      {/* ✅ Removed the "Edit list" panel entirely */}
 
       <section style={{ marginTop: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Sets</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: "1rem",
+            flexWrap: "wrap",
+            marginBottom: "0.75rem",
+          }}
+        >
+          <h2 style={{ fontSize: "1.05rem", margin: 0 }}>Sets</h2>
+
+          {/* ✅ Sort dropdown added */}
+          <label style={{ color: "#444", fontSize: "0.9rem" }}>
+            Sort{" "}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value)}
+              style={{ padding: "0.25rem 0.5rem" }}
+            >
+              <option value="name_asc">Name (A–Z)</option>
+              <option value="name_desc">Name (Z–A)</option>
+              <option value="year_desc">Year (new → old)</option>
+              <option value="year_asc">Year (old → new)</option>
+              <option value="pieces_desc">Pieces (high → low)</option>
+              <option value="pieces_asc">Pieces (low → high)</option>
+              <option value="rating_desc">Rating (high → low)</option>
+              <option value="rating_asc">Rating (low → high)</option>
+            </select>
+          </label>
+        </div>
 
         {setsLoading && <p>Loading sets…</p>}
-        {setsError && (
-          <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>
-            {setsError}
-          </p>
+        {setsError && <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>{setsError}</p>}
+
+        {!setsLoading && sortedSetDetails.length === 0 && (
+          <p style={{ color: "#777" }}>No sets in this list yet.</p>
         )}
 
-        {!setsLoading && setDetails.length === 0 && (
-          <p style={{ color: "#777" }}>
-            No sets in this list yet. {isOwner ? "Add one above." : ""}
-          </p>
-        )}
-
-        {!setsLoading && setDetails.length > 0 && (
+        {!setsLoading && sortedSetDetails.length > 0 && (
           <ul
             style={{
               listStyle: "none",
@@ -426,7 +264,7 @@ export default function ListDetailPage({
               alignItems: "start",
             }}
           >
-            {setDetails.map((set) => (
+            {sortedSetDetails.map((set) => (
               <li key={set.set_num} style={{ maxWidth: 260 }}>
                 <SetCard
                   set={set}
@@ -436,32 +274,10 @@ export default function ListDetailPage({
                   onAddWishlist={onAddWishlist}
                   variant="default"
                 />
-
-                {isOwner && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveItem(set.set_num)}
-                    disabled={removing === set.set_num}
-                    style={{
-                      marginTop: "0.5rem",
-                      padding: "0.35rem 0.75rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ddd",
-                      background: "white",
-                      color: "#b42318",
-                      cursor: removing === set.set_num ? "default" : "pointer",
-                      width: "100%",
-                    }}
-                  >
-                    {removing === set.set_num ? "Removing…" : "Remove from list"}
-                  </button>
-                )}
               </li>
             ))}
           </ul>
         )}
-
-        {removeError && <p style={{ color: "red", marginTop: "0.75rem" }}>{removeError}</p>}
       </section>
 
       <div style={{ marginTop: "2rem", color: "#777" }}>

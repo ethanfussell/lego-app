@@ -70,6 +70,7 @@ function SetRow({
                 isInWishlist={wishlistSetNums?.has(set.set_num)}
                 onMarkOwned={onMarkOwned}
                 onAddWishlist={onAddWishlist}
+                actionsLayout="carousel"
               />
             </li>
           ))}
@@ -229,6 +230,7 @@ function NewSetsPage({
                   isInWishlist={wishlistSetNums?.has(set.set_num)}
                   onMarkOwned={onMarkOwned}
                   onAddWishlist={onAddWishlist}
+                  actionsLayout="carousel"
                 />
               </li>
             ))}

@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-
 # In-memory store (temporary until DB)
 LISTS: List[Dict[str, Any]] = []
 NEXT_LIST_ID: int = 1
@@ -22,16 +21,21 @@ def _now() -> datetime:
 
 
 def _to_detail_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
-    items = raw.get("items") or []
+    items = raw.get("items")
+    if not isinstance(items, list):
+        items = []
+
     return {
         "id": int(raw["id"]),
-        "title": raw["title"],
+        "title": raw.get("title") or "",
         "description": raw.get("description"),
         "is_public": bool(raw.get("is_public", True)),
-        "owner": raw["owner"],
-        "items": list(items),
+        "owner": raw.get("owner") or "",
+        "items": list(items),  # always present
         "items_count": len(items),
         "position": int(raw.get("position", 0) or 0),
+        "is_system": bool(raw.get("is_system", False)),
+        "system_key": raw.get("system_key"),
         "created_at": raw["created_at"],
         "updated_at": raw["updated_at"],
     }
@@ -56,18 +60,71 @@ def _ensure_owner(lst: Dict[str, Any], owner: str) -> None:
         raise ListsDataError(403, "not_owner")
 
 
-def _next_position_for_owner(owner: str) -> int:
-    positions = [int(l.get("position", 0) or 0) for l in LISTS if l.get("owner") == owner]
-    return (max(positions) + 1) if positions else 0
+def _next_id() -> int:
+    global NEXT_LIST_ID
+    nid = NEXT_LIST_ID
+    NEXT_LIST_ID += 1
+    return nid
 
 
-def _repack_positions_for_owner(owner: str) -> None:
-    mine = [x for x in LISTS if x.get("owner") == owner]
-    mine.sort(key=lambda x: int(x.get("position", 0) or 0))
+def _system_list_for(owner: str, system_key: str) -> Optional[Dict[str, Any]]:
+    for l in LISTS:
+        if l.get("owner") == owner and bool(l.get("is_system", False)) and l.get("system_key") == system_key:
+            return l
+    return None
+
+
+def _create_system_list(owner: str, system_key: str, title: str) -> Dict[str, Any]:
     now = _now()
-    for i, x in enumerate(mine):
-        x["position"] = i
-        x["updated_at"] = now
+    new_list = {
+        "id": _next_id(),
+        "title": title,
+        "description": None,
+        "is_public": False,  # pinned private (and we also block updates)
+        "owner": owner,
+        "items": [],
+        "position": 0,  # will be normalized
+        "is_system": True,
+        "system_key": system_key,  # "owned" or "wishlist"
+        "created_at": now,
+        "updated_at": now,
+    }
+    LISTS.append(new_list)
+    return new_list
+
+
+def _normalize_positions_for_owner(owner: str) -> None:
+    """
+    Force: Owned = 0, Wishlist = 1, then custom lists start at 2.
+    """
+    owned = _system_list_for(owner, "owned")
+    wishlist = _system_list_for(owner, "wishlist")
+
+    # custom lists sorted by current position (stable)
+    custom = [l for l in LISTS if l.get("owner") == owner and not bool(l.get("is_system", False))]
+    custom.sort(key=lambda x: int(x.get("position", 0) or 0))
+
+    now = _now()
+
+    if owned:
+        owned["position"] = 0
+        owned["updated_at"] = now
+    if wishlist:
+        wishlist["position"] = 1
+        wishlist["updated_at"] = now
+
+    for i, l in enumerate(custom, start=2):
+        l["position"] = i
+        l["updated_at"] = now
+
+
+def _ensure_system_lists(owner: str) -> None:
+    if not _system_list_for(owner, "owned"):
+        _create_system_list(owner, "owned", "Owned")
+    if not _system_list_for(owner, "wishlist"):
+        _create_system_list(owner, "wishlist", "Wishlist")
+
+    _normalize_positions_for_owner(owner)
 
 
 # ----------------------------
@@ -80,8 +137,14 @@ def get_public_lists() -> List[Dict[str, Any]]:
     return [_to_detail_dict(lst) for lst in public_lists]
 
 
-def get_my_lists(owner: str) -> List[Dict[str, Any]]:
-    mine = [lst for lst in LISTS if lst.get("owner") == owner]
+def get_my_lists(owner: str, include_system: bool = True) -> List[Dict[str, Any]]:
+    _ensure_system_lists(owner)
+
+    mine = [
+        lst
+        for lst in LISTS
+        if lst.get("owner") == owner and (include_system or not bool(lst.get("is_system", False)))
+    ]
     mine.sort(key=lambda x: int(x.get("position", 0) or 0))
     return [_to_detail_dict(lst) for lst in mine]
 
@@ -96,27 +159,29 @@ def get_list_detail(list_id: int) -> Dict[str, Any]:
 # ----------------------------
 
 def create_list(owner: str, title: str, description: Optional[str], is_public: bool) -> Dict[str, Any]:
-    global NEXT_LIST_ID
-
     clean_title = (title or "").strip()
     if not clean_title:
         raise ListsDataError(422, "title_required")
 
+    _ensure_system_lists(owner)
+
     now = _now()
     new_list = {
-        "id": NEXT_LIST_ID,
+        "id": _next_id(),
         "title": clean_title,
         "description": (description.strip() if description else None),
         "is_public": bool(is_public),
         "owner": owner,
         "items": [],
-        "position": _next_position_for_owner(owner),
+        "position": 999999,  # normalize will place after system/custom
+        "is_system": False,
+        "system_key": None,
         "created_at": now,
         "updated_at": now,
     }
 
     LISTS.append(new_list)
-    NEXT_LIST_ID += 1
+    _normalize_positions_for_owner(owner)
     return _to_detail_dict(new_list)
 
 
@@ -129,6 +194,10 @@ def add_list_item(owner: str, list_id: int, set_num: str) -> Dict[str, Any]:
     _ensure_owner(lst, owner)
 
     items = lst.setdefault("items", [])
+    if not isinstance(items, list):
+        items = []
+        lst["items"] = items
+
     if clean in items:
         raise ListsDataError(409, "set_already_in_list")
 
@@ -146,6 +215,10 @@ def remove_list_item(owner: str, list_id: int, set_num: str) -> Dict[str, Any]:
     _ensure_owner(lst, owner)
 
     items = lst.setdefault("items", [])
+    if not isinstance(items, list):
+        items = []
+        lst["items"] = items
+
     if clean not in items:
         raise ListsDataError(404, "set_not_in_list")
 
@@ -155,22 +228,32 @@ def remove_list_item(owner: str, list_id: int, set_num: str) -> Dict[str, Any]:
 
 
 def reorder_my_lists(owner: str, ordered_ids: List[int]) -> List[Dict[str, Any]]:
-    mine = [lst for lst in LISTS if lst.get("owner") == owner]
-    mine_ids = [int(lst["id"]) for lst in mine]
+    """
+    Reorder CUSTOM lists only (not Owned/Wishlist system lists).
+    Frontend can keep sending only custom list ids.
+    """
+    _ensure_system_lists(owner)
 
-    if len(ordered_ids) != len(mine_ids):
-        raise ListsDataError(400, "ordered_ids_must_include_all")
+    custom = [lst for lst in LISTS if lst.get("owner") == owner and not bool(lst.get("is_system", False))]
+    custom_ids = [int(lst["id"]) for lst in custom]
 
-    if sorted([int(x) for x in ordered_ids]) != sorted(mine_ids):
-        raise ListsDataError(400, "ordered_ids_must_match_all")
+    if len(ordered_ids) != len(custom_ids):
+        raise ListsDataError(400, "ordered_ids_must_include_all_custom")
 
-    by_id = {int(lst["id"]): lst for lst in mine}
+    if sorted([int(x) for x in ordered_ids]) != sorted(custom_ids):
+        raise ListsDataError(400, "ordered_ids_must_match_all_custom")
+
+    by_id = {int(lst["id"]): lst for lst in custom}
     now = _now()
 
+    # assign temporary positions; normalize will pin system at 0/1 and custom starting at 2
     for pos, list_id in enumerate(ordered_ids):
-        by_id[int(list_id)]["position"] = pos
+        by_id[int(list_id)]["position"] = 2 + pos
         by_id[int(list_id)]["updated_at"] = now
 
+    _normalize_positions_for_owner(owner)
+
+    mine = [lst for lst in LISTS if lst.get("owner") == owner and not bool(lst.get("is_system", False))]
     mine.sort(key=lambda x: int(x.get("position", 0) or 0))
     return [_to_detail_dict(lst) for lst in mine]
 
@@ -188,6 +271,10 @@ def update_list(
 
     _ensure_owner(lst, owner)
 
+    # Optional: block editing system lists
+    if bool(lst.get("is_system", False)):
+        raise ListsDataError(400, "cannot_update_system_list")
+
     changed = False
 
     if title is not None:
@@ -198,7 +285,6 @@ def update_list(
         changed = True
 
     if description is not None:
-        # allow clearing description by sending "" or null-ish
         clean_desc = (description or "").strip() or None
         lst["description"] = clean_desc
         changed = True
@@ -220,14 +306,9 @@ def delete_list(owner: str, list_id: int) -> Dict[str, Any]:
 
     _ensure_owner(lst, owner)
 
+    if bool(lst.get("is_system", False)):
+        raise ListsDataError(400, "cannot_delete_system_list")
+
     LISTS.remove(lst)
-
-    # re-pack positions 0..n-1 for this owner so reorder stays consistent
-    mine = [x for x in LISTS if x.get("owner") == owner]
-    mine.sort(key=lambda x: int(x.get("position", 0) or 0))
-    now = _now()
-    for i, x in enumerate(mine):
-        x["position"] = i
-        x["updated_at"] = now
-
+    _normalize_positions_for_owner(owner)
     return {"ok": True}

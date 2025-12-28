@@ -29,6 +29,19 @@ async function safeJson(resp) {
   }
 }
 
+function isSystemList(l) {
+  if (!l) return false;
+  if (l.is_system || l.isSystem || l.system) return true;
+
+  const key = String(l.system_key || l.systemKey || l.kind || l.type || "").toLowerCase();
+  if (key === "owned" || key === "wishlist") return true;
+
+  const title = String(l.title || "").trim().toLowerCase();
+  if (title === "owned" || title === "wishlist") return true;
+
+  return false;
+}
+
 export default function AddToListMenu({
   setNum,
   lists: listsProp,
@@ -71,9 +84,12 @@ export default function AddToListMenu({
   const [selectedMap, setSelectedMap] = useState({});
   const [confirm, setConfirm] = useState(null); // { type, listId?, title? }
 
+  // ✅ ONLY custom lists (exclude system lists)
   const customLists = useMemo(() => {
     const arr = Array.isArray(lists) ? lists : [];
-    return arr.filter((l) => l && l.id != null && l.title);
+    return arr
+      .filter((l) => l && l.id != null && l.title)
+      .filter((l) => !isSystemList(l));
   }, [lists]);
 
   useEffect(() => setOwnedLocal(!!ownedSelected), [ownedSelected]);
@@ -152,7 +168,7 @@ export default function AddToListMenu({
     };
   }, [open, includeOwned, includeWishlist, customLists.length]);
 
-  // Load lists + membership map on open
+  // ✅ Load lists + membership map on open (custom lists only)
   useEffect(() => {
     if (!open) return;
 
@@ -187,28 +203,28 @@ export default function AddToListMenu({
         const normalized = Array.isArray(baseLists) ? baseLists : [];
         setLists(normalized);
 
-        // membership map
+        // membership map (custom lists only)
+        const customOnly = normalized.filter((l) => l && l.id != null && !isSystemList(l));
+
         const map = {};
         await Promise.all(
-          normalized
-            .filter((l) => l && l.id != null)
-            .map(async (l) => {
-              try {
-                const itemsInline = Array.isArray(l.items) ? l.items : null;
-                if (itemsInline && itemsInline.includes(setNum)) {
-                  map[l.id] = true;
-                  return;
-                }
-                if (!token) return;
-                const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token });
-                if (!r.ok) return;
-                const detail = await safeJson(r);
-                const items = Array.isArray(detail?.items) ? detail.items : [];
-                if (items.includes(setNum)) map[l.id] = true;
-              } catch {
-                // ignore per-list failure
+          customOnly.map(async (l) => {
+            try {
+              const itemsInline = Array.isArray(l.items) ? l.items : null;
+              if (itemsInline && itemsInline.includes(setNum)) {
+                map[l.id] = true;
+                return;
               }
-            })
+              if (!token) return;
+              const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token });
+              if (!r.ok) return;
+              const detail = await safeJson(r);
+              const items = Array.isArray(detail?.items) ? detail.items : [];
+              if (items.includes(setNum)) map[l.id] = true;
+            } catch {
+              // ignore
+            }
+          })
         );
 
         if (!cancelled) setSelectedMap(map);
@@ -236,9 +252,7 @@ export default function AddToListMenu({
     if (action.type === "owned") return "Owned";
     if (action.type === "wishlist") return "Wishlist";
     if (action.type === "list") {
-      return (
-        customLists.find((l) => String(l.id) === String(action.listId))?.title || "this list"
-      );
+      return customLists.find((l) => String(l.id) === String(action.listId))?.title || "this list";
     }
     return "this item";
   }
@@ -287,13 +301,11 @@ export default function AddToListMenu({
       }
 
       if (action.type === "owned") {
-        if (!onAddOwned) throw new Error("Missing onAddOwned handler.");
-        await onAddOwned();
+        await onAddOwned?.();
         setOwnedLocal(true);
         toast?.("Added to Owned ✅");
       } else if (action.type === "wishlist") {
-        if (!onAddWishlist) throw new Error("Missing onAddWishlist handler.");
-        await onAddWishlist();
+        await onAddWishlist?.();
         setWishlistLocal(true);
         toast?.("Added to Wishlist ✅");
       } else if (action.type === "list") {
@@ -315,13 +327,11 @@ export default function AddToListMenu({
       setErr(null);
 
       if (confirm.type === "owned") {
-        if (!onRemoveOwned) throw new Error("Missing onRemoveOwned handler.");
-        await onRemoveOwned();
+        await onRemoveOwned?.();
         setOwnedLocal(false);
         toast?.("Removed from Owned");
       } else if (confirm.type === "wishlist") {
-        if (!onRemoveWishlist) throw new Error("Missing onRemoveWishlist handler.");
-        await onRemoveWishlist();
+        await onRemoveWishlist?.();
         setWishlistLocal(false);
         toast?.("Removed from Wishlist");
       } else if (confirm.type === "list") {
@@ -342,7 +352,6 @@ export default function AddToListMenu({
     }
   }
 
-  // Button style (label room + caret pinned right)
   const baseButtonStyle = {
     height: 32,
     padding: "0 12px",
@@ -358,9 +367,7 @@ export default function AddToListMenu({
     whiteSpace: "nowrap",
     minWidth: 124,
     maxWidth: "100%",
-
     ...buttonStyle,
-
     position: "relative",
     display: "inline-flex",
     alignItems: "center",
@@ -385,17 +392,9 @@ export default function AddToListMenu({
         aria-expanded={open ? "true" : "false"}
         title={buttonLabel}
       >
-        <span
-          style={{
-            width: "100%",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            padding: "0 2px",
-          }}
-        >
+        <span style={{ width: "100%", overflow: "hidden", textOverflow: "ellipsis", padding: "0 2px" }}>
           {buttonLabel}
         </span>
-
         <span
           aria-hidden
           style={{
@@ -439,11 +438,7 @@ export default function AddToListMenu({
               )}
 
               {includeOwned && (
-                <MenuItem
-                  label="Owned"
-                  selected={ownedLocal}
-                  onClick={() => handleClickItem({ type: "owned" })}
-                />
+                <MenuItem label="Owned" selected={ownedLocal} onClick={() => handleClickItem({ type: "owned" })} />
               )}
 
               {includeWishlist && (
@@ -455,9 +450,7 @@ export default function AddToListMenu({
               )}
 
               {loadingLists && (
-                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
-                  Loading lists…
-                </div>
+                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>Loading lists…</div>
               )}
 
               <div
@@ -504,7 +497,6 @@ export default function AddToListMenu({
                   padding: "1rem",
                 }}
                 onMouseDown={(e) => {
-                  // IMPORTANT: stop propagation so SetCard onClick doesn't fire
                   e.stopPropagation();
                   if (e.target === e.currentTarget) setConfirm(null);
                 }}
@@ -522,9 +514,7 @@ export default function AddToListMenu({
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
-                    Remove from {confirm.title}?
-                  </div>
+                  <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>Remove from {confirm.title}?</div>
                   <div style={{ color: "#666", fontSize: "0.9rem", marginTop: 6 }}>
                     This will remove the set from that list.
                   </div>
@@ -603,9 +593,7 @@ function MenuItem({ label, selected, onClick, title }) {
         gap: 10,
       }}
     >
-      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {label}
-      </span>
+      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
       {selected ? <span style={{ fontSize: "0.95rem" }}>✅</span> : <span style={{ width: 18 }} />}
     </button>
   );

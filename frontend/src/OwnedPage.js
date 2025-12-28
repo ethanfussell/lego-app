@@ -1,30 +1,24 @@
 // frontend/src/OwnedPage.js
-import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import SetCard from "./SetCard";
 
-const API_BASE = "http://localhost:8000";
+function sortSets(arr, sortKey) {
+  const items = Array.isArray(arr) ? [...arr] : [];
 
-function extractSetNum(item) {
-  if (!item) return "";
-  if (typeof item === "string") return item;
-  if (typeof item.set_num === "string") return item.set_num;
-  return "";
-}
+  const byName = (a, b) =>
+    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
 
-function looksLikeFullSet(item) {
-  // "full set" from /sets/{set_num} usually has at least name/year/theme
-  return item && typeof item === "object" && !!item.name;
-}
+  if (sortKey === "name_asc") items.sort(byName);
+  else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
+  else if (sortKey === "year_desc") items.sort((a, b) => (Number(b?.year || 0) - Number(a?.year || 0)) || byName(a, b));
+  else if (sortKey === "year_asc") items.sort((a, b) => (Number(a?.year || 0) - Number(b?.year || 0)) || byName(a, b));
+  else if (sortKey === "pieces_desc") items.sort((a, b) => (Number(b?.pieces || 0) - Number(a?.pieces || 0)) || byName(a, b));
+  else if (sortKey === "pieces_asc") items.sort((a, b) => (Number(a?.pieces || 0) - Number(b?.pieces || 0)) || byName(a, b));
+  else if (sortKey === "rating_desc") items.sort((a, b) => (Number(b?.rating || 0) - Number(a?.rating || 0)) || byName(a, b));
+  else if (sortKey === "rating_asc") items.sort((a, b) => (Number(a?.rating || 0) - Number(b?.rating || 0)) || byName(a, b));
 
-async function fetchSetDetail(setNum) {
-  try {
-    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`);
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch {
-    return null;
-  }
+  return items;
 }
 
 export default function OwnedPage({
@@ -36,131 +30,84 @@ export default function OwnedPage({
 }) {
   const navigate = useNavigate();
 
-  const setNums = useMemo(() => {
-    return (ownedSets || []).map(extractSetNum).filter(Boolean);
-  }, [ownedSets]);
+  const [sortKey, setSortKey] = useState("name_asc");
 
-  const [details, setDetails] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      // If backend already returned full set objects, use them directly.
-      const allFull = (ownedSets || []).every(looksLikeFullSet);
-      if (allFull) {
-        setDetails(ownedSets);
-        setLoading(false);
-        setErr(null);
-        return;
-      }
-
-      if (!setNums.length) {
-        setDetails([]);
-        setLoading(false);
-        setErr(null);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setErr(null);
-
-        const full = await Promise.all(setNums.map(fetchSetDetail));
-        const filtered = full.filter(Boolean);
-
-        if (!cancelled) setDetails(filtered);
-      } catch (e) {
-        if (!cancelled) setErr(e?.message || String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [ownedSets, setNums]);
+  const sortedOwned = useMemo(() => sortSets(ownedSets, sortKey), [ownedSets, sortKey]);
+  const total = Array.isArray(ownedSets) ? ownedSets.length : 0;
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+      {/* ✅ Back button matches custom list page */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          marginBottom: "1rem",
+          padding: "0.35rem 0.75rem",
+          borderRadius: "999px",
+          border: "1px solid #ddd",
+          background: "white",
+          cursor: "pointer",
+        }}
+      >
+        ← Back
+      </button>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          gap: "1rem",
+          flexWrap: "wrap",
+          marginBottom: "0.75rem",
+        }}
+      >
         <div>
           <h1 style={{ margin: 0 }}>Owned</h1>
           <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
-            All sets you’ve marked as Owned.
+            <strong>{total}</strong> set{total === 1 ? "" : "s"}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            style={{
-              padding: "0.4rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-              background: "white",
-              cursor: "pointer",
-            }}
+        {/* ✅ Keep sort feature (and no “Collection hub” button) */}
+        <label style={{ color: "#444", fontSize: "0.9rem" }}>
+          Sort{" "}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value)}
+            style={{ padding: "0.25rem 0.5rem" }}
           >
-            ← Back
-          </button>
-
-          <Link
-            to="/collection"
-            style={{
-              padding: "0.4rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-              background: "white",
-              textDecoration: "none",
-              color: "inherit",
-              display: "inline-block",
-            }}
-          >
-            Collection hub
-          </Link>
-        </div>
+            <option value="name_asc">Name (A–Z)</option>
+            <option value="name_desc">Name (Z–A)</option>
+            <option value="year_desc">Year (new → old)</option>
+            <option value="year_asc">Year (old → new)</option>
+            <option value="pieces_desc">Pieces (high → low)</option>
+            <option value="pieces_asc">Pieces (low → high)</option>
+            <option value="rating_desc">Rating (high → low)</option>
+            <option value="rating_asc">Rating (low → high)</option>
+          </select>
+        </label>
       </div>
 
-      <div style={{ marginTop: "1rem", color: "#777" }}>
-        Total: <strong>{setNums.length}</strong>
-      </div>
-
-      {loading && <p style={{ marginTop: "1rem" }}>Loading owned sets…</p>}
-      {err && (
-        <p style={{ marginTop: "1rem", color: "red" }}>
-          Error loading owned sets: {err}
-        </p>
-      )}
-
-      {!loading && !err && setNums.length === 0 && (
-        <p style={{ marginTop: "1rem", color: "#777" }}>
-          You haven’t marked any sets as Owned yet.
-        </p>
-      )}
-
-      {!loading && !err && details.length > 0 && (
+      {total === 0 ? (
+        <p style={{ color: "#777" }}>No owned sets yet.</p>
+      ) : (
         <ul
           style={{
             listStyle: "none",
             padding: 0,
-            margin: "1rem 0 0 0",
+            margin: 0,
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
             gap: "1rem",
             alignItems: "start",
           }}
         >
-          {details.map((set) => (
+          {sortedOwned.map((set) => (
             <li key={set.set_num} style={{ maxWidth: 260 }}>
               <SetCard
                 set={set}
-                isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
+                isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : true}
                 isInWishlist={wishlistSetNums ? wishlistSetNums.has(set.set_num) : false}
                 onMarkOwned={onMarkOwned}
                 onAddWishlist={onAddWishlist}

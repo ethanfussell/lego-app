@@ -21,7 +21,7 @@ import ProfileMenu from "./ProfileMenu";
 const API_BASE = "http://localhost:8000";
 
 /* -------------------------------------------------------
-   Reusable horizontal row of SetCards
+   Reusable horizontal row of SetCards (with scroll arrows)
 -------------------------------------------------------- */
 function SetRow({
   title,
@@ -32,7 +32,46 @@ function SetRow({
   onMarkOwned,
   onAddWishlist,
 }) {
-  if (!sets || sets.length === 0) return null;
+  // ✅ Hooks must come first (no early return before these)
+  const scrollerRef = useRef(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const safeSets = Array.isArray(sets) ? sets : [];
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    const recompute = () => {
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      setCanLeft(el.scrollLeft > 2);
+      setCanRight(el.scrollLeft < maxScroll - 2);
+    };
+
+    recompute();
+
+    el.addEventListener("scroll", recompute, { passive: true });
+    window.addEventListener("resize", recompute);
+
+    return () => {
+      el.removeEventListener("scroll", recompute);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [safeSets.length]);
+
+  // ✅ Now it's safe to early return
+  if (safeSets.length === 0) return null;
+
+  function scrollByCards(dir) {
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    const cardWidth = 220;
+    const gap = 12; // ~0.75rem
+    const delta = dir * (cardWidth + gap) * 2; // ~2 cards per click
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  }
 
   return (
     <section style={{ marginBottom: "1.9rem" }}>
@@ -49,48 +88,92 @@ function SetRow({
         <div>
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
           {subtitle && (
-            <p
-              style={{
-                margin: "0.2rem 0 0 0",
-                fontSize: "0.9rem",
-                color: "#6b7280",
-              }}
-            >
+            <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.9rem", color: "#6b7280" }}>
               {subtitle}
             </p>
           )}
         </div>
       </div>
 
-      <div style={{ overflowX: "auto", paddingBottom: "0.5rem" }}>
-        <ul
+      <div style={{ position: "relative" }}>
+        <button
+          type="button"
+          onClick={() => scrollByCards(-1)}
+          disabled={!canLeft}
+          aria-label="Scroll left"
+          title="Scroll left"
           style={{
-            display: "flex",
-            gap: "0.75rem",
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
+            position: "absolute",
+            left: -6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 5,
+            width: 34,
+            height: 34,
+            borderRadius: "999px",
+            border: "1px solid #ddd",
+            background: "white",
+            cursor: canLeft ? "pointer" : "not-allowed",
+            opacity: canLeft ? 1 : 0.35,
+            boxShadow: "0 6px 16px rgba(0,0,0,0.10)",
+            display: "grid",
+            placeItems: "center",
+            fontSize: 18,
+            lineHeight: 1,
           }}
         >
-          {sets.map((set) => (
-            <li
-              key={set.set_num}
-              style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}
-            >
-              <SetCard
-                set={set}
-                isOwned={ownedSetNums.has(set.set_num)}
-                isInWishlist={wishlistSetNums.has(set.set_num)}
-                onMarkOwned={onMarkOwned}
-                onAddWishlist={onAddWishlist}
-              />
-            </li>
-          ))}
-        </ul>
+          ‹
+        </button>
+
+        <button
+          type="button"
+          onClick={() => scrollByCards(+1)}
+          disabled={!canRight}
+          aria-label="Scroll right"
+          title="Scroll right"
+          style={{
+            position: "absolute",
+            right: -6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 5,
+            width: 34,
+            height: 34,
+            borderRadius: "999px",
+            border: "1px solid #ddd",
+            background: "white",
+            cursor: canRight ? "pointer" : "not-allowed",
+            opacity: canRight ? 1 : 0.35,
+            boxShadow: "0 6px 16px rgba(0,0,0,0.10)",
+            display: "grid",
+            placeItems: "center",
+            fontSize: 18,
+            lineHeight: 1,
+          }}
+        >
+          ›
+        </button>
+
+        <div ref={scrollerRef} style={{ overflowX: "auto", paddingBottom: "0.5rem" }}>
+          <ul style={{ display: "flex", gap: "0.75rem", listStyle: "none", padding: 0, margin: 0 }}>
+            {safeSets.map((set) => (
+              <li key={set.set_num} style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}>
+                <SetCard
+                  set={set}
+                  isOwned={ownedSetNums.has(set.set_num)}
+                  isInWishlist={wishlistSetNums.has(set.set_num)}
+                  onMarkOwned={onMarkOwned}
+                  onAddWishlist={onAddWishlist}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </section>
   );
 }
+
 
 /* -------------------------------------------------------
    Home page
@@ -151,12 +234,11 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
       <section style={{ marginBottom: "2rem" }}>
         <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Track your LEGO world</h1>
         <p style={{ marginTop: "0.5rem", color: "#666", maxWidth: "560px" }}>
-          Log your collection, wishlist, and reviews. Discover deals, sets
-          retiring soon, and what&apos;s trending with other fans.
+          Log your collection, wishlist, and reviews. Discover deals, sets retiring soon, and what&apos;s
+          trending with other fans.
         </p>
         <p style={{ marginTop: "0.4rem", fontSize: "0.8rem", color: "#9ca3af" }}>
-          Home feed placeholder · later this will be personalized and pull real
-          prices.
+          Home feed placeholder · later this will be personalized and pull real prices.
         </p>
       </section>
 
@@ -624,7 +706,6 @@ function App() {
           throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
         }
 
-        // keep it simple: reload (so types match backend)
         await loadCollections(token);
       }
     } catch (err) {
@@ -660,8 +741,7 @@ function App() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+            Authorization: `Bearer ${token}` },
           body: JSON.stringify({ set_num: setNum }),
         });
 
@@ -685,7 +765,6 @@ function App() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    // treat 404 as "already removed"
     if (!resp.ok && resp.status !== 404) {
       const text = await resp.text();
       throw new Error(`Failed to remove from Wishlist (${resp.status}): ${text}`);
@@ -1167,8 +1246,6 @@ function App() {
             }
           />
 
-          <Route path="/collection" element={<CollectionsPage ownedSets={owned} wishlistSets={wishlist} token={token} />} />
-
           <Route
             path="/collection/owned"
             element={
@@ -1248,6 +1325,85 @@ function App() {
 
                     {collectionsLoading && <p>Loading collections…</p>}
                     {collectionsError && <p style={{ color: "red" }}>Error: {collectionsError}</p>}
+
+                    {/* (Optional) create list UI if you want it visible here */}
+                    {showCreateForm && (
+                      <form onSubmit={handleCreateList} style={{ marginTop: 12, maxWidth: 520 }}>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <label style={{ display: "grid", gap: 6 }}>
+                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Title</span>
+                            <input
+                              value={newListTitle}
+                              onChange={(e) => setNewListTitle(e.target.value)}
+                              style={{
+                                padding: "0.55rem 0.65rem",
+                                borderRadius: 10,
+                                border: "1px solid #d1d5db",
+                              }}
+                            />
+                          </label>
+
+                          <label style={{ display: "grid", gap: 6 }}>
+                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Description (optional)</span>
+                            <input
+                              value={newListDescription}
+                              onChange={(e) => setNewListDescription(e.target.value)}
+                              style={{
+                                padding: "0.55rem 0.65rem",
+                                borderRadius: 10,
+                                border: "1px solid #d1d5db",
+                              }}
+                            />
+                          </label>
+
+                          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <input
+                              type="checkbox"
+                              checked={newListIsPublic}
+                              onChange={(e) => setNewListIsPublic(e.target.checked)}
+                            />
+                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Public (shows up in Explore)</span>
+                          </label>
+
+                          {createError && <div style={{ color: "red" }}>{createError}</div>}
+
+                          <button
+                            type="submit"
+                            disabled={createLoading}
+                            style={{
+                              padding: "0.5rem 0.9rem",
+                              borderRadius: "999px",
+                              border: "none",
+                              background: createLoading ? "#888" : "#111827",
+                              color: "white",
+                              cursor: createLoading ? "not-allowed" : "pointer",
+                              fontWeight: 700,
+                              width: "fit-content",
+                            }}
+                          >
+                            {createLoading ? "Creating…" : "Create list"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {!showCreateForm && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateForm(true)}
+                        style={{
+                          marginTop: 12,
+                          padding: "0.45rem 0.9rem",
+                          borderRadius: "999px",
+                          border: "1px solid #ddd",
+                          background: "white",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                      >
+                        ➕ Create list
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

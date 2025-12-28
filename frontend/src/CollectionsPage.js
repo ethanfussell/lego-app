@@ -7,6 +7,8 @@ import SetCard from "./SetCard";
 const API_BASE = "http://localhost:8000";
 const PREVIEW_COUNT = 10;
 
+const LS_COLLECTION_SECTION_ORDER = "lego_collection_section_order_v1";
+
 // ---------------- utils ----------------
 function getStoredToken() {
   try {
@@ -23,6 +25,17 @@ async function fetchSetDetail(setNum, token) {
     const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
     if (!resp.ok) return null;
     return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchListDetail(listId, token) {
+  try {
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, { headers });
+    if (!resp.ok) return null;
+    return await resp.json(); // has .items
   } catch {
     return null;
   }
@@ -54,12 +67,51 @@ function useIsMobile(breakpointPx = 720) {
   return isMobile;
 }
 
+function readJson(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function makeKeyForListId(id) {
+  return `list:${id}`;
+}
+
+function normalizeOrder(savedOrder, listsNow) {
+  const listKeysNow = (listsNow || []).map((l) => makeKeyForListId(l.id));
+
+  const base = Array.isArray(savedOrder) ? savedOrder : [];
+  const cleaned = [];
+
+  for (const k of base) {
+    if (k === "owned" || k === "wishlist") cleaned.push(k);
+    else if (typeof k === "string" && k.startsWith("list:") && listKeysNow.includes(k)) cleaned.push(k);
+  }
+
+  if (!cleaned.includes("owned")) cleaned.unshift("owned");
+  if (!cleaned.includes("wishlist")) {
+    const ownedIdx = cleaned.indexOf("owned");
+    cleaned.splice(Math.max(ownedIdx + 1, 0), 0, "wishlist");
+  }
+
+  for (const lk of listKeysNow) {
+    if (!cleaned.includes(lk)) cleaned.push(lk);
+  }
+
+  return cleaned;
+}
+
 // ---------------- main page ----------------
-export default function CollectionsPage({
-  ownedSets = [],
-  wishlistSets = [],
-  token,
-}) {
+export default function CollectionsPage({ ownedSets = [], wishlistSets = [], token }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { push: toast } = useToast();
@@ -72,16 +124,12 @@ export default function CollectionsPage({
   // Accept arrays OR Sets OR array-of-objects
   const ownedNums = useMemo(() => {
     const src = ownedSets instanceof Set ? Array.from(ownedSets) : ownedSets || [];
-    return src
-      .map((x) => (typeof x === "string" ? x : x?.set_num))
-      .filter(Boolean);
+    return src.map((x) => (typeof x === "string" ? x : x?.set_num)).filter(Boolean);
   }, [ownedSets]);
 
   const wishlistNums = useMemo(() => {
     const src = wishlistSets instanceof Set ? Array.from(wishlistSets) : wishlistSets || [];
-    return src
-      .map((x) => (typeof x === "string" ? x : x?.set_num))
-      .filter(Boolean);
+    return src.map((x) => (typeof x === "string" ? x : x?.set_num)).filter(Boolean);
   }, [wishlistSets]);
 
   // ---------------- Create list modal via ?create=1 ----------------
@@ -123,7 +171,6 @@ export default function CollectionsPage({
 
   const [deleteError, setDeleteError] = useState(null);
 
-  // close menu on outside click
   useEffect(() => {
     function onDocMouseDown() {
       setMenuOpenFor(null);
@@ -160,7 +207,12 @@ export default function CollectionsPage({
       const text = await resp.text();
       throw new Error(`Delete failed (${resp.status}): ${text}`);
     }
-    return await resp.json();
+
+    try {
+      return await resp.json();
+    } catch {
+      return null;
+    }
   }
 
   async function fetchMyLists() {
@@ -216,9 +268,7 @@ export default function CollectionsPage({
 
         const [ownedFull, wishlistFull] = await Promise.all([
           Promise.all(ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
-          Promise.all(
-            wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))
-          ),
+          Promise.all(wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
         ]);
 
         if (!cancelled) {
@@ -253,6 +303,20 @@ export default function CollectionsPage({
 
   const [listPreviewSets, setListPreviewSets] = useState({}); // { [listId]: [setObj,...] }
 
+  // You said you're filtering out Owned/Wishlist “system lists” from custom lists:
+  function isSystemList(l) {
+    if (!l) return false;
+    if (l.is_system || l.isSystem || l.system) return true;
+
+    const key = String(l.system_key || l.kind || l.type || "").toLowerCase();
+    if (key === "owned" || key === "wishlist") return true;
+
+    const title = String(l.title || "").trim().toLowerCase();
+    if (title === "owned" || title === "wishlist") return true;
+
+    return false;
+  }
+
   // Load my lists
   useEffect(() => {
     let cancelled = false;
@@ -267,8 +331,11 @@ export default function CollectionsPage({
       try {
         setMyListsLoading(true);
         setMyListsLoadError(null);
+
         const data = await fetchMyLists();
-        if (!cancelled) setMyLists(data);
+        const customOnly = (Array.isArray(data) ? data : []).filter((l) => !isSystemList(l));
+
+        if (!cancelled) setMyLists(customOnly);
       } catch (e) {
         if (!cancelled) setMyListsLoadError(e?.message || String(e));
       } finally {
@@ -277,23 +344,31 @@ export default function CollectionsPage({
     }
 
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [effectiveToken, isLoggedIn]);
 
-  // Load preview set cards for each list
-  useEffect(() => {
-    let cancelled = false;
+// Load preview set cards for each list
+useEffect(() => {
+  let cancelled = false;
 
-    async function loadListPreviews() {
-      if (!myLists || myLists.length === 0) {
-        setListPreviewSets({});
-        return;
-      }
+  async function loadListPreviews() {
+    if (!myLists || myLists.length === 0) {
+      setListPreviewSets({});
+      return;
+    }
 
+    try {
       const entries = await Promise.all(
         myLists.map(async (l) => {
-          const items = Array.isArray(l.items) ? l.items : [];
+          // ✅ Get the real items from /lists/:id
+          const detail = await fetchListDetail(l.id, effectiveToken);
+          const items = Array.isArray(detail?.items) ? detail.items : [];
+
           const first = items.slice(0, PREVIEW_COUNT);
           const full = await Promise.all(first.map((n) => fetchSetDetail(n, effectiveToken)));
+
           return [l.id, full.filter(Boolean)];
         })
       );
@@ -303,18 +378,20 @@ export default function CollectionsPage({
         for (const [id, sets] of entries) map[id] = sets;
         setListPreviewSets(map);
       }
+    } catch {
+      if (!cancelled) setListPreviewSets({});
     }
+  }
 
-    loadListPreviews();
-    return () => {
-      cancelled = true;
-    };
-  }, [myLists, effectiveToken]);
+  loadListPreviews();
+  return () => {
+    cancelled = true;
+  };
+}, [myLists, effectiveToken]);
 
   // ---------------- Create list (modal submit) ----------------
   async function submitCreateList(e) {
     e.preventDefault();
-
     if (!isLoggedIn) return;
 
     const title = newTitle.trim();
@@ -349,7 +426,6 @@ export default function CollectionsPage({
 
       const created = await resp.json();
 
-      // Put it at top in UI, then persist that order so backend matches.
       const optimistic = [created, ...myListsRef.current];
       setMyLists(optimistic);
 
@@ -429,13 +505,12 @@ export default function CollectionsPage({
         return copy;
       });
 
-      // keep backend order consistent
       if (remaining.length > 0) {
         try {
           const saved = await persistListOrder(remaining);
           setMyLists(saved);
         } catch {
-          // ignore reorder failure here; UI already updated
+          // ignore
         }
       }
     } catch (err) {
@@ -443,7 +518,7 @@ export default function CollectionsPage({
     }
   }
 
-  // ---------------- Desktop reorder ----------------
+  // ---------------- Desktop reorder (custom lists only) ----------------
   async function moveListDesktop(listId, dir) {
     if (!isLoggedIn || reorderSaving) return;
 
@@ -473,41 +548,209 @@ export default function CollectionsPage({
     }
   }
 
+  // ---------------- Section order (Owned/Wishlist + Lists) ----------------
+  const [sectionOrder, setSectionOrder] = useState(() =>
+    readJson(LS_COLLECTION_SECTION_ORDER, ["owned", "wishlist"])
+  );
+
+  useEffect(() => {
+    writeJson(LS_COLLECTION_SECTION_ORDER, sectionOrder);
+  }, [sectionOrder]);
+
+  const orderedSectionKeys = useMemo(() => {
+    const listsNow = isLoggedIn ? myLists : [];
+    return normalizeOrder(sectionOrder, listsNow);
+  }, [sectionOrder, myLists, isLoggedIn]);
+
+  const listIndexById = useMemo(() => {
+    const map = {};
+    (myLists || []).forEach((l, idx) => {
+      map[String(l.id)] = idx;
+    });
+    return map;
+  }, [myLists]);
+
   // ---------------- Mobile reorder sheet ----------------
   const [showReorderSheet, setShowReorderSheet] = useState(false);
   const [draftLists, setDraftLists] = useState([]);
 
+  function buildDraftFromKeys(keys) {
+    return (keys || []).map((k) => {
+      if (k === "owned") {
+        return { id: "owned", title: "Owned", meta: `${ownedNums.length === 1 ? "1 set" : `${ownedNums.length} sets`}` };
+      }
+      if (k === "wishlist") {
+        return { id: "wishlist", title: "Wishlist", meta: `${wishlistNums.length === 1 ? "1 set" : `${wishlistNums.length} sets`}` };
+      }
+
+      const listId = String(k).slice("list:".length);
+      const l = (myListsRef.current || []).find((x) => String(x.id) === String(listId));
+      const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
+
+      return {
+        id: k,
+        title: l?.title || `List ${listId}`,
+        meta: `${count === 1 ? "1 set" : `${count} sets`} · ${l?.is_public ? "Public" : "Private"}`,
+      };
+    });
+  }
+
   function openReorder() {
     setReorderError(null);
-    setDraftLists(myListsRef.current);
+    setDraftLists(buildDraftFromKeys(orderedSectionKeys));
     setShowReorderSheet(true);
   }
 
   async function saveReorderSheet() {
     if (!isLoggedIn || reorderSaving) return;
 
-    const prev = myListsRef.current;
-    const draft = draftLists;
+    const prevLists = myListsRef.current;
+    const nextKeys = (draftLists || []).map((x) => x.id);
 
-    setMyLists(draft); // optimistic
+    setSectionOrder(nextKeys);
+
+    const listIdsInOrder = nextKeys
+      .filter((k) => typeof k === "string" && k.startsWith("list:"))
+      .map((k) => k.slice("list:".length));
+
+    const nextLists = listIdsInOrder
+      .map((id) => prevLists.find((l) => String(l.id) === String(id)))
+      .filter(Boolean);
+
+    setMyLists(nextLists);
 
     try {
       setReorderSaving(true);
-      const saved = await persistListOrder(draft);
+      const saved = await persistListOrder(nextLists);
       setMyLists(saved);
       setShowReorderSheet(false);
     } catch (e) {
-      setMyLists(prev);
+      setMyLists(prevLists);
       setReorderError(e?.message || String(e));
     } finally {
       setReorderSaving(false);
     }
   }
 
-  const hasAny =
-    ownedDetails.length > 0 || wishlistDetails.length > 0 || (myLists && myLists.length > 0);
+  const hasAny = ownedDetails.length > 0 || wishlistDetails.length > 0 || (myLists && myLists.length > 0);
+  const showReorderButton = isLoggedIn && orderedSectionKeys.length > 1;
 
-  const showReorderButton = isLoggedIn && myLists.length > 1;
+  function renderSectionRow(key) {
+    if (key === "owned") {
+      return (
+        <CollectionRow
+          key="owned"
+          title="Owned"
+          totalCount={ownedNums.length}
+          sets={ownedDetails}
+          viewAllLabel="View all"
+          onViewAll={() => navigate("/collection/owned")}
+          emptyText="No owned sets yet."
+          cardProps={{ collectionFooter: "rating" }}
+        />
+      );
+    }
+
+    if (key === "wishlist") {
+      return (
+        <CollectionRow
+          key="wishlist"
+          title="Wishlist"
+          totalCount={wishlistNums.length}
+          sets={wishlistDetails}
+          viewAllLabel="View all"
+          onViewAll={() => navigate("/collection/wishlist")}
+          emptyText="No wishlist sets yet."
+          cardProps={{ collectionFooter: "shop" }}
+        />
+      );
+    }
+
+    if (typeof key === "string" && key.startsWith("list:")) {
+      const listId = key.slice("list:".length);
+      const l = myLists.find((x) => String(x.id) === String(listId));
+      if (!l) return null;
+
+      const idx = listIndexById[String(l.id)] ?? myLists.findIndex((x) => x.id === l.id);
+      const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
+      const sets = listPreviewSets[l.id] || [];
+
+      const desktopReorderButtons = (
+        <div style={{ display: "flex", gap: "0.35rem" }}>
+          <button
+            type="button"
+            onClick={() => moveListDesktop(l.id, -1)}
+            disabled={reorderSaving || idx === 0}
+            title="Move up"
+            style={{
+              padding: "0.25rem 0.55rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: reorderSaving || idx === 0 ? "not-allowed" : "pointer",
+              opacity: reorderSaving || idx === 0 ? 0.5 : 1,
+            }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={() => moveListDesktop(l.id, +1)}
+            disabled={reorderSaving || idx === myLists.length - 1}
+            title="Move down"
+            style={{
+              padding: "0.25rem 0.55rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: reorderSaving || idx === myLists.length - 1 ? "not-allowed" : "pointer",
+              opacity: reorderSaving || idx === myLists.length - 1 ? 0.5 : 1,
+            }}
+          >
+            ↓
+          </button>
+        </div>
+      );
+
+      const actions = (
+        <div
+          style={{
+            display: "flex",
+            gap: "0.35rem",
+            alignItems: "center",
+            position: "relative",
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {!isMobile && desktopReorderButtons}
+
+          <ListMenuButton
+            open={menuOpenFor === l.id}
+            onToggle={() => setMenuOpenFor((prev) => (prev === l.id ? null : l.id))}
+          />
+
+          {menuOpenFor === l.id && (
+            <ListMenuDropdown onEdit={() => openEditForList(l)} onDelete={() => handleDeleteList(l)} />
+          )}
+        </div>
+      );
+
+      return (
+        <CollectionRow
+          key={l.id}
+          title={l.title}
+          totalCount={count}
+          sets={sets}
+          viewAllLabel="View all"
+          onViewAll={() => navigate(`/lists/${l.id}`)}
+          emptyText="No sets in this list yet."
+          rightActions={actions}
+        />
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
@@ -587,7 +830,7 @@ export default function CollectionsPage({
         </p>
       )}
 
-      {/* ✅ Create list modal (from ?create=1) */}
+      {/* ✅ Create list modal */}
       {createOpen && (
         <div
           role="dialog"
@@ -678,127 +921,17 @@ export default function CollectionsPage({
         </div>
       )}
 
-      {/* Owned */}
-      <CollectionRow
-        title="Owned"
-        totalCount={ownedNums.length}
-        sets={ownedDetails}
-        viewAllLabel="View all"
-        onViewAll={() => navigate("/collection/owned")}
-        emptyText="No owned sets yet."
-        cardProps={{ collectionFooter: "rating" }}
-      />
+      {isLoggedIn && myListsLoading && <p style={{ marginTop: "1.25rem" }}>Loading your lists…</p>}
 
-      {/* Wishlist */}
-      <CollectionRow
-        title="Wishlist"
-        totalCount={wishlistNums.length}
-        sets={wishlistDetails}
-        viewAllLabel="View all"
-        onViewAll={() => navigate("/collection/wishlist")}
-        emptyText="No wishlist sets yet."
-        cardProps={{ collectionFooter: "shop" }}
-      />
-
-      {/* Custom lists */}
-      {isLoggedIn && (
-        <>
-          {myListsLoading && <p style={{ marginTop: "1.25rem" }}>Loading your lists…</p>}
-
-          {!myListsLoading && !myListsLoadError && myLists.length === 0 && (
-            <p style={{ marginTop: "1.25rem", color: "#777" }}>
-              No custom lists yet. Click <strong>Create list</strong> to make one.
-            </p>
-          )}
-
-          {!myListsLoading &&
-            !myListsLoadError &&
-            myLists.length > 0 &&
-            myLists.map((l, idx) => {
-              const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
-              const sets = listPreviewSets[l.id] || [];
-
-              const desktopReorderButtons = (
-                <div style={{ display: "flex", gap: "0.35rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => moveListDesktop(l.id, -1)}
-                    disabled={reorderSaving || idx === 0}
-                    title="Move up"
-                    style={{
-                      padding: "0.25rem 0.55rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ddd",
-                      background: "white",
-                      cursor: reorderSaving || idx === 0 ? "not-allowed" : "pointer",
-                      opacity: reorderSaving || idx === 0 ? 0.5 : 1,
-                    }}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveListDesktop(l.id, +1)}
-                    disabled={reorderSaving || idx === myLists.length - 1}
-                    title="Move down"
-                    style={{
-                      padding: "0.25rem 0.55rem",
-                      borderRadius: "999px",
-                      border: "1px solid #ddd",
-                      background: "white",
-                      cursor:
-                        reorderSaving || idx === myLists.length - 1 ? "not-allowed" : "pointer",
-                      opacity: reorderSaving || idx === myLists.length - 1 ? 0.5 : 1,
-                    }}
-                  >
-                    ↓
-                  </button>
-                </div>
-              );
-
-              const actions = (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "0.35rem",
-                    alignItems: "center",
-                    position: "relative",
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  {!isMobile && desktopReorderButtons}
-
-                  <ListMenuButton
-                    open={menuOpenFor === l.id}
-                    onToggle={() => setMenuOpenFor((prev) => (prev === l.id ? null : l.id))}
-                  />
-
-                  {menuOpenFor === l.id && (
-                    <ListMenuDropdown
-                      onEdit={() => openEditForList(l)}
-                      onDelete={() => handleDeleteList(l)}
-                    />
-                  )}
-                </div>
-              );
-
-              return (
-                <CollectionRow
-                  key={l.id}
-                  title={l.title}
-                  totalCount={count}
-                  sets={sets}
-                  viewAllLabel="View all"
-                  onViewAll={() => navigate(`/lists/${l.id}`)}
-                  emptyText="No sets in this list yet."
-                  rightActions={actions}
-                />
-              );
-            })}
-        </>
+      {isLoggedIn && !myListsLoading && !myListsLoadError && myLists.length === 0 && (
+        <p style={{ marginTop: "1.25rem", color: "#777" }}>
+          No custom lists yet. Click <strong>Create list</strong> to make one.
+        </p>
       )}
 
-      {/* Mobile reorder sheet */}
+      {/* ✅ Render in chosen order */}
+      {orderedSectionKeys.map(renderSectionRow)}
+
       <ReorderSheet
         open={showReorderSheet}
         onClose={() => setShowReorderSheet(false)}
@@ -809,7 +942,6 @@ export default function CollectionsPage({
         error={reorderError}
       />
 
-      {/* Edit modal */}
       <EditListModal
         open={editOpen}
         title={editTitle}
@@ -827,7 +959,7 @@ export default function CollectionsPage({
   );
 }
 
-// ---------------- UI: reusable horizontal row ----------------
+// ---------------- UI: reusable horizontal row (WITH ARROWS) ----------------
 function CollectionRow({
   title,
   totalCount,
@@ -839,6 +971,43 @@ function CollectionRow({
   cardProps = {},
 }) {
   const preview = Array.isArray(sets) ? sets.slice(0, PREVIEW_COUNT) : [];
+
+  const scrollerRef = useRef(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  function updateArrows() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    setCanLeft(el.scrollLeft > 2);
+    setCanRight(el.scrollLeft < maxScrollLeft - 2);
+  }
+
+  useEffect(() => {
+    updateArrows();
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    const onScroll = () => updateArrows();
+    el.addEventListener("scroll", onScroll, { passive: true });
+
+    const onResize = () => updateArrows();
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview.length]);
+
+  function scrollByDir(dir) {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const amount = Math.round(el.clientWidth * 0.85);
+    el.scrollBy({ left: dir * amount, behavior: "smooth" });
+  }
 
   return (
     <section style={{ marginTop: "1.75rem" }}>
@@ -882,31 +1051,97 @@ function CollectionRow({
       {preview.length === 0 ? (
         <p style={{ margin: 0, color: "#777" }}>{emptyText}</p>
       ) : (
-        <div style={{ overflowX: "auto", paddingBottom: "0.5rem" }}>
-          <ul
+        <div style={{ position: "relative" }}>
+          {/* Left arrow */}
+          <button
+            type="button"
+            onClick={() => scrollByDir(-1)}
+            disabled={!canLeft}
+            aria-label="Scroll left"
+            title="Scroll left"
             style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              display: "flex",
-              gap: "0.75rem",
-              alignItems: "stretch",
+              position: "absolute",
+              left: -6,
+              top: "50%",
+              transform: "translateY(-50%)",
+              zIndex: 5,
+              width: 34,
+              height: 34,
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: canLeft ? "pointer" : "not-allowed",
+              opacity: canLeft ? 1 : 0.35,
+              display: "grid",
+              placeItems: "center",
             }}
           >
-            {preview.map((set) => (
-              <li
-                key={set?.set_num || `${title}-${Math.random()}`}
-                style={{
-                  minWidth: "220px",
-                  maxWidth: "220px",
-                  flex: "0 0 auto",
-                  display: "flex",
-                }}
-              >
-                <SetCard set={set} variant="collection" {...cardProps} />
-              </li>
-            ))}
-          </ul>
+            ‹
+          </button>
+
+          {/* Right arrow */}
+          <button
+            type="button"
+            onClick={() => scrollByDir(+1)}
+            disabled={!canRight}
+            aria-label="Scroll right"
+            title="Scroll right"
+            style={{
+              position: "absolute",
+              right: -6,
+              top: "50%",
+              transform: "translateY(-50%)",
+              zIndex: 5,
+              width: 34,
+              height: 34,
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: canRight ? "pointer" : "not-allowed",
+              opacity: canRight ? 1 : 0.35,
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            ›
+          </button>
+
+          {/* Scroll area */}
+          <div
+            ref={scrollerRef}
+            style={{
+              overflowX: "auto",
+              paddingBottom: "0.5rem",
+              scrollBehavior: "smooth",
+              paddingLeft: 18,
+              paddingRight: 18,
+            }}
+          >
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "stretch",
+              }}
+            >
+              {preview.map((set, idx) => (
+                <li
+                  key={set?.set_num ? `${set.set_num}-${idx}` : `${title}-${idx}`}
+                  style={{
+                    minWidth: "220px",
+                    maxWidth: "220px",
+                    flex: "0 0 auto",
+                    display: "flex",
+                  }}
+                >
+                  <SetCard set={set} variant="collection" {...cardProps} />
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
     </section>
@@ -968,9 +1203,9 @@ function ReorderSheet({ open, onClose, draftLists, setDraftLists, onSave, saving
           }}
         >
           <div>
-            <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>Reorder lists</div>
+            <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>Reorder sections</div>
             <div style={{ color: "#666", fontSize: "0.9rem", marginTop: "0.15rem" }}>
-              Move lists up/down, then hit Save.
+              Move Owned / Wishlist / Lists up/down, then hit Save.
             </div>
           </div>
 
@@ -1020,8 +1255,7 @@ function ReorderSheet({ open, onClose, draftLists, setDraftLists, onSave, saving
                   {l.title}
                 </div>
                 <div style={{ color: "#777", fontSize: "0.85rem", marginTop: "0.15rem" }}>
-                  {l.items_count ?? (Array.isArray(l.items) ? l.items.length : 0)} sets ·{" "}
-                  {l.is_public ? "Public" : "Private"}
+                  {l.meta || ""}
                 </div>
               </div>
 
@@ -1271,11 +1505,7 @@ function EditListModal({
           </label>
 
           <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
-            />
+            <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
             <span style={{ fontSize: "0.9rem", color: "#333" }}>Public (shows up in Explore)</span>
           </label>
 
