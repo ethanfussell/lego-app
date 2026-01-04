@@ -2,10 +2,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SetCard from "./SetCard";
-import { useToast } from "./Toast";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
+/* ---------------------------
+   small helpers
+----------------------------*/
 function getStoredToken() {
   try {
     return localStorage.getItem("lego_token") || "";
@@ -17,8 +19,7 @@ function getStoredToken() {
 function getUsernameFromToken(token) {
   if (!token) return null;
   const prefix = "fake-token-for-";
-  if (token.startsWith(prefix)) return token.slice(prefix.length);
-  return token;
+  return token.startsWith(prefix) ? token.slice(prefix.length) : token;
 }
 
 async function apiFetch(path, { token, ...opts } = {}) {
@@ -27,11 +28,8 @@ async function apiFetch(path, { token, ...opts } = {}) {
   return fetch(`${API_BASE}${path}`, { ...opts, headers });
 }
 
-async function fetchSetDetail(setNum, token) {
+async function safeJson(resp) {
   try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
-    if (!resp.ok) return null;
     return await resp.json();
   } catch {
     return null;
@@ -51,16 +49,29 @@ function sortSets(arr, sortKey) {
 
   if (sortKey === "name_asc") items.sort(byName);
   else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
-  else if (sortKey === "year_desc") items.sort((a, b) => (Number(b?.year || 0) - Number(a?.year || 0)) || byName(a, b));
-  else if (sortKey === "year_asc") items.sort((a, b) => (Number(a?.year || 0) - Number(b?.year || 0)) || byName(a, b));
-  else if (sortKey === "pieces_desc") items.sort((a, b) => (Number(b?.pieces || 0) - Number(a?.pieces || 0)) || byName(a, b));
-  else if (sortKey === "pieces_asc") items.sort((a, b) => (Number(a?.pieces || 0) - Number(b?.pieces || 0)) || byName(a, b));
-  else if (sortKey === "rating_desc") items.sort((a, b) => (Number(b?.rating || 0) - Number(a?.rating || 0)) || byName(a, b));
-  else if (sortKey === "rating_asc") items.sort((a, b) => (Number(a?.rating || 0) - Number(b?.rating || 0)) || byName(a, b));
+  else if (sortKey === "year_desc")
+    items.sort((a, b) => Number(b?.year || 0) - Number(a?.year || 0) || byName(a, b));
+  else if (sortKey === "year_asc")
+    items.sort((a, b) => Number(a?.year || 0) - Number(b?.year || 0) || byName(a, b));
+  else if (sortKey === "pieces_desc")
+    items.sort((a, b) => Number(b?.pieces || 0) - Number(a?.pieces || 0) || byName(a, b));
+  else if (sortKey === "pieces_asc")
+    items.sort((a, b) => Number(a?.pieces || 0) - Number(b?.pieces || 0) || byName(a, b));
+  else if (sortKey === "rating_desc")
+    items.sort(
+      (a, b) => Number(b?.average_rating || 0) - Number(a?.average_rating || 0) || byName(a, b)
+    );
+  else if (sortKey === "rating_asc")
+    items.sort(
+      (a, b) => Number(a?.average_rating || 0) - Number(b?.average_rating || 0) || byName(a, b)
+    );
 
   return items;
 }
 
+/* ==========================================================
+   Page
+==========================================================*/
 export default function ListDetailPage({
   token,
   ownedSetNums,
@@ -70,108 +81,259 @@ export default function ListDetailPage({
 }) {
   const { listId } = useParams();
   const navigate = useNavigate();
-  const { push: toast } = useToast();
 
   const effectiveToken = token || getStoredToken();
   const currentUsername = useMemo(() => getUsernameFromToken(effectiveToken), [effectiveToken]);
 
   const [list, setList] = useState(null);
-  const [listLoading, setListLoading] = useState(true);
+
+  // "loading" | "ok" | "not_found" | "error"
+  const [listStatus, setListStatus] = useState("loading");
   const [listError, setListError] = useState(null);
 
   const [setDetails, setSetDetails] = useState([]);
   const [setsLoading, setSetsLoading] = useState(false);
   const [setsError, setSetsError] = useState(null);
 
-  // ✅ Sort feature (same style as owned/wishlist)
   const [sortKey, setSortKey] = useState("name_asc");
   const sortedSetDetails = useMemo(() => sortSets(setDetails, sortKey), [setDetails, sortKey]);
 
   const isOwner = !!list?.owner && !!currentUsername && list.owner === currentUsername;
 
-  async function loadList() {
+  /* ---------------------------
+     Load list with invisibility rule:
+     - Try without auth first (public lists)
+     - If 404 and we have token, retry with auth (might be your private list)
+     - Otherwise: 404 => not_found
+  ----------------------------*/
+  async function fetchListWithRules({ cancelled }) {
     if (!listId) return null;
 
-    setListLoading(true);
+    setListStatus("loading");
     setListError(null);
+    setList(null);
+    setSetDetails([]);
+    setSetsError(null);
+
+    const path = `/lists/${encodeURIComponent(listId)}`;
+
+    const tryResp = async (withToken) => {
+      const resp = await apiFetch(path, withToken ? { token: effectiveToken } : undefined);
+      return resp;
+    };
 
     try {
-      const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
-        token: effectiveToken || "",
-      });
+      // 1) public attempt (no auth)
+      let resp = await tryResp(false);
 
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Failed to load list (${resp.status}): ${text}`);
+      // If it looks missing but we have a token, try authed once.
+      if (resp.status === 404 && effectiveToken) {
+        resp = await tryResp(true);
       }
 
-      const data = await resp.json();
-      setList(data);
-      return data;
+      if (cancelled()) return null;
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (cancelled()) return null;
+        setList(data);
+        setListStatus("ok");
+        return data;
+      }
+
+      if (resp.status === 404) {
+        // ✅ includes: private list (not owner / logged out), bad id, etc.
+        setListStatus("not_found");
+        return null;
+      }
+
+      // other errors
+      const body = await safeJson(resp);
+      setListStatus("error");
+      setListError(body?.detail || `Failed to load list (status ${resp.status})`);
+      return null;
     } catch (err) {
-      setList(null);
-      setSetDetails([]);
+      if (cancelled()) return null;
+      setListStatus("error");
       setListError(err?.message || String(err));
       return null;
-    } finally {
-      setListLoading(false);
     }
   }
 
-  async function loadSetCards(listData) {
+  async function removeFromList(setNum) {
+    if (!effectiveToken) {
+      alert("Log in to edit your lists.");
+      navigate("/login");
+      return;
+    }
+  
+    // optimistic UI
+    setSetDetails((prev) => prev.filter((s) => s?.set_num !== setNum));
+  
+    try {
+      const resp = await apiFetch(
+        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
+        { token: effectiveToken, method: "DELETE" }
+      );
+  
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Remove failed (${resp.status}): ${text}`);
+      }
+  
+      // also update list count (optional but nice)
+      setList((prev) =>
+        prev ? { ...prev, items_count: Math.max(0, countForList(prev) - 1) } : prev
+      );
+    } catch (e) {
+      // rollback by refetching (simple + reliable)
+      setSetsError(e?.message || String(e));
+      const data = await fetchListWithRules({ cancelled: () => false });
+      if (data) await loadSetCards(data, { cancelled: () => false });
+    }
+  }
+
+  /* ---------------------------
+     Load set cards using bulk endpoint
+  ----------------------------*/
+  async function loadSetCards(listData, { cancelled }) {
     const items = Array.isArray(listData?.items) ? listData.items : [];
+    if (items.length === 0) {
+      setSetDetails([]);
+      return;
+    }
 
     setSetsLoading(true);
     setSetsError(null);
 
     try {
-      const results = await Promise.all(items.map((n) => fetchSetDetail(n, effectiveToken)));
-      const ok = results.filter(Boolean);
+      const chunkSize = 40;
+      const results = [];
 
-      if (ok.length !== items.length && items.length > 0) {
-        setSetsError(`Loaded ${ok.length}/${items.length} sets (some set numbers may not exist yet).`);
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+
+        const params = new URLSearchParams();
+        params.set("set_nums", chunk.join(","));
+
+        const resp = await apiFetch(`/sets/bulk?${params.toString()}`, {
+          token: effectiveToken ? effectiveToken : undefined,
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to load sets (${resp.status}): ${text}`);
+        }
+
+        const data = await resp.json();
+        if (Array.isArray(data)) results.push(...data);
+
+        if (cancelled()) return;
       }
 
-      setSetDetails(ok);
+      if (cancelled()) return;
+
+      // Preserve list order; bulk may skip missing
+      const byNum = new Map(results.map((s) => [s.set_num, s]));
+      const ordered = items.map((n) => byNum.get(n)).filter(Boolean);
+
+      if (ordered.length !== items.length) {
+        setSetsError(`Loaded ${ordered.length}/${items.length} sets (some set numbers may not exist yet).`);
+      }
+
+      setSetDetails(ordered);
     } catch (err) {
+      if (cancelled()) return;
       setSetDetails([]);
       setSetsError(err?.message || String(err));
     } finally {
-      setSetsLoading(false);
+      if (!cancelled()) setSetsLoading(false);
     }
   }
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelledFlag = false;
+    const cancelled = () => cancelledFlag;
 
     (async () => {
-      const data = await loadList();
-      if (cancelled) return;
-      if (data) await loadSetCards(data);
+      const data = await fetchListWithRules({ cancelled });
+      if (cancelled()) return;
+      if (data) await loadSetCards(data, { cancelled });
     })();
 
     return () => {
-      cancelled = true;
+      cancelledFlag = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listId, effectiveToken]);
 
-  if (listLoading) return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
+  /* ---------------------------
+     UI states
+  ----------------------------*/
+  if (listStatus === "loading") {
+    return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
+  }
 
-  if (listError) {
+  if (listStatus === "not_found") {
     return (
       <div style={{ padding: "1.5rem" }}>
-        <p style={{ color: "red" }}>Error: {listError}</p>
-        <button onClick={() => navigate(-1)}>← Back</button>
+        <p style={{ marginTop: 0 }}>List not found.</p>
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #ddd",
+            background: "white",
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          ← Back
+        </button>
       </div>
     );
   }
 
+  if (listStatus === "error") {
+    return (
+      <div style={{ padding: "1.5rem" }}>
+        <p style={{ color: "red", marginTop: 0 }}>Error: {listError || "Something went wrong."}</p>
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #ddd",
+            background: "white",
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  // listStatus === "ok"
   if (!list) {
     return (
       <div style={{ padding: "1.5rem" }}>
-        <p>List not found.</p>
-        <button onClick={() => navigate(-1)}>← Back</button>
+        <p style={{ marginTop: 0 }}>List not found.</p>
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #ddd",
+            background: "white",
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          ← Back
+        </button>
       </div>
     );
   }
@@ -180,7 +342,6 @@ export default function ListDetailPage({
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-      {/* ✅ Back button already matches */}
       <button
         onClick={() => navigate(-1)}
         style={{
@@ -197,20 +358,17 @@ export default function ListDetailPage({
 
       <h1 style={{ margin: 0 }}>{list.title}</h1>
 
-      {/* ✅ Hide your name if you're the owner */}
       <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
         {!isOwner && (
           <>
             By <strong>{list.owner}</strong> ·{" "}
           </>
         )}
-        <strong>{list.is_public ? "Public" : "Private"}</strong> ·{" "}
-        <strong>{totalCount}</strong> set{totalCount === 1 ? "" : "s"}
+        <strong>{list.is_public ? "Public" : "Private"}</strong> · <strong>{totalCount}</strong>{" "}
+        set{totalCount === 1 ? "" : "s"}
       </p>
 
       {list.description && <p style={{ marginTop: "0.75rem", color: "#444" }}>{list.description}</p>}
-
-      {/* ✅ Removed the "Edit list" panel entirely */}
 
       <section style={{ marginTop: "1.5rem" }}>
         <div
@@ -225,7 +383,6 @@ export default function ListDetailPage({
         >
           <h2 style={{ fontSize: "1.05rem", margin: 0 }}>Sets</h2>
 
-          {/* ✅ Sort dropdown added */}
           <label style={{ color: "#444", fontSize: "0.9rem" }}>
             Sort{" "}
             <select
@@ -248,9 +405,7 @@ export default function ListDetailPage({
         {setsLoading && <p>Loading sets…</p>}
         {setsError && <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>{setsError}</p>}
 
-        {!setsLoading && sortedSetDetails.length === 0 && (
-          <p style={{ color: "#777" }}>No sets in this list yet.</p>
-        )}
+        {!setsLoading && sortedSetDetails.length === 0 && <p style={{ color: "#777" }}>No sets in this list yet.</p>}
 
         {!setsLoading && sortedSetDetails.length > 0 && (
           <ul
@@ -265,9 +420,36 @@ export default function ListDetailPage({
             }}
           >
             {sortedSetDetails.map((set) => (
-              <li key={set.set_num} style={{ maxWidth: 260 }}>
+              <li key={set.set_num} style={{ maxWidth: 260, position: "relative" }}>
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFromList(set.set_num);
+                    }}
+                    title="Remove from this list"
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: 10,
+                      zIndex: 5,
+                      width: 34,
+                      height: 34,
+                      borderRadius: "999px",
+                      border: "1px solid #e5e7eb",
+                      background: "white",
+                      cursor: "pointer",
+                      fontWeight: 900,
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+
                 <SetCard
                   set={set}
+                  token={effectiveToken}
                   isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
                   isInWishlist={wishlistSetNums ? wishlistSetNums.has(set.set_num) : false}
                   onMarkOwned={onMarkOwned}

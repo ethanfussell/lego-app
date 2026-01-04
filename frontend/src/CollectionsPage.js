@@ -4,29 +4,18 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "./Toast";
 import SetCard from "./SetCard";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 const PREVIEW_COUNT = 10;
 
 const LS_COLLECTION_SECTION_ORDER = "lego_collection_section_order_v1";
 
-// ---------------- utils ----------------
+/* ---------------- utils ---------------- */
 function getStoredToken() {
   try {
     if (typeof window === "undefined") return "";
     return localStorage.getItem("lego_token") || "";
   } catch {
     return "";
-  }
-}
-
-async function fetchSetDetail(setNum, token) {
-  try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const resp = await fetch(`${API_BASE}/sets/${encodeURIComponent(setNum)}`, { headers });
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch {
-    return null;
   }
 }
 
@@ -38,6 +27,27 @@ async function fetchListDetail(listId, token) {
     return await resp.json(); // has .items
   } catch {
     return null;
+  }
+}
+
+// ✅ Faster: one request for many sets (preserves order)
+async function fetchSetsBulk(setNums, token) {
+  try {
+    const nums = (Array.isArray(setNums) ? setNums : []).filter(Boolean);
+    if (nums.length === 0) return [];
+
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const qs = encodeURIComponent(nums.join(","));
+    const resp = await fetch(`${API_BASE}/sets/bulk?set_nums=${qs}`, { headers });
+
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    if (!Array.isArray(data)) return [];
+
+    const byNum = new Map(data.map((s) => [s.set_num, s]));
+    return nums.map((n) => byNum.get(n)).filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
@@ -110,7 +120,7 @@ function normalizeOrder(savedOrder, listsNow) {
   return cleaned;
 }
 
-// ---------------- main page ----------------
+/* ---------------- main page ---------------- */
 export default function CollectionsPage({ ownedSets = [], wishlistSets = [], token }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -132,7 +142,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return src.map((x) => (typeof x === "string" ? x : x?.set_num)).filter(Boolean);
   }, [wishlistSets]);
 
-  // ---------------- Create list modal via ?create=1 ----------------
+  /* ---------------- Create list modal via ?create=1 ---------------- */
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
@@ -158,7 +168,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     navigate("/collection", { replace: true });
   }
 
-  // ---------------- Menu + edit/delete state ----------------
+  /* ---------------- Menu + edit/delete state ---------------- */
   const [menuOpenFor, setMenuOpenFor] = useState(null);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -179,7 +189,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, []);
 
-  // ---------------- API helpers ----------------
+  /* ---------------- API helpers ---------------- */
   async function apiUpdateList(listId, payload) {
     const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
       method: "PATCH",
@@ -252,7 +262,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return Array.isArray(data) ? data : orderedLists;
   }
 
-  // ---------------- Previews: owned/wishlist ----------------
+  /* ---------------- Previews: owned/wishlist (bulk) ---------------- */
   const [ownedDetails, setOwnedDetails] = useState([]);
   const [wishlistDetails, setWishlistDetails] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -267,13 +277,13 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
         setCollectionError(null);
 
         const [ownedFull, wishlistFull] = await Promise.all([
-          Promise.all(ownedNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
-          Promise.all(wishlistNums.slice(0, PREVIEW_COUNT).map((n) => fetchSetDetail(n, effectiveToken))),
+          fetchSetsBulk(ownedNums.slice(0, PREVIEW_COUNT), effectiveToken),
+          fetchSetsBulk(wishlistNums.slice(0, PREVIEW_COUNT), effectiveToken),
         ]);
 
         if (!cancelled) {
-          setOwnedDetails(ownedFull.filter(Boolean));
-          setWishlistDetails(wishlistFull.filter(Boolean));
+          setOwnedDetails(ownedFull);
+          setWishlistDetails(wishlistFull);
         }
       } catch (err) {
         if (!cancelled) setCollectionError(err?.message || String(err));
@@ -288,7 +298,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     };
   }, [ownedNums, wishlistNums, effectiveToken]);
 
-  // ---------------- Lists ----------------
+  /* ---------------- Lists ---------------- */
   const [myLists, setMyLists] = useState([]);
   const myListsRef = useRef([]);
   useEffect(() => {
@@ -303,7 +313,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
 
   const [listPreviewSets, setListPreviewSets] = useState({}); // { [listId]: [setObj,...] }
 
-  // You said you're filtering out Owned/Wishlist “system lists” from custom lists:
+  // Filter out Owned/Wishlist “system lists” from custom lists
   function isSystemList(l) {
     if (!l) return false;
     if (l.is_system || l.isSystem || l.system) return true;
@@ -349,47 +359,45 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     };
   }, [effectiveToken, isLoggedIn]);
 
-// Load preview set cards for each list
-useEffect(() => {
-  let cancelled = false;
+  // Load preview set cards for each list (detail -> first 10 -> bulk)
+  useEffect(() => {
+    let cancelled = false;
 
-  async function loadListPreviews() {
-    if (!myLists || myLists.length === 0) {
-      setListPreviewSets({});
-      return;
-    }
-
-    try {
-      const entries = await Promise.all(
-        myLists.map(async (l) => {
-          // ✅ Get the real items from /lists/:id
-          const detail = await fetchListDetail(l.id, effectiveToken);
-          const items = Array.isArray(detail?.items) ? detail.items : [];
-
-          const first = items.slice(0, PREVIEW_COUNT);
-          const full = await Promise.all(first.map((n) => fetchSetDetail(n, effectiveToken)));
-
-          return [l.id, full.filter(Boolean)];
-        })
-      );
-
-      if (!cancelled) {
-        const map = {};
-        for (const [id, sets] of entries) map[id] = sets;
-        setListPreviewSets(map);
+    async function loadListPreviews() {
+      if (!isLoggedIn || !myLists || myLists.length === 0) {
+        setListPreviewSets({});
+        return;
       }
-    } catch {
-      if (!cancelled) setListPreviewSets({});
+
+      try {
+        const entries = await Promise.all(
+          myLists.map(async (l) => {
+            const detail = await fetchListDetail(l.id, effectiveToken);
+            const items = Array.isArray(detail?.items) ? detail.items : [];
+            const first = items.slice(0, PREVIEW_COUNT);
+
+            const sets = await fetchSetsBulk(first, effectiveToken);
+            return [l.id, sets];
+          })
+        );
+
+        if (!cancelled) {
+          const map = {};
+          for (const [id, sets] of entries) map[id] = sets;
+          setListPreviewSets(map);
+        }
+      } catch {
+        if (!cancelled) setListPreviewSets({});
+      }
     }
-  }
 
-  loadListPreviews();
-  return () => {
-    cancelled = true;
-  };
-}, [myLists, effectiveToken]);
+    loadListPreviews();
+    return () => {
+      cancelled = true;
+    };
+  }, [myLists, effectiveToken, isLoggedIn]);
 
-  // ---------------- Create list (modal submit) ----------------
+  /* ---------------- Create list (modal submit) ---------------- */
   async function submitCreateList(e) {
     e.preventDefault();
     if (!isLoggedIn) return;
@@ -446,7 +454,7 @@ useEffect(() => {
     }
   }
 
-  // ---------------- Edit/Delete ----------------
+  /* ---------------- Edit/Delete ---------------- */
   function openEditForList(list) {
     setMenuOpenFor(null);
     setEditTarget(list);
@@ -518,7 +526,7 @@ useEffect(() => {
     }
   }
 
-  // ---------------- Desktop reorder (custom lists only) ----------------
+  /* ---------------- Desktop reorder (custom lists only) ---------------- */
   async function moveListDesktop(listId, dir) {
     if (!isLoggedIn || reorderSaving) return;
 
@@ -548,7 +556,7 @@ useEffect(() => {
     }
   }
 
-  // ---------------- Section order (Owned/Wishlist + Lists) ----------------
+  /* ---------------- Section order (Owned/Wishlist + Lists) ---------------- */
   const [sectionOrder, setSectionOrder] = useState(() =>
     readJson(LS_COLLECTION_SECTION_ORDER, ["owned", "wishlist"])
   );
@@ -570,17 +578,19 @@ useEffect(() => {
     return map;
   }, [myLists]);
 
-  // ---------------- Mobile reorder sheet ----------------
+  /* ---------------- Mobile reorder sheet ---------------- */
   const [showReorderSheet, setShowReorderSheet] = useState(false);
   const [draftLists, setDraftLists] = useState([]);
 
   function buildDraftFromKeys(keys) {
     return (keys || []).map((k) => {
       if (k === "owned") {
-        return { id: "owned", title: "Owned", meta: `${ownedNums.length === 1 ? "1 set" : `${ownedNums.length} sets`}` };
+        const n = ownedNums.length;
+        return { id: "owned", title: "Owned", meta: `Private • ${n === 1 ? "1 set" : `${n} sets`}` };
       }
       if (k === "wishlist") {
-        return { id: "wishlist", title: "Wishlist", meta: `${wishlistNums.length === 1 ? "1 set" : `${wishlistNums.length} sets`}` };
+        const n = wishlistNums.length;
+        return { id: "wishlist", title: "Wishlist", meta: `Private • ${n === 1 ? "1 set" : `${n} sets`}` };
       }
 
       const listId = String(k).slice("list:".length);
@@ -590,7 +600,7 @@ useEffect(() => {
       return {
         id: k,
         title: l?.title || `List ${listId}`,
-        meta: `${count === 1 ? "1 set" : `${count} sets`} · ${l?.is_public ? "Public" : "Private"}`,
+        meta: `${l?.is_public ? "Public" : "Private"} • ${count === 1 ? "1 set" : `${count} sets`}`,
       };
     });
   }
@@ -641,12 +651,13 @@ useEffect(() => {
         <CollectionRow
           key="owned"
           title="Owned"
+          visibility="Private"
           totalCount={ownedNums.length}
           sets={ownedDetails}
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/owned")}
           emptyText="No owned sets yet."
-          cardProps={{ collectionFooter: "rating" }}
+          cardProps={{ collectionFooter: "rating", token: effectiveToken }}
         />
       );
     }
@@ -656,12 +667,13 @@ useEffect(() => {
         <CollectionRow
           key="wishlist"
           title="Wishlist"
+          visibility="Private"
           totalCount={wishlistNums.length}
           sets={wishlistDetails}
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/wishlist")}
           emptyText="No wishlist sets yet."
-          cardProps={{ collectionFooter: "shop" }}
+          cardProps={{ collectionFooter: "shop", token: effectiveToken }}
         />
       );
     }
@@ -739,12 +751,14 @@ useEffect(() => {
         <CollectionRow
           key={l.id}
           title={l.title}
+          visibility={l?.is_public ? "Public" : "Private"}
           totalCount={count}
           sets={sets}
           viewAllLabel="View all"
           onViewAll={() => navigate(`/lists/${l.id}`)}
           emptyText="No sets in this list yet."
           rightActions={actions}
+          cardProps={{ token: effectiveToken }}
         />
       );
     }
@@ -812,9 +826,7 @@ useEffect(() => {
       </div>
 
       {!isLoggedIn && (
-        <p style={{ marginTop: "0.75rem", color: "#777" }}>
-          Log in to create and view your custom lists here.
-        </p>
+        <p style={{ marginTop: "0.75rem", color: "#777" }}>Log in to create and view your custom lists here.</p>
       )}
 
       {loading && <p>Loading collection…</p>}
@@ -830,7 +842,7 @@ useEffect(() => {
         </p>
       )}
 
-      {/* ✅ Create list modal */}
+      {/* Create list modal */}
       {createOpen && (
         <div
           role="dialog"
@@ -929,7 +941,7 @@ useEffect(() => {
         </p>
       )}
 
-      {/* ✅ Render in chosen order */}
+      {/* Render in chosen order */}
       {orderedSectionKeys.map(renderSectionRow)}
 
       <ReorderSheet
@@ -959,9 +971,10 @@ useEffect(() => {
   );
 }
 
-// ---------------- UI: reusable horizontal row (WITH ARROWS) ----------------
+/* ---------------- UI: reusable horizontal row (WITH ARROWS) ---------------- */
 function CollectionRow({
   title,
+  visibility, // "Public" | "Private"
   totalCount,
   sets,
   viewAllLabel,
@@ -1023,6 +1036,7 @@ function CollectionRow({
         <div>
           <h2 style={{ margin: 0, fontSize: "1.05rem" }}>{title}</h2>
           <p style={{ margin: "0.2rem 0 0 0", color: "#777", fontSize: "0.9rem" }}>
+            {visibility ? `${visibility} • ` : ""}
             {totalCount === 1 ? "1 set" : `${totalCount} sets`}
           </p>
         </div>
@@ -1137,7 +1151,12 @@ function CollectionRow({
                     display: "flex",
                   }}
                 >
-                  <SetCard set={set} variant="collection" {...cardProps} />
+                  <SetCard
+                    set={set}
+                    token={cardProps?.token}
+                    variant="collection"
+                    {...cardProps}
+                  />
                 </li>
               ))}
             </ul>
@@ -1148,7 +1167,7 @@ function CollectionRow({
   );
 }
 
-// ---------------- UI: mobile reorder sheet ----------------
+/* ---------------- UI: mobile reorder sheet ---------------- */
 function ReorderSheet({ open, onClose, draftLists, setDraftLists, onSave, saving, error }) {
   if (!open) return null;
 
@@ -1320,7 +1339,7 @@ function ReorderSheet({ open, onClose, draftLists, setDraftLists, onSave, saving
   );
 }
 
-// ---------------- UI: list menu + edit modal ----------------
+/* ---------------- UI: list menu + edit modal ---------------- */
 function ListMenuButton({ open, onToggle }) {
   return (
     <button

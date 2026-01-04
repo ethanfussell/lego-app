@@ -2,8 +2,18 @@
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column, String, Integer, Text, DateTime, ForeignKey,
-    Numeric, BigInteger, CheckConstraint, UniqueConstraint, Index
+    Column,
+    String,
+    Integer,
+    Text,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    BigInteger,
+    CheckConstraint,
+    UniqueConstraint,
+    Index,
+    Boolean,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -19,16 +29,17 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    collections = relationship(
-        "Collection",
+
+    reviews = relationship(
+        "Review",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
-    reviews = relationship(
-        "Review",
-        back_populates="user",
+    lists = relationship(
+        "List",
+        back_populates="owner",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
@@ -45,12 +56,6 @@ class Set(Base):
     image_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    collections = relationship(
-        "Collection",
-        back_populates="set",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
 
     reviews = relationship(
         "Review",
@@ -74,10 +79,6 @@ class Review(Base):
 
     user = relationship("User", back_populates="reviews")
     set = relationship("Set", back_populates="reviews")
-    updated_at = Column(DateTime(timezone=True), nullable=True)
-
-    user = relationship("User", back_populates="reviews")
-    set = relationship("Set", back_populates="reviews")
 
     __table_args__ = (
         UniqueConstraint("user_id", "set_num", name="reviews_user_set_unique"),
@@ -86,20 +87,51 @@ class Review(Base):
     )
 
 
-class Collection(Base):
-    __tablename__ = "collections"
 
-    # composite PK matches your DB: (user_id, set_num, type)
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    set_num = Column(String, ForeignKey("sets.set_num", ondelete="CASCADE"), primary_key=True)
-    type = Column(String, primary_key=True)  # 'owned' or 'wishlist'
+class List(Base):
+    __tablename__ = "lists"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    is_public = Column(Boolean, nullable=False, server_default="true")
+
+    position = Column(Integer, nullable=False, server_default="0")
+
+    is_system = Column(Boolean, nullable=False, server_default="false")
+    system_key = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    user = relationship("User", back_populates="collections")
-    set = relationship("Set", back_populates="collections")
+    owner = relationship("User", back_populates="lists")
+
+    items = relationship(
+        "ListItem",
+        back_populates="list",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
-        CheckConstraint("type in ('owned','wishlist')", name="collections_type_check"),
-        Index("idx_collections_user_id", "user_id"),
-        Index("idx_collections_set_num", "set_num"),
+        Index("idx_lists_owner_position", "owner_id", "position"),
+    )
+
+
+class ListItem(Base):
+    __tablename__ = "list_items"
+
+    list_id = Column(BigInteger, ForeignKey("lists.id", ondelete="CASCADE"), primary_key=True)
+    set_num = Column(String, ForeignKey("sets.set_num", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    position = Column(Integer, nullable=True)
+    
+    list = relationship("List", back_populates="items")
+    set = relationship("Set")
+
+    __table_args__ = (
+        Index("idx_list_items_list_id", "list_id"),
+        Index("idx_list_items_set_num", "set_num"),
     )

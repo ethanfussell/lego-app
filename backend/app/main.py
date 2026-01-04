@@ -13,16 +13,19 @@ from .routers import reviews as reviews_router
 from .routers import sets as sets_router
 from .routers import users as users_router
 
+
 app = FastAPI(title="LEGO API")
 
 # ---- CORS ----
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Total-Count"],
+    allow_methods=["*"],            # includes DELETE + OPTIONS
+    allow_headers=["*"],            # includes Authorization
+    expose_headers=["X-Total-Count"]  # optional if you use that header
 )
 
 # ---- basic routes ----

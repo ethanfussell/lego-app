@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import SetCard from "./SetCard";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
 // Reusable horizontal row of SetCards (carousel-style)
 function SetRow({

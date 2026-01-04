@@ -1,58 +1,80 @@
-# app/routers/users.py
-from typing import List, Dict, Any
-from fastapi import APIRouter
+# backend/app/routers/users.py
+from __future__ import annotations
 
-from ..data.custom_collections import OWNED, WISHLIST
-from ..data.lists import LISTS
-from ..schemas.user import UserProfile, PublicListSummary
+from typing import Any, Dict, List as TypingList
 
-router = APIRouter()
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
+from ..db import get_db
+from ..models import User as UserModel
+from ..models import List as ListModel
+from ..models import ListItem as ListItemModel
 
-def _public_lists_for_user(username: str) -> List[Dict[str, Any]]:
-    """Return summaries of all public lists owned by this user."""
-    summaries: List[Dict[str, Any]] = []
-
-    for l in LISTS:
-        if l["owner"] != username:
-            continue
-        if not l.get("is_public", True):
-            continue
-
-        summaries.append(
-            {
-                "id": l["id"],
-                "title": l["title"],
-                "owner": l["owner"],
-                "is_public": l.get("is_public", True),
-                "count": len(l.get("items", [])),
-                "created_at": l["created_at"],
-                "updated_at": l["updated_at"],
-                "description": l.get("description")
-            }
-        )
-
-    return summaries
+router = APIRouter(prefix="/users")
 
 
-@router.get("/users/{username}/profile", response_model=UserProfile)
-def get_user_profile(username: str):
-    """
-    Public profile view for a user.
-    
-    - counts for owned + wishlist
-    - summaries of that user's public lists
-    """
-    owned_count = sum(1 for i in OWNED if i["username"] == username)
-    wishlist_count = sum(1 for i in WISHLIST if i["username"] == username)
-
-    public_lists_raw = _public_lists_for_user(username)
-    public_lists = [PublicListSummary(**l) for l in public_lists_raw]
-
-    return UserProfile(
-        username=username,
-        owned_count=owned_count,
-        wishlist_count=wishlist_count,
-        public_lists_count=len(public_lists),
-        public_lists=public_lists,
+def _items_count_expr():
+    return (
+        select(func.count(ListItemModel.set_num))
+        .where(ListItemModel.list_id == ListModel.id)
+        .correlate(ListModel)
+        .scalar_subquery()
     )
+
+
+@router.get("/{username}")
+def get_user(username: str):
+    # lightweight “public profile” endpoint
+    # (not used much yet, but safe)
+    with next(get_db()) as db:  # simple use; keeps your existing get_db generator
+        user = db.execute(
+            select(UserModel).where(UserModel.username == username).limit(1)
+        ).scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="user_not_found")
+
+        return {"id": int(user.id), "username": user.username}
+
+
+@router.get("/{username}/lists")
+def get_user_public_lists(username: str) -> TypingList[Dict[str, Any]]:
+    """
+    Public lists for a user (Explore can use this later).
+    """
+    with next(get_db()) as db:
+        user = db.execute(
+            select(UserModel).where(UserModel.username == username).limit(1)
+        ).scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="user_not_found")
+
+        items_count = _items_count_expr()
+
+        rows = db.execute(
+            select(ListModel, items_count.label("items_count"))
+            .where(ListModel.owner_id == user.id, ListModel.is_public.is_(True))
+            .order_by(ListModel.position.asc(), ListModel.id.asc())
+        ).all()
+
+        out: TypingList[Dict[str, Any]] = []
+        for (lst, count) in rows:
+            out.append(
+                {
+                    "id": int(lst.id),
+                    "title": lst.title,
+                    "description": lst.description,
+                    "is_public": bool(lst.is_public),
+                    "owner": username,
+                    "items_count": int(count),
+                    "position": int(lst.position or 0),
+                    "is_system": bool(lst.is_system),
+                    "system_key": lst.system_key,
+                    "created_at": lst.created_at,
+                    "updated_at": lst.updated_at,
+                }
+            )
+        return out

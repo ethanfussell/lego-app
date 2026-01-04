@@ -1,5 +1,6 @@
 # backend/app/routers/sets.py
 from __future__ import annotations
+import os
 
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,9 +10,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
+from app.schemas.set import SetBulkOut
 
 from ..data.sets import load_cached_sets, get_set_by_num
 from ..data.offers import get_offers_for_set
+from ..data import reviews as reviews_data
 from ..db import get_db
 from ..models import Review as ReviewModel
 from ..schemas.pricing import StoreOffer
@@ -41,6 +44,9 @@ def get_current_user(authorization: str = Header(default=None)):
   return SimpleNamespace(username=username)
 
 # ---------------- helpers ----------------
+
+def _use_memory_reviews() -> bool:
+    return os.getenv("PYTEST_CURRENT_TEST") is not None and hasattr(reviews_data, "REVIEWS")
 
 def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
   q = (q or "").strip().lower()
@@ -111,39 +117,48 @@ def _sort_key(sort: str):
 
 
 def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], int]:
-  """
-  Returns (avg_rating_or_None, count_ratings) for ONE set_num from Postgres.
-  Count includes only non-null ratings.
-  """
+  if _use_memory_reviews():
+    vals = [
+      float(r["rating"])
+      for r in (reviews_data.REVIEWS or [])
+      if str(r.get("set_num")) == str(set_num) and r.get("rating") is not None
+    ]
+    if not vals:
+      return (None, 0)
+    return (round(sum(vals) / len(vals), 2), len(vals))
+
   row = db.execute(
-    select(
-      func.avg(ReviewModel.rating),
-      func.count(ReviewModel.rating),
-    )
-    .where(
-      ReviewModel.set_num == set_num,
-      ReviewModel.rating.is_not(None),
-    )
+    select(func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
+    .where(ReviewModel.set_num == set_num, ReviewModel.rating.is_not(None))
   ).one()
 
   avg, cnt = row
   cnt_i = int(cnt or 0)
   if cnt_i <= 0 or avg is None:
     return (None, 0)
-
   return (round(float(avg), 2), cnt_i)
 
 
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
-  """
-  Returns { set_num: (avg_or_None, count) } for all sets.
-  """
+  if _use_memory_reviews():
+    buckets: Dict[str, List[float]] = {}
+    for r in (reviews_data.REVIEWS or []):
+      rating = r.get("rating")
+      if rating is None:
+        continue
+      key = str(r.get("set_num"))
+      buckets.setdefault(key, []).append(float(rating))
+
+    out: Dict[str, Tuple[Optional[float], int]] = {}
+    for set_num, vals in buckets.items():
+      if not vals:
+        out[set_num] = (None, 0)
+      else:
+        out[set_num] = (round(sum(vals) / len(vals), 2), len(vals))
+    return out
+
   rows = db.execute(
-    select(
-      ReviewModel.set_num,
-      func.avg(ReviewModel.rating),
-      func.count(ReviewModel.rating),
-    )
+    select(ReviewModel.set_num, func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
     .where(ReviewModel.rating.is_not(None))
     .group_by(ReviewModel.set_num)
   ).all()
@@ -389,12 +404,103 @@ def get_set_offers(set_num: str):
   plain = plain.split("-")[0]
   return get_offers_for_set(plain)
 
+@router.get(
+  "/bulk",
+  response_model=List[SetBulkOut],
+  summary="Bulk fetch sets",
+  description=(
+    "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
+    "(average_rating, rating_count). If Authorization is provided, includes user_rating "
+    "for that user."
+  ),
+)
+def bulk_get_sets(
+  set_nums: str = Query(
+    ...,
+    description="Comma-separated set numbers like 10305-1,21357-1",
+    example="10305-1,21357-1",
+  ),
+  db: Session = Depends(get_db),
+  authorization: Optional[str] = Header(
+    default=None,
+    alias="Authorization",
+    description='Optional. Use "Bearer fake-token-for-ethan" to include user_rating.',
+  ),
+):
+  
+  raw = (set_nums or "").strip()
+  if not raw:
+    raise HTTPException(status_code=422, detail="set_nums_required")
+
+  requested: List[str] = [s.strip() for s in raw.split(",") if s.strip()]
+  if not requested:
+    raise HTTPException(status_code=422, detail="set_nums_required")
+
+  # Resolve using your cached sets helper (same behavior as /sets/{set_num})
+  found: List[Dict[str, Any]] = []
+  canonicals: List[str] = []
+  plain_map: Dict[str, Optional[str]] = {}
+
+  for x in requested:
+    s = get_set_by_num(x)
+    if not s:
+      continue
+    canonical = s.get("set_num") or x
+    canonicals.append(canonical)
+    plain_map[canonical] = s.get("set_num_plain")
+    found.append(s)
+
+  if not canonicals:
+    return []
+
+  # Ratings for just these sets (fast)
+  rows = db.execute(
+    select(
+      ReviewModel.set_num,
+      func.avg(ReviewModel.rating),
+      func.count(ReviewModel.rating),
+    )
+    .where(
+      ReviewModel.rating.is_not(None),
+      ReviewModel.set_num.in_(canonicals),
+    )
+    .group_by(ReviewModel.set_num)
+  ).all()
+
+  ratings: Dict[str, Tuple[Optional[float], int]] = {}
+  for set_num, avg, cnt in rows:
+    cnt_i = int(cnt or 0)
+    avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
+    ratings[str(set_num)] = (avg_f, cnt_i)
+
+  # Optional user_rating (only if auth header present)
+  username: Optional[str] = None
+  if authorization:
+    username = get_current_user(authorization).username
+
+  out: List[Dict[str, Any]] = []
+  for s in found:
+    canonical = s.get("set_num") or ""
+    avg, cnt = ratings.get(canonical, (None, 0))
+
+    user_rating = None
+    if username:
+      user_rating = _user_rating_for_set(db, username, canonical, plain_map.get(canonical))
+
+    r = dict(s)
+    r["average_rating"] = avg
+    r["rating_avg"] = avg
+    r["rating_count"] = cnt
+    r["user_rating"] = user_rating
+    out.append(r)
+
+  return out
 
 @router.get("/{set_num}")
 def get_set(
   set_num: str,
   db: Session = Depends(get_db),
-  authorization: str = Header(default=None),
+  authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
   s = get_set_by_num(set_num)
   if not s:
@@ -416,3 +522,4 @@ def get_set(
   out["rating_count"] = cnt
   out["user_rating"] = user_rating
   return out
+

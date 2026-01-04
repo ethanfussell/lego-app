@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "./Toast";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
 function getStoredToken() {
   try {
@@ -46,6 +46,9 @@ export default function AddToListMenu({
   setNum,
   lists: listsProp,
 
+  // allow parent to pass token (avoids stale localStorage token issues)
+  token: tokenProp,
+
   includeOwned = true,
   includeWishlist = true,
 
@@ -66,7 +69,8 @@ export default function AddToListMenu({
   const navigate = useNavigate();
   const { push: toast } = useToast();
 
-  const token = getStoredToken();
+  const effectiveToken = tokenProp || getStoredToken();
+  const isLoggedIn = !!effectiveToken;
 
   const btnRef = useRef(null);
   const menuRef = useRef(null);
@@ -75,8 +79,17 @@ export default function AddToListMenu({
   const [pos, setPos] = useState({ left: 0, top: 0, width: 260 });
 
   const [lists, setLists] = useState(Array.isArray(listsProp) ? listsProp : []);
+  useEffect(() => {
+    if (Array.isArray(listsProp)) setLists(listsProp);
+  }, [listsProp]);
+
   const [loadingLists, setLoadingLists] = useState(false);
   const [err, setErr] = useState(null);
+
+  // --- system list ids (Owned / Wishlist) ---
+  const [ownedListId, setOwnedListId] = useState(null);
+  const [wishlistListId, setWishlistListId] = useState(null);
+  const [loadingSystem, setLoadingSystem] = useState(false);
 
   const [ownedLocal, setOwnedLocal] = useState(!!ownedSelected);
   const [wishlistLocal, setWishlistLocal] = useState(!!wishlistSelected);
@@ -84,7 +97,7 @@ export default function AddToListMenu({
   const [selectedMap, setSelectedMap] = useState({});
   const [confirm, setConfirm] = useState(null); // { type, listId?, title? }
 
-  // ✅ ONLY custom lists (exclude system lists)
+  // ONLY custom lists (exclude system lists)
   const customLists = useMemo(() => {
     const arr = Array.isArray(lists) ? lists : [];
     return arr
@@ -101,7 +114,21 @@ export default function AddToListMenu({
     e?.stopPropagation?.();
     setOpen(false);
     setConfirm(null);
+
+    if (!isLoggedIn) {
+      toast?.("Log in to create lists");
+      navigate("/login");
+      return;
+    }
+
     navigate("/collection?create=1");
+  }
+
+  function goToLogin(e) {
+    e?.stopPropagation?.();
+    setOpen(false);
+    setConfirm(null);
+    navigate("/login");
   }
 
   function computePosition() {
@@ -124,7 +151,7 @@ export default function AddToListMenu({
       (includeOwned ? 42 : 0) +
       (includeWishlist ? 42 : 0) +
       Math.min(customLists.length, 3) * 42 +
-      56;
+      64;
 
     if (top + estimatedHeight > window.innerHeight - pad) {
       top = Math.max(pad, r.top - gap - estimatedHeight);
@@ -168,7 +195,57 @@ export default function AddToListMenu({
     };
   }, [open, includeOwned, includeWishlist, customLists.length]);
 
-  // ✅ Load lists + membership map on open (custom lists only)
+  // --- tiny step: load system list ids on open (when logged in) ---
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+
+    async function loadSystemLists() {
+      if (!isLoggedIn) {
+        if (!cancelled) {
+          setOwnedListId(null);
+          setWishlistListId(null);
+          setLoadingSystem(false);
+        }
+        return;
+      }
+
+      try {
+        setLoadingSystem(true);
+
+        const resp = await apiFetch("/lists/me/system", { token: effectiveToken });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to load system lists (${resp.status}): ${text}`);
+        }
+
+        const data = (await safeJson(resp)) || {};
+        const sys = data.system_lists || {};
+
+        const owned = sys.owned?.id ?? sys.Owned?.id;
+        const wish = sys.wishlist?.id ?? sys.Wishlist?.id;
+
+        if (!cancelled) {
+          setOwnedListId(owned != null ? Number(owned) : null);
+          setWishlistListId(wish != null ? Number(wish) : null);
+        }
+      } catch (e) {
+        // don't hard-fail the whole menu, but show message
+        if (!cancelled) setErr(e?.message || String(e));
+      } finally {
+        if (!cancelled) setLoadingSystem(false);
+      }
+    }
+
+    loadSystemLists();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isLoggedIn, effectiveToken]);
+
+  // Load lists + membership map on open (custom lists only)
   useEffect(() => {
     if (!open) return;
 
@@ -177,20 +254,23 @@ export default function AddToListMenu({
     async function load() {
       try {
         setErr(null);
+
+        // if logged out, do NOT try to fetch anything
+        if (!isLoggedIn) {
+          if (!cancelled) {
+            setLoadingLists(false);
+            setSelectedMap({});
+            setLists(Array.isArray(listsProp) ? listsProp : []);
+          }
+          return;
+        }
+
         setLoadingLists(true);
 
         let baseLists = Array.isArray(listsProp) ? listsProp : null;
 
         if (!baseLists) {
-          if (!token) {
-            if (!cancelled) {
-              setLists([]);
-              setSelectedMap({});
-            }
-            return;
-          }
-
-          const resp = await apiFetch("/lists/me", { token });
+          const resp = await apiFetch("/lists/me", { token: effectiveToken });
           if (!resp.ok) {
             const text = await resp.text();
             throw new Error(`Failed to load lists (${resp.status}): ${text}`);
@@ -203,7 +283,6 @@ export default function AddToListMenu({
         const normalized = Array.isArray(baseLists) ? baseLists : [];
         setLists(normalized);
 
-        // membership map (custom lists only)
         const customOnly = normalized.filter((l) => l && l.id != null && !isSystemList(l));
 
         const map = {};
@@ -215,9 +294,10 @@ export default function AddToListMenu({
                 map[l.id] = true;
                 return;
               }
-              if (!token) return;
-              const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token });
+
+              const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token: effectiveToken });
               if (!r.ok) return;
+
               const detail = await safeJson(r);
               const items = Array.isArray(detail?.items) ? detail.items : [];
               if (items.includes(setNum)) map[l.id] = true;
@@ -239,7 +319,7 @@ export default function AddToListMenu({
     return () => {
       cancelled = true;
     };
-  }, [open, listsProp, token, setNum]);
+  }, [open, listsProp, effectiveToken, isLoggedIn, setNum]);
 
   function isSelected(action) {
     if (action.type === "owned") return !!ownedLocal;
@@ -259,10 +339,10 @@ export default function AddToListMenu({
 
   async function addToCustomList(listId) {
     if (typeof onAddToList === "function") return onAddToList(listId);
-    if (!token) throw new Error("Please log in to use lists.");
+    if (!isLoggedIn) throw new Error("Please log in to use lists.");
 
     const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
-      token,
+      token: effectiveToken,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ set_num: setNum }),
@@ -277,11 +357,11 @@ export default function AddToListMenu({
 
   async function removeFromCustomList(listId) {
     if (typeof onRemoveFromList === "function") return onRemoveFromList(listId);
-    if (!token) throw new Error("Please log in to use lists.");
+    if (!isLoggedIn) throw new Error("Please log in to use lists.");
 
     const resp = await apiFetch(
       `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
-      { token, method: "DELETE" }
+      { token: effectiveToken, method: "DELETE" }
     );
 
     if (resp.status === 404) return;
@@ -291,9 +371,33 @@ export default function AddToListMenu({
     }
   }
 
+  // --- NEW: system list add/remove via list endpoints ---
+  async function addToSystem(type) {
+    const listId = type === "owned" ? ownedListId : wishlistListId;
+    if (!listId) {
+      throw new Error("System list not ready yet. Try again in a second.");
+    }
+    await addToCustomList(listId);
+  }
+
+  async function removeFromSystem(type) {
+    const listId = type === "owned" ? ownedListId : wishlistListId;
+    if (!listId) {
+      throw new Error("System list not ready yet. Try again in a second.");
+    }
+    await removeFromCustomList(listId);
+  }
+
   async function handleClickItem(action) {
     try {
       setErr(null);
+
+      if (!isLoggedIn) {
+        toast?.("Log in to manage lists");
+        setOpen(false);
+        navigate("/login");
+        return;
+      }
 
       if (isSelected(action)) {
         setConfirm({ ...action, title: resolveTitleForAction(action) });
@@ -301,12 +405,16 @@ export default function AddToListMenu({
       }
 
       if (action.type === "owned") {
-        await onAddOwned?.();
+        await addToSystem("owned");
         setOwnedLocal(true);
+        // optional parent sync
+        await onAddOwned?.();
         toast?.("Added to Owned ✅");
       } else if (action.type === "wishlist") {
-        await onAddWishlist?.();
+        await addToSystem("wishlist");
         setWishlistLocal(true);
+        // optional parent sync
+        await onAddWishlist?.();
         toast?.("Added to Wishlist ✅");
       } else if (action.type === "list") {
         await addToCustomList(action.listId);
@@ -327,12 +435,14 @@ export default function AddToListMenu({
       setErr(null);
 
       if (confirm.type === "owned") {
-        await onRemoveOwned?.();
+        await removeFromSystem("owned");
         setOwnedLocal(false);
+        await onRemoveOwned?.();
         toast?.("Removed from Owned");
       } else if (confirm.type === "wishlist") {
-        await onRemoveWishlist?.();
+        await removeFromSystem("wishlist");
         setWishlistLocal(false);
+        await onRemoveWishlist?.();
         toast?.("Removed from Wishlist");
       } else if (confirm.type === "list") {
         await removeFromCustomList(confirm.listId);
@@ -375,6 +485,9 @@ export default function AddToListMenu({
     textAlign: "center",
     paddingRight: 28,
   };
+
+  const systemReady =
+    (!includeOwned || !!ownedListId) && (!includeWishlist || !!wishlistListId);
 
   return (
     <>
@@ -431,6 +544,24 @@ export default function AddToListMenu({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
+              {!isLoggedIn && (
+                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                  🔒 Log in to manage Owned/Wishlist and custom lists.
+                </div>
+              )}
+
+              {isLoggedIn && loadingSystem && (
+                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                  Loading Owned/Wishlist…
+                </div>
+              )}
+
+              {isLoggedIn && !loadingSystem && !systemReady && (
+                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                  Owned/Wishlist not ready yet — try again in a second.
+                </div>
+              )}
+
               {err && (
                 <div style={{ color: "#b42318", fontSize: "0.85rem", padding: "8px 8px 6px" }}>
                   {err}
@@ -438,18 +569,24 @@ export default function AddToListMenu({
               )}
 
               {includeOwned && (
-                <MenuItem label="Owned" selected={ownedLocal} onClick={() => handleClickItem({ type: "owned" })} />
+                <MenuItem
+                  label="Owned"
+                  selected={ownedLocal}
+                  disabled={!isLoggedIn || (loadingSystem && !ownedListId)}
+                  onClick={() => handleClickItem({ type: "owned" })}
+                />
               )}
 
               {includeWishlist && (
                 <MenuItem
                   label="Wishlist"
                   selected={wishlistLocal}
+                  disabled={!isLoggedIn || (loadingSystem && !wishlistListId)}
                   onClick={() => handleClickItem({ type: "wishlist" })}
                 />
               )}
 
-              {loadingLists && (
+              {loadingLists && isLoggedIn && (
                 <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>Loading lists…</div>
               )}
 
@@ -466,6 +603,7 @@ export default function AddToListMenu({
                       key={l.id}
                       label={l.title}
                       selected={!!selectedMap[l.id]}
+                      disabled={!isLoggedIn}
                       onClick={() => handleClickItem({ type: "list", listId: l.id })}
                       title={l.title}
                     />
@@ -479,7 +617,11 @@ export default function AddToListMenu({
               </div>
 
               <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6 }}>
-                <MenuItem label="➕ Create list" selected={false} onClick={goToCreateList} />
+                {isLoggedIn ? (
+                  <MenuItem label="➕ Create list" selected={false} onClick={goToCreateList} />
+                ) : (
+                  <MenuItem label="🔐 Log in" selected={false} onClick={goToLogin} />
+                )}
               </div>
             </div>
 
@@ -568,14 +710,15 @@ export default function AddToListMenu({
   );
 }
 
-function MenuItem({ label, selected, onClick, title }) {
+function MenuItem({ label, selected, onClick, title, disabled = false }) {
   return (
     <button
       type="button"
       role="menuitem"
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        if (!disabled) onClick();
       }}
       title={title || label}
       style={{
@@ -585,12 +728,13 @@ function MenuItem({ label, selected, onClick, title }) {
         borderRadius: 10,
         border: "none",
         background: "white",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         fontWeight: 700,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         gap: 10,
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>

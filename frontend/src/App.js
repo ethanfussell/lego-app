@@ -18,21 +18,33 @@ import OwnedPage from "./OwnedPage";
 import WishlistPage from "./WishlistPage";
 import ProfileMenu from "./ProfileMenu";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
+
+/**
+ * Convert any set_num into the "plain" form (no -1).
+ * "31216-1" -> "31216"
+ * "31216"   -> "31216"
+ */
+function toPlainSetNum(setNum) {
+  const s = String(setNum || "").trim();
+  if (!s) return "";
+  return s.includes("-") ? s.split("-")[0] : s;
+}
+
+/**
+ * Membership check that works no matter if caller uses "31216" or "31216-1".
+ */
+function hasSetNum(setSetNums, setNum) {
+  const raw = String(setNum || "").trim();
+  if (!raw) return false;
+  const plain = toPlainSetNum(raw);
+  return setSetNums.has(raw) || setSetNums.has(plain);
+}
 
 /* -------------------------------------------------------
    Reusable horizontal row of SetCards (with scroll arrows)
 -------------------------------------------------------- */
-function SetRow({
-  title,
-  subtitle,
-  sets,
-  ownedSetNums,
-  wishlistSetNums,
-  onMarkOwned,
-  onAddWishlist,
-}) {
-  // ✅ Hooks must come first (no early return before these)
+function SetRow({ title, subtitle, sets, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist }) {
   const scrollerRef = useRef(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
@@ -50,7 +62,6 @@ function SetRow({
     };
 
     recompute();
-
     el.addEventListener("scroll", recompute, { passive: true });
     window.addEventListener("resize", recompute);
 
@@ -60,7 +71,6 @@ function SetRow({
     };
   }, [safeSets.length]);
 
-  // ✅ Now it's safe to early return
   if (safeSets.length === 0) return null;
 
   function scrollByCards(dir) {
@@ -88,9 +98,7 @@ function SetRow({
         <div>
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h2>
           {subtitle && (
-            <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.9rem", color: "#6b7280" }}>
-              {subtitle}
-            </p>
+            <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.9rem", color: "#6b7280" }}>{subtitle}</p>
           )}
         </div>
       </div>
@@ -156,24 +164,29 @@ function SetRow({
 
         <div ref={scrollerRef} style={{ overflowX: "auto", paddingBottom: "0.5rem" }}>
           <ul style={{ display: "flex", gap: "0.75rem", listStyle: "none", padding: 0, margin: 0 }}>
-            {safeSets.map((set) => (
-              <li key={set.set_num} style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}>
-                <SetCard
-                  set={set}
-                  isOwned={ownedSetNums.has(set.set_num)}
-                  isInWishlist={wishlistSetNums.has(set.set_num)}
-                  onMarkOwned={onMarkOwned}
-                  onAddWishlist={onAddWishlist}
-                />
-              </li>
-            ))}
+            {safeSets.map((set) => {
+              const full = set?.set_num || "";
+              const plain = toPlainSetNum(full);
+              const key = full || `${set?.name || "set"}-${plain}`;
+
+              return (
+                <li key={key} style={{ minWidth: "220px", maxWidth: "220px", flex: "0 0 auto" }}>
+                  <SetCard
+                    set={set}
+                    isOwned={hasSetNum(ownedSetNums, full)}
+                    isInWishlist={hasSetNum(wishlistSetNums, full)}
+                    onMarkOwned={onMarkOwned}
+                    onAddWishlist={onAddWishlist}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
     </section>
   );
 }
-
 
 /* -------------------------------------------------------
    Home page
@@ -234,8 +247,8 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
       <section style={{ marginBottom: "2rem" }}>
         <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Track your LEGO world</h1>
         <p style={{ marginTop: "0.5rem", color: "#666", maxWidth: "560px" }}>
-          Log your collection, wishlist, and reviews. Discover deals, sets retiring soon, and what&apos;s
-          trending with other fans.
+          Log your collection, wishlist, and reviews. Discover deals, sets retiring soon, and what&apos;s trending with
+          other fans.
         </p>
         <p style={{ marginTop: "0.4rem", fontSize: "0.8rem", color: "#9ca3af" }}>
           Home feed placeholder · later this will be personalized and pull real prices.
@@ -299,7 +312,7 @@ function App() {
   const [publicLoading, setPublicLoading] = useState(true);
   const [publicError, setPublicError] = useState(null);
 
-  // Page mode (used for search keyboard stuff)
+  // Page mode
   const [page, setPage] = useState("home");
 
   // Auth token
@@ -326,15 +339,38 @@ function App() {
   const [createError, setCreateError] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // Collections (Owned / Wishlist) — keep arrays as the source of truth
+  // Collections (Owned / Wishlist)
   const [owned, setOwned] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState(null);
 
-  // Derived Sets for fast membership checks
-  const ownedSetNums = useMemo(() => new Set(owned.map((x) => x.set_num)), [owned]);
-  const wishlistSetNums = useMemo(() => new Set(wishlist.map((x) => x.set_num)), [wishlist]);
+  /**
+   * IMPORTANT:
+   * membership sets include BOTH formats (plain + full)
+   * so any existing code checking either way continues working.
+   */
+  const ownedSetNums = useMemo(() => {
+    const s = new Set();
+    for (const x of owned) {
+      const full = String(x?.set_num || "").trim();
+      const plain = toPlainSetNum(full);
+      if (full) s.add(full);
+      if (plain) s.add(plain);
+    }
+    return s;
+  }, [owned]);
+
+  const wishlistSetNums = useMemo(() => {
+    const s = new Set();
+    for (const x of wishlist) {
+      const full = String(x?.set_num || "").trim();
+      const plain = toPlainSetNum(full);
+      if (full) s.add(full);
+      if (plain) s.add(plain);
+    }
+    return s;
+  }, [wishlist]);
 
   // Search results
   const [searchQuery, setSearchQuery] = useState("");
@@ -571,8 +607,8 @@ function App() {
       if (tag === "input" || tag === "textarea") return;
 
       if (e.key === "ArrowRight") {
-        const totalPages = searchTotal > 0 ? Math.ceil(searchTotal / searchLimit) : 1;
-        if (!searchLoading && searchPage < totalPages) {
+        const totalPagesLocal = searchTotal > 0 ? Math.ceil(searchTotal / searchLimit) : 1;
+        if (!searchLoading && searchPage < totalPagesLocal) {
           e.preventDefault();
           runSearch(searchQuery, searchSort, searchPage + 1);
         }
@@ -586,16 +622,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    page,
-    searchResults.length,
-    searchTotal,
-    searchLimit,
-    searchLoading,
-    searchPage,
-    searchQuery,
-    searchSort,
-  ]);
+  }, [page, searchResults.length, searchTotal, searchLimit, searchLoading, searchPage, searchQuery, searchSort]);
 
   /* -------------------------------
      Create new list
@@ -666,7 +693,30 @@ function App() {
   }
 
   /* -------------------------------
-     Collection mutations
+     Collection DELETE helper
+     IMPORTANT: always send PLAIN to backend; treat 404 as "already removed"
+  --------------------------------*/
+  async function deleteCollectionItem(kind, setNum, currentToken) {
+    if (!currentToken) return;
+  
+    const plain = toPlainSetNum(setNum);
+  
+    const resp = await fetch(`${API_BASE}/collections/${kind}/${encodeURIComponent(plain)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${currentToken}` },
+    });
+    console.log("DELETE COLLECTION ITEM", { kind, plain });
+    // 404 = already removed, treat as success
+    if (resp.status === 404) return;
+  
+    if (!resp.ok && resp.status !== 204) {
+      const text = await resp.text();
+      throw new Error(`Failed to remove from ${kind} (${resp.status}): ${text}`);
+    }
+  }
+
+  /* -------------------------------
+     Collection mutations (TOGGLES)
   --------------------------------*/
   async function handleMarkOwned(setNum) {
     if (!token) {
@@ -676,38 +726,31 @@ function App() {
       return;
     }
 
-    const alreadyOwned = ownedSetNums.has(setNum);
+    const plain = toPlainSetNum(setNum);
+    const alreadyOwned = hasSetNum(ownedSetNums, setNum);
 
     try {
       if (alreadyOwned) {
-        const resp = await fetch(`${API_BASE}/collections/owned/${encodeURIComponent(setNum)}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!resp.ok && resp.status !== 404) {
-          const text = await resp.text();
-          throw new Error(`Failed to remove from Owned (${resp.status}): ${text}`);
-        }
-
-        setOwned((prev) => prev.filter((x) => x.set_num !== setNum));
-      } else {
-        const resp = await fetch(`${API_BASE}/collections/owned`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ set_num: setNum }),
-        });
-
-        if (!resp.ok && resp.status !== 409) {
-          const text = await resp.text();
-          throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
-        }
-
+        await deleteCollectionItem("owned", plain, token);
         await loadCollections(token);
+        return;
       }
+
+      const resp = await fetch(`${API_BASE}/collections/owned`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ set_num: plain }),
+      });
+
+      if (!resp.ok && resp.status !== 409) {
+        const text = await resp.text();
+        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+      }
+
+      await loadCollections(token);
     } catch (err) {
       alert(err?.message || String(err));
     }
@@ -721,81 +764,69 @@ function App() {
       return;
     }
 
-    const alreadyInWishlist = wishlistSetNums.has(setNum);
+    const plain = toPlainSetNum(setNum);
+    const alreadyInWishlist = wishlistSetNums.has(setNum) || wishlistSetNums.has(plain);
 
     try {
       if (alreadyInWishlist) {
-        const resp = await fetch(`${API_BASE}/collections/wishlist/${encodeURIComponent(setNum)}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!resp.ok && resp.status !== 404) {
-          const text = await resp.text();
-          throw new Error(`Failed to remove from Wishlist (${resp.status}): ${text}`);
-        }
-
-        setWishlist((prev) => prev.filter((x) => x.set_num !== setNum));
-      } else {
-        const resp = await fetch(`${API_BASE}/collections/wishlist`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ set_num: setNum }),
-        });
-
-        if (!resp.ok && resp.status !== 409) {
-          const text = await resp.text();
-          throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
-        }
-
+        await deleteCollectionItem("wishlist", plain, token);
         await loadCollections(token);
+        return;
       }
-    } catch (err) {
-      alert(err?.message || String(err));
-    }
-  }
 
-  async function onRemoveWishlist(setNum) {
-    if (!token) return;
-
-    const resp = await fetch(`${API_BASE}/collections/wishlist/${encodeURIComponent(setNum)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!resp.ok && resp.status !== 404) {
-      const text = await resp.text();
-      throw new Error(`Failed to remove from Wishlist (${resp.status}): ${text}`);
-    }
-
-    setWishlist((prev) => prev.filter((x) => x.set_num !== setNum));
-  }
-
-  async function ensureOwned(setNum) {
-    if (!token) return;
-    if (ownedSetNums.has(setNum)) return;
-
-    try {
-      const resp = await fetch(`${API_BASE}/collections/owned`, {
+      const resp = await fetch(`${API_BASE}/collections/wishlist`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ set_num: setNum }),
+        body: JSON.stringify({ set_num: plain }),
       });
 
       if (!resp.ok && resp.status !== 409) {
         const text = await resp.text();
-        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+        throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
       }
 
       await loadCollections(token);
     } catch (err) {
-      console.error("Error ensuring owned:", err);
+      alert(err?.message || String(err));
     }
+  }
+
+  // Used by SetDetailPage
+  async function onRemoveWishlist(setNum) {
+    if (!token) return;
+    try {
+      await deleteCollectionItem("wishlist", setNum, token);
+      await loadCollections(token);
+    } catch (err) {
+      alert(err?.message || String(err));
+    }
+  }
+
+  // Used by SetDetailPage
+  async function ensureOwned(setNum) {
+    if (!token) return;
+
+    const plain = toPlainSetNum(setNum);
+    if (hasSetNum(ownedSetNums, plain)) return;
+
+    const resp = await fetch(`${API_BASE}/collections/owned`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ set_num: plain }),
+    });
+
+    if (!resp.ok && resp.status !== 409) {
+      const text = await resp.text();
+      throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+    }
+
+    await loadCollections(token);
   }
 
   /* -------------------------------
@@ -1012,8 +1043,7 @@ function App() {
                       color: "#444",
                     }}
                   >
-                    Search all sets for{" "}
-                    <span style={{ fontWeight: 600 }}>"{searchText.trim()}"</span>
+                    Search all sets for <span style={{ fontWeight: 600 }}>"{searchText.trim()}"</span>
                   </li>
                 )}
               </ul>
@@ -1179,8 +1209,7 @@ function App() {
                     </p>
 
                     <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.9rem", color: "#666" }}>
-                      Showing{" "}
-                      <strong>{searchTotal === 0 ? 0 : (searchPage - 1) * searchLimit + 1}</strong> –{" "}
+                      Showing <strong>{searchTotal === 0 ? 0 : (searchPage - 1) * searchLimit + 1}</strong> –{" "}
                       <strong>{searchTotal === 0 ? 0 : Math.min(searchPage * searchLimit, searchTotal)}</strong> of{" "}
                       <strong>{searchTotal}</strong> results
                     </p>
@@ -1218,18 +1247,24 @@ function App() {
                         rowGap: "1.75rem",
                       }}
                     >
-                      {searchResults.map((set) => (
-                        <li key={set.set_num} style={{ width: "240px", maxWidth: "240px" }}>
-                          <SetCard
-                            set={set}
-                            isOwned={ownedSetNums.has(set.set_num)}
-                            isInWishlist={wishlistSetNums.has(set.set_num)}
-                            onMarkOwned={handleMarkOwned}
-                            onAddWishlist={handleAddWishlist}
-                            variant="default"
-                          />
-                        </li>
-                      ))}
+                      {searchResults.map((set) => {
+                        const full = set?.set_num || "";
+                        const plain = toPlainSetNum(full);
+                        const key = full || `${set?.name || "set"}-${plain}`;
+
+                        return (
+                          <li key={key} style={{ width: "240px", maxWidth: "240px" }}>
+                            <SetCard
+                              set={set}
+                              isOwned={hasSetNum(ownedSetNums, full)}
+                              isInWishlist={hasSetNum(wishlistSetNums, full)}
+                              onMarkOwned={handleMarkOwned}
+                              onAddWishlist={handleAddWishlist}
+                              variant="default"
+                            />
+                          </li>
+                        );
+                      })}
                     </ul>
 
                     <Pagination
@@ -1325,8 +1360,8 @@ function App() {
 
                     {collectionsLoading && <p>Loading collections…</p>}
                     {collectionsError && <p style={{ color: "red" }}>Error: {collectionsError}</p>}
+                    {myListsError && <p style={{ color: "red" }}>Lists error: {myListsError}</p>}
 
-                    {/* (Optional) create list UI if you want it visible here */}
                     {showCreateForm && (
                       <form onSubmit={handleCreateList} style={{ marginTop: 12, maxWidth: 520 }}>
                         <div style={{ display: "grid", gap: 10 }}>
@@ -1404,6 +1439,8 @@ function App() {
                         ➕ Create list
                       </button>
                     )}
+
+                    {myListsLoading && <p style={{ marginTop: 10 }}>Loading your lists…</p>}
                   </div>
                 )}
               </div>

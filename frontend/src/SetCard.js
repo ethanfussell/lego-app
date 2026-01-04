@@ -5,6 +5,8 @@ import AddToListMenu from "./AddToListMenu";
 
 export default function SetCard({
   set,
+  token, // optional: pass through to AddToListMenu if you want
+
   isOwned = false,
   isInWishlist = false,
   onMarkOwned,
@@ -16,10 +18,11 @@ export default function SetCard({
 
   // optional: changes bottom layout for collection pages
   variant = "default",
-  collectionFooter = "rating",
+  collectionFooter = "rating", // "rating" or "shop"
   userRating,
 }) {
   const navigate = useNavigate();
+
   if (!set) return null;
 
   const {
@@ -55,6 +58,13 @@ export default function SetCard({
       ? user_rating
       : null;
 
+  const piecesLabel =
+    typeof pieces === "number"
+      ? `${pieces.toLocaleString()} pieces`
+      : typeof pieces === "string" && pieces.trim()
+      ? `${pieces.trim()} pieces`
+      : null;
+
   function goToSet() {
     if (!set_num) return;
     navigate(`/sets/${encodeURIComponent(set_num)}`);
@@ -81,6 +91,7 @@ export default function SetCard({
     border: "1px solid #d1d5db",
     background: "white",
     color: "#111827",
+    cursor: "pointer",
   };
 
   const shopBtnStyle = {
@@ -138,44 +149,69 @@ export default function SetCard({
       </div>
 
       {/* Content */}
-      <div style={{ padding: "10px 12px 12px", display: "flex", flexDirection: "column", flex: "1 1 auto" }}>
+      <div
+        style={{
+          padding: "10px 12px 12px",
+          display: "flex",
+          flexDirection: "column",
+          flex: "1 1 auto",
+        }}
+      >
+        {/* Title + meta */}
         <div style={{ marginBottom: 6 }}>
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: "0.95rem",
-            lineHeight: "1.25em",
-            minHeight: "2.5em", // ✅ always reserve 2 lines
-            color: "#111827",
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          {name || "Unknown set"}
-        </div>
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              lineHeight: "1.25em",
+              minHeight: "2.5em", // reserve 2 lines
+              color: "#111827",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {name || "Unknown set"}
+          </div>
+
           <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>
             <strong>{set_num}</strong>
-            {year && <> · {year}</>}
+            {year ? <> · {year}</> : null}
           </div>
         </div>
 
-        {(theme || pieces) && (
+        {/* Theme + Pieces */}
+        {(theme || piecesLabel) && (
           <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 6 }}>
-            {theme && <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{theme}</div>}
-            {pieces && <div>{pieces} pieces</div>}
+            {theme && (
+              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {theme}
+              </div>
+            )}
+            {piecesLabel && <div>{piecesLabel}</div>}
           </div>
         )}
 
+        {/* Rating */}
         {(displayAvg !== null || displayCount !== null) && (
-          <div style={{ fontSize: 12.5, color: "#4b5563", marginBottom: 6, display: "flex", gap: 6 }}>
+          <div
+            style={{
+              fontSize: 12.5,
+              color: "#4b5563",
+              marginBottom: 6,
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+            }}
+          >
             <span>⭐</span>
             <span>{displayAvg !== null ? displayAvg.toFixed(1) : "—"}</span>
             {displayCount !== null && <span style={{ color: "#9ca3af" }}>({displayCount})</span>}
           </div>
         )}
 
+        {/* Price */}
         {priceFrom !== null && (
           <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 6 }}>
             From ${priceFrom.toFixed(2)}
@@ -215,13 +251,22 @@ export default function SetCard({
             </div>
           )
         ) : (
-          <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6, display: "flex", gap: 8 }}>
+          <div
+            style={{
+              borderTop: "1px solid #f3f4f6",
+              marginTop: 6,
+              paddingTop: 6,
+              display: "flex",
+              gap: 8,
+            }}
+          >
             <button type="button" onClick={goToShop} style={shopBtnStyle}>
               Shop
             </button>
 
             <div style={addWrapStyle}>
               <AddToListMenu
+                token={token}
                 setNum={set_num}
                 includeOwned
                 includeWishlist

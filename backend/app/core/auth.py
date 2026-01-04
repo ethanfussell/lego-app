@@ -1,5 +1,6 @@
 # backend/app/core/auth.py
 from __future__ import annotations
+import bcrypt
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -19,39 +20,40 @@ class Token(BaseModel):
 
 
 class UserOut(BaseModel):
-    # Pydantic v2: replacement for orm_mode
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     username: str
-    full_name: str | None = None  # not stored in DB (yet)
+    full_name: str | None = None  # dev-only for now
 
 
 # ----------------- Dev-only "fake password" map -----------------
-# This is ONLY used to validate the password during login.
-# The user must still exist in the real DB so we can return current_user.id.
 FAKE_USERS_DB = {
-    "ethan": {
-        "password": "lego123",
-        "full_name": "Ethan Fussell",
-    }
+    "ethan": {"password": "lego123", "full_name": "Ethan Fussell"},
+    # add more fake creds if you want
 }
 
+# OAuth2PasswordBearer reads the Authorization: Bearer <token> header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+TOKEN_PREFIX = "fake-token-for-"
 
 
 def create_access_token(username: str) -> str:
-    # dev-only token format
-    return f"fake-token-for-{username}"
+    return f"{TOKEN_PREFIX}{username}"
 
 
 def _username_from_token(token: str) -> str:
-    if token.startswith("fake-token-for-"):
-        return token.removeprefix("fake-token-for-")
+    token = (token or "").strip()
+    if token.startswith(TOKEN_PREFIX):
+        return token[len(TOKEN_PREFIX) :].strip()
     return token
 
 
 def _get_user_by_username(db: Session, username: str) -> UserModel | None:
+    if not username:
+        return None
     return db.execute(
         select(UserModel).where(UserModel.username == username).limit(1)
     ).scalar_one_or_none()
@@ -66,20 +68,8 @@ async def login(
     password = form_data.password or ""
 
     if not username:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing username",
-        )
+        raise HTTPException(status_code=400, detail="Missing username")
 
-    # 1) Dev password check (frontend default creds)
-    expected = FAKE_USERS_DB.get(username)
-    if expected is None or password != expected["password"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect username or password",
-        )
-
-    # 2) Must exist in DB so routes can use current_user.id
     db_user = _get_user_by_username(db, username)
     if db_user is None:
         raise HTTPException(
@@ -87,6 +77,20 @@ async def login(
             detail=f"User '{username}' not found in DB. Seed/create it first.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    expected = FAKE_USERS_DB.get(username)
+
+    # 1) dev-only fake users (ethan)
+    if expected is not None:
+        if password != expected["password"]:
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+        return Token(access_token=create_access_token(username))
+
+    # 2) real DB-backed password_hash (bob/alice)
+    stored = (db_user.password_hash or "").encode("utf-8")
+    ok = bcrypt.checkpw(password.encode("utf-8"), stored)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
 
     return Token(access_token=create_access_token(username))
 
@@ -96,20 +100,35 @@ async def get_current_user(
     db: Session = Depends(get_db),
 ) -> UserModel:
     username = _username_from_token(token)
-
     db_user = _get_user_by_username(db, username)
+
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token/user",
+            detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    return db_user
+
+
+async def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> UserModel | None:
+    # ✅ NEVER raise here. This is for “optional auth” routes.
+    if not token:
+        return None
+
+    username = _username_from_token(token)
+    db_user = _get_user_by_username(db, username)
+
+    # If token is junk or user doesn't exist, treat as anonymous.
     return db_user
 
 
 @router.get("/auth/me", response_model=UserOut)
 async def read_me(current_user: UserModel = Depends(get_current_user)) -> UserOut:
-    # full_name is dev-only (not in DB yet)
     dev = FAKE_USERS_DB.get(current_user.username) or {}
     return UserOut(
         id=int(current_user.id),

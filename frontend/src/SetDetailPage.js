@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import SetCard from "./SetCard";
 import AddToListMenu from "./AddToListMenu";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
 // Helper: derive username from our fake token format
 function getUsernameFromToken(token) {
@@ -84,13 +84,15 @@ function SetDetailPage({
 
   useEffect(() => {
     if (location.hash !== "#shop") return;
-    if (loading) return; // ✅ wait until the page content exists
+    if (loading) return;
   
-    const t = setTimeout(() => {
-      shopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    const el = shopRef.current;
+    if (!el) return;
   
-    return () => clearTimeout(t);
+    const NAV_OFFSET = 90; // adjust if needed (try 110 if it still lands low)
+    const y = el.getBoundingClientRect().top + window.scrollY - NAV_OFFSET;
+  
+    window.scrollTo({ top: y, behavior: "smooth" });
   }, [location.hash, loading]);
 
   // -------------------------------
@@ -711,6 +713,7 @@ function SetDetailPage({
               </button>
 
               <AddToListMenu
+                token={effectiveToken}
                 setNum={setNum}
                 includeOwned={false}
                 includeWishlist={true}
@@ -890,8 +893,11 @@ function SetDetailPage({
       </section>
 
       {/* SHOP */}
-      <section ref={shopRef} id="shop" style={{ marginTop: "2rem" }}>
-        <h2 style={{ margin: 0, marginTop: "2rem", scrollMarginTop: 90, marginBottom: "0.5rem", fontSize: "1.1rem" }}>
+      <section id="shop" style={{ marginTop: "2rem" }}>
+        <h2
+          ref={shopRef}
+          style={{ margin: 0, marginTop: "2rem", scrollMarginTop: 90, marginBottom: "0.5rem", fontSize: "1.1rem" }}
+        >
           Shop & price comparison
         </h2>
 
@@ -1195,6 +1201,7 @@ function SetDetailPage({
                         }}
                       >
                         <SetCard
+                          token={effectiveToken}
                           set={s}
                           isOwned={
                             ownedSetNums ? ownedSetNums.has(s.set_num) : false

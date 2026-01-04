@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
 function getStoredToken() {
   return localStorage.getItem("lego_token") || "";
@@ -82,7 +82,9 @@ export default function MyListsSection({ token }) {
     setOrderErr(null);
 
     try {
-      const orderedIds = nextOrdered.map((l) => l.id);
+      const orderedIds = nextOrdered
+        .filter((l) => !l.is_system)
+        .map((l) => l.id);
 
       const resp = await fetch(`${API_BASE}/lists/me/order`, {
         method: "PUT",
@@ -117,6 +119,7 @@ export default function MyListsSection({ token }) {
     // optimistic UI update immediately
     setLists(next);
     saveOrder(next);
+    setOrderErr(null);
   }
 
   function handleMoveUp(id) {
