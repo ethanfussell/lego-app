@@ -23,3 +23,5 @@ yarn-error.log*
 
 backend/.env
 frontend/.envlego-app.zip
+
+lego-app.zip
