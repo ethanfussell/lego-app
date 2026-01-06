@@ -68,3 +68,10 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+	•	Canonical storage everywhere: DB stores and returns canonical set numbers like 10305-1.
+	•	POST/PUT inputs: API accepts either 10305 or 10305-1 and resolves to canonical.
+	•	DELETE behavior:
+	•	If path param includes - → delete that exact version only.
+	•	If no - → delete all versions for that base in that list (safe + idempotent).

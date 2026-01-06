@@ -3,19 +3,23 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user
+from ..core.set_nums import base_set_num, resolve_set_num
 from ..db import get_db
 from ..models import List as ListModel
 from ..models import ListItem as ListItemModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
 
+# NOTE:
+# This router is typically included with prefix="/collections" in app startup.
+# (That’s why your URLs are /collections/wishlist, /collections/me/owned, etc.)
 router = APIRouter()
 
 
@@ -24,51 +28,6 @@ class CollectionOrderUpdate(BaseModel):
 
 
 # ---------- shared helpers ----------
-def _resolve_set_num(db: Session, set_num_or_plain: str) -> str:
-    """
-    Accepts '10305' or '10305-1' and returns canonical set_num in DB ('10305-1').
-    """
-    raw = (set_num_or_plain or "").strip()
-    if not raw:
-        raise HTTPException(status_code=422, detail="set_num_required")
-
-    plain = raw.split("-")[0].lower()
-    plain_expr = func.split_part(SetModel.set_num, "-", 1)
-
-    canonical = db.execute(
-        select(SetModel.set_num)
-        .where(func.lower(SetModel.set_num) == raw.lower())
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if not canonical:
-        canonical = db.execute(
-            select(SetModel.set_num)
-            .where(func.lower(plain_expr) == plain)
-            .limit(1)
-        ).scalar_one_or_none()
-
-    if not canonical:
-        raise HTTPException(status_code=404, detail="set_not_found")
-
-    return canonical
-
-
-def _candidate_set_nums_for_delete(raw: str) -> TypingList[str]:
-    """
-    For idempotent DELETE:
-    - If user passes "10026", we try ["10026-1", "10026"] (in case old data exists).
-    - If user passes "10026-1", we try ["10026-1"].
-    - No DB lookup, so unknown sets won't 404.
-    """
-    s = (raw or "").strip()
-    if not s:
-        return []
-    if "-" in s:
-        return [s]
-    return [f"{s}-1", s]
-
-
 def _set_to_dict(s: SetModel) -> Dict[str, Any]:
     return {
         "set_num": s.set_num,
@@ -84,7 +43,7 @@ def _set_to_dict(s: SetModel) -> Dict[str, Any]:
 def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel:
     """
     Owned/Wishlist are system lists stored in lists/list_items.
-    If missing (e.g., older DB or new user without seeding), create them.
+    If missing, create them.
     """
     key = (key or "").strip().lower()
     if key not in ("owned", "wishlist"):
@@ -99,7 +58,6 @@ def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel
         )
         .limit(1)
     ).scalar_one_or_none()
-
     if existing:
         return existing
 
@@ -120,10 +78,10 @@ def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel
         system_key=key,
     )
     db.add(lst)
+
     try:
         db.commit()
     except IntegrityError:
-        # created concurrently; re-fetch
         db.rollback()
         existing2 = db.execute(
             select(ListModel)
@@ -145,7 +103,7 @@ def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel
 def _get_system_list_optional(db: Session, user_id: int, key: str) -> Optional[ListModel]:
     """
     Like _get_or_create_system_list, but DOES NOT create.
-    Useful for idempotent delete endpoints (don't create lists on DELETE).
+    Useful for idempotent delete endpoints (don’t create lists on DELETE).
     """
     key = (key or "").strip().lower()
     if key not in ("owned", "wishlist"):
@@ -172,9 +130,7 @@ def _already_in_list(db: Session, list_id: int, set_num: str) -> bool:
 
 
 def _append_item(db: Session, list_id: int, set_num: str) -> None:
-    """
-    Append at end (max position + 1). Idempotent on duplicates.
-    """
+    """Append at end (max position + 1). Idempotent on duplicates."""
     max_pos = db.execute(
         select(func.coalesce(func.max(ListItemModel.position), -1))
         .where(ListItemModel.list_id == list_id)
@@ -207,6 +163,7 @@ def _compact_positions(db: Session, list_id: int) -> None:
 
 
 def _remove_item_idempotent(db: Session, list_id: int, set_num: str) -> int:
+    """Idempotent delete of an EXACT set_num."""
     deleted = (
         db.query(ListItemModel)
         .filter(ListItemModel.list_id == list_id, ListItemModel.set_num == set_num)
@@ -217,6 +174,36 @@ def _remove_item_idempotent(db: Session, list_id: int, set_num: str) -> int:
     if int(deleted) > 0:
         _compact_positions(db, list_id)
 
+    return int(deleted)
+
+
+def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str) -> int:
+    """
+    ✅ Make '-1' not an issue on DELETE.
+
+    - If raw includes a dash (e.g. "10305-2"): delete exactly that.
+    - If raw is base-only (e.g. "10305"): delete ANY "10305-*" variant in that list.
+    Never 404s.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return 0
+
+    q = db.query(ListItemModel).filter(ListItemModel.list_id == list_id)
+
+    if "-" in s:
+        deleted = q.filter(func.lower(ListItemModel.set_num) == s.lower()).delete(synchronize_session=False)
+        db.commit()
+        if int(deleted) > 0:
+            _compact_positions(db, list_id)
+        return int(deleted)
+
+    base_lower = base_set_num(s).lower()
+    plain_expr = func.split_part(ListItemModel.set_num, "-", 1)
+    deleted = q.filter(func.lower(plain_expr) == base_lower).delete(synchronize_session=False)
+    db.commit()
+    if int(deleted) > 0:
+        _compact_positions(db, list_id)
     return int(deleted)
 
 
@@ -251,7 +238,7 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     if not set_nums and not current:
         return
 
-    canonical_order: TypingList[str] = [_resolve_set_num(db, s) for s in (set_nums or [])]
+    canonical_order: TypingList[str] = [resolve_set_num(db, s) for s in (set_nums or [])]
 
     if len(set(canonical_order)) != len(canonical_order):
         raise HTTPException(status_code=400, detail="set_nums_must_be_unique")
@@ -263,9 +250,7 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     for pos, sn in enumerate(canonical_order):
         by_set[sn].position = int(pos)
 
-    # bump list updated_at for better "recent activity" behavior
     db.query(ListModel).filter(ListModel.id == list_id).update({"updated_at": func.now()})
-
     db.commit()
 
 
@@ -276,7 +261,8 @@ def add_owned(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    canonical = _resolve_set_num(db, payload.get("set_num", ""))
+    raw = (payload.get("set_num") or "").strip()
+    canonical = resolve_set_num(db, raw)
 
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
@@ -285,7 +271,8 @@ def add_owned(
         _append_item(db, int(owned_list.id), canonical)
 
     # nice UX: if you mark owned, remove from wishlist (idempotent)
-    _remove_item_idempotent(db, int(wishlist_list.id), canonical)
+    # ✅ remove by BASE so 10305 removes 10305-1 or 10305-2 if present
+    _remove_item_idempotent_by_base_or_exact(db, int(wishlist_list.id), base_set_num(canonical))
 
     return {"ok": True, "set_num": canonical, "type": "owned"}
 
@@ -301,8 +288,6 @@ def reorder_owned(
     return {"ok": True, "type": "owned", "list_id": int(owned_list.id)}
 
 
-from fastapi import Response, status
-
 @router.delete("/owned/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_owned(
     set_num: str,
@@ -313,10 +298,7 @@ def remove_owned(
     if not owned_list:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    # idempotent delete: do NOT resolve set_num through DB
-    for cand in _candidate_set_nums_for_delete(set_num):
-        _remove_item_idempotent(db, int(owned_list.id), cand)
-
+    _remove_item_idempotent_by_base_or_exact(db, int(owned_list.id), set_num)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -327,7 +309,8 @@ def add_wishlist(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    canonical = _resolve_set_num(db, payload.get("set_num", ""))
+    raw = (payload.get("set_num") or "").strip()
+    canonical = resolve_set_num(db, raw)
 
     wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
 
@@ -358,10 +341,7 @@ def remove_wishlist(
     if not wishlist_list:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    # idempotent delete: do NOT resolve set_num through DB
-    for cand in _candidate_set_nums_for_delete(set_num):
-        _remove_item_idempotent(db, int(wishlist_list.id), cand)
-
+    _remove_item_idempotent_by_base_or_exact(db, int(wishlist_list.id), set_num)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

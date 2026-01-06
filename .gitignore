@@ -25,3 +25,8 @@ backend/.env
 frontend/.envlego-app.zip
 
 lego-app.zip
+
+# env files
+.env
+backend/.env
+frontend/.env

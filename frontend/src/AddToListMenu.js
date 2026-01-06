@@ -3,8 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "./Toast";
+import { listHasSetNum } from "./setNums";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
+const API_BASE = (process.env.REACT_APP_API_BASE || "http://localhost:8000").replace(/\/+$/, "");
+
 
 function getStoredToken() {
   try {
@@ -15,10 +17,13 @@ function getStoredToken() {
   }
 }
 
+
 async function apiFetch(path, { token, ...opts } = {}) {
   const headers = new Headers(opts.headers || {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_BASE}${path}`, { ...opts, headers });
+
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return fetch(`${API_BASE}${p}`, { ...opts, headers });
 }
 
 async function safeJson(resp) {
@@ -40,6 +45,19 @@ function isSystemList(l) {
   if (title === "owned" || title === "wishlist") return true;
 
   return false;
+}
+
+function toPlainSetNum(sn) {
+  // backend accepts either, but plain keeps it consistent
+  return String(sn || "").split("-")[0];
+}
+
+function sameSetNum(a, b) {
+  const A = String(a || "").trim();
+  const B = String(b || "").trim();
+  if (!A || !B) return false;
+  if (A === B) return true;
+  return toPlainSetNum(A) === toPlainSetNum(B);
 }
 
 export default function AddToListMenu({
@@ -87,6 +105,8 @@ export default function AddToListMenu({
   const [err, setErr] = useState(null);
 
   // --- system list ids (Owned / Wishlist) ---
+  // NOTE: we still load these so the menu can show "ready" + for future usage,
+  // but Owned/Wishlist add/remove now uses /collections/* endpoints (NOT /lists/*)
   const [ownedListId, setOwnedListId] = useState(null);
   const [wishlistListId, setWishlistListId] = useState(null);
   const [loadingSystem, setLoadingSystem] = useState(false);
@@ -195,7 +215,7 @@ export default function AddToListMenu({
     };
   }, [open, includeOwned, includeWishlist, customLists.length]);
 
-  // --- tiny step: load system list ids on open (when logged in) ---
+  // Load system list ids on open (when logged in)
   useEffect(() => {
     if (!open) return;
 
@@ -231,7 +251,6 @@ export default function AddToListMenu({
           setWishlistListId(wish != null ? Number(wish) : null);
         }
       } catch (e) {
-        // don't hard-fail the whole menu, but show message
         if (!cancelled) setErr(e?.message || String(e));
       } finally {
         if (!cancelled) setLoadingSystem(false);
@@ -239,7 +258,6 @@ export default function AddToListMenu({
     }
 
     loadSystemLists();
-
     return () => {
       cancelled = true;
     };
@@ -290,7 +308,7 @@ export default function AddToListMenu({
           customOnly.map(async (l) => {
             try {
               const itemsInline = Array.isArray(l.items) ? l.items : null;
-              if (itemsInline && itemsInline.includes(setNum)) {
+              if (itemsInline && listHasSetNum(itemsInline, setNum)) {
                 map[l.id] = true;
                 return;
               }
@@ -300,7 +318,7 @@ export default function AddToListMenu({
 
               const detail = await safeJson(r);
               const items = Array.isArray(detail?.items) ? detail.items : [];
-              if (items.includes(setNum)) map[l.id] = true;
+              if (listHasSetNum(items, setNum)) map[l.id] = true;
             } catch {
               // ignore
             }
@@ -340,6 +358,7 @@ export default function AddToListMenu({
   async function addToCustomList(listId) {
     if (typeof onAddToList === "function") return onAddToList(listId);
     if (!isLoggedIn) throw new Error("Please log in to use lists.");
+    console.log("[AddToListMenu] addToCustomList", { setNum, listId });
 
     const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
       token: effectiveToken,
@@ -371,22 +390,45 @@ export default function AddToListMenu({
     }
   }
 
-  // --- NEW: system list add/remove via list endpoints ---
-  async function addToSystem(type) {
-    const listId = type === "owned" ? ownedListId : wishlistListId;
-    if (!listId) {
-      throw new Error("System list not ready yet. Try again in a second.");
-    }
-    await addToCustomList(listId);
-  }
+// --- system list add/remove via /collections endpoints (NOT /lists/:id/items) ---
+async function addToSystem(type) {
+  if (!isLoggedIn) throw new Error("Please log in to use lists.");
+  console.log("[AddToListMenu] addToSystem", { type, setNum, plain: toPlainSetNum(setNum) });
 
-  async function removeFromSystem(type) {
-    const listId = type === "owned" ? ownedListId : wishlistListId;
-    if (!listId) {
-      throw new Error("System list not ready yet. Try again in a second.");
-    }
-    await removeFromCustomList(listId);
+  const plain = toPlainSetNum(setNum);
+
+  const resp = await apiFetch(`/collections/${encodeURIComponent(type)}`, {
+    token: effectiveToken,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ set_num: plain }),
+  });
+
+  // backend might return {"detail":"set_not_found"} etc
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Add failed (${resp.status}): ${text}`);
   }
+}
+
+async function removeFromSystem(type) {
+  if (!isLoggedIn) throw new Error("Please log in to use lists.");
+
+  const plain = toPlainSetNum(setNum);
+
+  const resp = await apiFetch(
+    `/collections/${encodeURIComponent(type)}/${encodeURIComponent(plain)}`,
+    { token: effectiveToken, method: "DELETE" }
+  );
+
+  // your delete is idempotent
+  if (resp.status === 204 || resp.status === 404) return;
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Remove failed (${resp.status}): ${text}`);
+  }
+}
 
   async function handleClickItem(action) {
     try {
@@ -407,13 +449,11 @@ export default function AddToListMenu({
       if (action.type === "owned") {
         await addToSystem("owned");
         setOwnedLocal(true);
-        // optional parent sync
         await onAddOwned?.();
         toast?.("Added to Owned ✅");
       } else if (action.type === "wishlist") {
         await addToSystem("wishlist");
         setWishlistLocal(true);
-        // optional parent sync
         await onAddWishlist?.();
         toast?.("Added to Wishlist ✅");
       } else if (action.type === "list") {
@@ -486,8 +526,7 @@ export default function AddToListMenu({
     paddingRight: 28,
   };
 
-  const systemReady =
-    (!includeOwned || !!ownedListId) && (!includeWishlist || !!wishlistListId);
+  const systemReady = (!includeOwned || !!ownedListId) && (!includeWishlist || !!wishlistListId);
 
   return (
     <>

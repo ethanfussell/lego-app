@@ -11,11 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.auth import get_current_user, get_current_user_optional
+from ..core.set_nums import base_set_num, resolve_set_num
 from ..data.lists import LISTS
 from ..db import get_db
 from ..models import List as ListModel
 from ..models import ListItem as ListItemModel
-from ..models import Set as SetModel
 from ..models import User as UserModel
 from ..schemas.list import (
     ListCreate,
@@ -35,36 +35,6 @@ def _use_memory_lists() -> bool:
 
 
 # ---------------- helpers ----------------
-def _resolve_set_num(db: Session, set_num_or_plain: str) -> str:
-    """
-    Accepts '10305' or '10305-1' and returns canonical set_num in DB ('10305-1').
-    """
-    raw = (set_num_or_plain or "").strip()
-    if not raw:
-        raise HTTPException(status_code=422, detail="set_num_required")
-
-    plain = raw.split("-")[0].lower()
-    plain_expr = func.split_part(SetModel.set_num, "-", 1)
-
-    canonical = db.execute(
-        select(SetModel.set_num)
-        .where(func.lower(SetModel.set_num) == raw.lower())
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if not canonical:
-        canonical = db.execute(
-            select(SetModel.set_num)
-            .where(func.lower(plain_expr) == plain)
-            .limit(1)
-        ).scalar_one_or_none()
-
-    if not canonical:
-        raise HTTPException(status_code=404, detail="set_not_found")
-
-    return canonical
-
-
 def _owner_username(db: Session, owner_id: int) -> str:
     return db.execute(select(UserModel.username).where(UserModel.id == int(owner_id))).scalar_one()
 
@@ -428,7 +398,7 @@ def api_add_list_item(
     lst = _get_list_visible_or_404(db, list_id, current_user, load_items=False)
     _require_owner_or_403(lst, current_user)
 
-    canonical = _resolve_set_num(db, payload.set_num)
+    canonical = resolve_set_num(db, payload.set_num)
 
     max_pos = db.execute(
         select(func.coalesce(func.max(ListItemModel.position), -1))
@@ -474,7 +444,7 @@ def api_reorder_list_items(
         owner_username = _owner_username(db, int(lst2.owner_id))
         return _detail_dict(lst2, owner_username)
 
-    canonical_order: TypingList[str] = [_resolve_set_num(db, s) for s in raw]
+    canonical_order: TypingList[str] = [resolve_set_num(db, s) for s in raw]
 
     if len(set(canonical_order)) != len(canonical_order):
         raise HTTPException(status_code=400, detail="set_nums_must_be_unique")
@@ -505,26 +475,34 @@ def api_remove_list_item(
     lst = _get_list_visible_or_404(db, list_id, current_user, load_items=False)
     _require_owner_or_403(lst, current_user)
 
-    try:
-        canonical = _resolve_set_num(db, set_num)
-    except HTTPException as e:
-        if e.status_code == 404 and e.detail == "set_not_found":
-            raise HTTPException(status_code=404, detail="set_not_in_list")
-        raise
+    raw = (set_num or "").strip()
+    if not raw:
+        raise HTTPException(status_code=422, detail="set_num_required")
 
-    deleted = (
-        db.query(ListItemModel)
-        .filter(ListItemModel.list_id == lst.id, ListItemModel.set_num == canonical)
-        .delete(synchronize_session=False)
-    )
+    q = db.query(ListItemModel).filter(ListItemModel.list_id == lst.id)
+
+    if "-" in raw:
+        # exact version: "10305-2"
+        deleted = q.filter(func.lower(ListItemModel.set_num) == raw.lower()).delete(
+            synchronize_session=False
+        )
+    else:
+        # base: "10305" -> delete any "10305-*"
+        base_lower = base_set_num(raw).lower()
+        plain_expr = func.split_part(ListItemModel.set_num, "-", 1)
+        deleted = q.filter(func.lower(plain_expr) == base_lower).delete(
+            synchronize_session=False
+        )
 
     if int(deleted) == 0:
         db.rollback()
         raise HTTPException(status_code=404, detail="set_not_in_list")
 
     _compact_list_item_positions(db, int(lst.id))
+    lst.updated_at = func.now()
     db.commit()
-    return {"ok": True}
+
+    return {"ok": True, "deleted_count": int(deleted)}
 
 
 # ---------------- Update list (auth required) ----------------

@@ -1,13 +1,16 @@
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
+export async function addToList({ token, listId, setNum, systemLists }) {
+  // systemLists looks like: { owned: {id: 1}, wishlist: {id: 2} }
+  const ownedId = systemLists?.owned?.id;
+  const wishlistId = systemLists?.wishlist?.id;
 
-export async function api(path, { token, ...opts } = {}) {
-  const headers = { ...(opts.headers || {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  let url;
+  if (listId === ownedId) url = "/collections/owned";
+  else if (listId === wishlistId) url = "/collections/wishlist";
+  else url = `/lists/${listId}/items`; // keep for later when custom-list endpoint exists
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`${resp.status} ${resp.statusText}: ${text}`);
-  }
-  return resp;
+  return apiFetch(url, {
+    method: "POST",
+    token,
+    json: { set_num: setNum },
+  });
 }

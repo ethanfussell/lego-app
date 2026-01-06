@@ -4,13 +4,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user
+from ..core.set_nums import resolve_set_num
 from ..db import get_db
-from ..models import Review as ReviewModel, Set as SetModel, User as UserModel
+from ..models import Review as ReviewModel
+from ..models import User as UserModel
 from ..schemas.review import Review, ReviewCreate
 
 router = APIRouter()
@@ -30,48 +32,20 @@ def _review_to_dict(r: ReviewModel, username: str) -> Dict[str, Any]:
     }
 
 
-def _resolve_set_num(db: Session, set_num_or_plain: str) -> str:
-    """
-    Accepts '21354' or '21354-1' and returns canonical set_num in DB ('21354-1').
-    """
-    raw = (set_num_or_plain or "").strip()
-    if not raw:
-        raise HTTPException(status_code=404, detail="Set not found")
-
-    plain = raw.split("-")[0].lower()
-    plain_expr = func.split_part(SetModel.set_num, "-", 1)
-
-    canonical = db.execute(
-        select(SetModel.set_num)
-        .where(
-            or_(
-                func.lower(SetModel.set_num) == raw.lower(),
-                func.lower(plain_expr) == plain,
-            )
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if not canonical:
-        raise HTTPException(status_code=404, detail="Set not found")
-
-    return canonical
-
-
 @router.get("/{set_num}/reviews", response_model=List[Review])
 def list_reviews_for_set(
     set_num: str,
     limit: int = 50,
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    canonical = _resolve_set_num(db, set_num)
+    canonical = resolve_set_num(db, set_num)
 
     rows = db.execute(
         select(ReviewModel, UserModel.username)
         .join(UserModel, UserModel.id == ReviewModel.user_id)
         .where(ReviewModel.set_num == canonical)
         .order_by(ReviewModel.created_at.desc())
-        .limit(limit)
+        .limit(int(limit))
     ).all()
 
     return [_review_to_dict(r, username) for (r, username) in rows]
@@ -84,7 +58,7 @@ def create_or_update_review(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    canonical = _resolve_set_num(db, set_num)
+    canonical = resolve_set_num(db, set_num)
 
     existing = db.execute(
         select(ReviewModel)
@@ -127,10 +101,21 @@ def delete_my_review(
     set_num: str,
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> None:
-    canonical = _resolve_set_num(db, set_num)
+) -> Response:
+    """
+    Idempotent delete:
+    - If review exists -> delete + 204
+    - If review already deleted -> 204
+    - If set_num doesn't exist -> 204 (treat as already gone)
+    """
+    try:
+        canonical = resolve_set_num(db, set_num)
+    except HTTPException as e:
+        if e.status_code == 404 and e.detail == "set_not_found":
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise
 
-    deleted = (
+    (
         db.query(ReviewModel)
         .filter(
             ReviewModel.user_id == current_user.id,
@@ -140,7 +125,4 @@ def delete_my_review(
     )
     db.commit()
 
-    if int(deleted) == 0:
-        raise HTTPException(status_code=404, detail="Review not found")
-
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
