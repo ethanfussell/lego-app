@@ -17,8 +17,6 @@ from .routers import users as users_router
 app = FastAPI(title="LEGO API")
 
 # ---- CORS ----
-from fastapi.middleware.cors import CORSMiddleware
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
