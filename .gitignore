@@ -36,3 +36,7 @@ frontend/.env
 .env
 backend/.env
 frontend/.env
+
+# allow env example files
+!backend/.env.example
+!frontend/.env.example
