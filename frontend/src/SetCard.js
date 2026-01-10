@@ -1,28 +1,173 @@
 // frontend/src/SetCard.js
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AddToListMenu from "./AddToListMenu";
 
+/**
+ * SmartThumb:
+ * - Fixed aspect-ratio thumbnail box (consistent)
+ * - Default: contain (no crop) with white bars
+ * - If image is "close enough" to the box ratio: use cover (minimal crop)
+ * - Optional: very conservative "whitespace zoom" ONLY in contain mode
+ */
+function SmartThumb({ src, alt, aspect = "16 / 10" }) {
+  const [fit, setFit] = useState("contain"); // default no-crop
+  const [transform, setTransform] = useState("");
+  const lastSrcRef = useRef(null);
+
+  // derive boxRatio from aspect string like "16 / 10"
+  const boxRatio = (() => {
+    const parts = String(aspect).split("/").map((x) => Number(x.trim()));
+    const a = parts?.[0] || 16;
+    const b = parts?.[1] || 10;
+    return a / b;
+  })();
+
+  useEffect(() => {
+    if (lastSrcRef.current !== src) {
+      lastSrcRef.current = src;
+      setFit("contain");
+      setTransform("");
+    }
+  }, [src]);
+
+  function analyzeAndSet(e) {
+    const img = e.currentTarget;
+    const w = img.naturalWidth || 1;
+    const h = img.naturalHeight || 1;
+    const imgRatio = w / h;
+
+    // only cover when ratio is very close (so crop is tiny)
+    const ratioDiff = Math.abs(imgRatio - boxRatio) / boxRatio;
+    const shouldCover = ratioDiff < 0.08; // tighten/loosen: 0.06–0.12
+
+    setFit(shouldCover ? "cover" : "contain");
+    setTransform("");
+
+    // --- Conservative whitespace zoom (ONLY when contain) ---
+    if (shouldCover) return;
+
+    try {
+      const S = 64;
+      const canvas = document.createElement("canvas");
+      canvas.width = S;
+      canvas.height = S;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(img, 0, 0, S, S);
+
+      const { data } = ctx.getImageData(0, 0, S, S);
+
+      let minX = S,
+        minY = S,
+        maxX = -1,
+        maxY = -1;
+
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const i = (y * S + x) * 4;
+          const r = data[i],
+            g = data[i + 1],
+            b = data[i + 2],
+            a = data[i + 3];
+          if (a < 20) continue;
+
+          // treat near-white as background
+          if (r > 245 && g > 245 && b > 245) continue;
+
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+
+      // nothing detected
+      if (maxX < 0 || maxY < 0) return;
+
+      const bw = (maxX - minX + 1) / S;
+      const bh = (maxY - minY + 1) / S;
+
+      // only zoom if lots of whitespace
+      if (bw >= 0.78 && bh >= 0.78) return;
+
+      // safe zoom range so we don't "feel like cropping"
+      const s = Math.min(1.22, Math.max(1.0, 1 / Math.min(bw, bh)));
+
+      // keep centered to avoid weird pans
+      setTransform(`scale(${s})`);
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
+      <div
+        style={{
+          width: "100%",
+          aspectRatio: aspect,
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          overflow: "hidden",
+          background: "white",
+          position: "relative",
+        }}
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            onLoad={analyzeAndSet}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: fit,
+              objectPosition: "center",
+              display: "block",
+              transform: transform || undefined,
+              transformOrigin: "center",
+              willChange: transform ? "transform" : undefined,
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              placeItems: "center",
+              color: "#9ca3af",
+              fontSize: 14,
+            }}
+          >
+            No image
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SetCard({
   set,
-  token, // optional: pass through to AddToListMenu if you want
+  token,
 
   isOwned = false,
   isInWishlist = false,
   onMarkOwned,
   onAddWishlist,
 
-  // "equal" (grid): Shop and Add share space
-  // "carousel": Shop smaller, Add larger
   actionsLayout = "equal",
-
-  // optional: changes bottom layout for collection pages
   variant = "default",
-  collectionFooter = "rating", // "rating" or "shop"
+  collectionFooter = "rating",
   userRating,
 }) {
   const navigate = useNavigate();
-
   if (!set) return null;
 
   const {
@@ -77,11 +222,11 @@ export default function SetCard({
   }
 
   const actionBtnBase = {
-    height: isCarouselActions ? 28 : 32,
-    padding: isCarouselActions ? "0.25rem 0.55rem" : "0.35rem 0.6rem",
+    height: isCarouselActions ? 28 : 30,
+    padding: isCarouselActions ? "0.25rem 0.55rem" : "0.3rem 0.55rem",
     borderRadius: "999px",
-    fontSize: isCarouselActions ? "0.8rem" : "0.85rem",
-    fontWeight: 600,
+    fontSize: isCarouselActions ? "0.8rem" : "0.84rem",
+    fontWeight: 650,
     lineHeight: 1.2,
     whiteSpace: "nowrap",
     display: "inline-flex",
@@ -96,7 +241,7 @@ export default function SetCard({
 
   const shopBtnStyle = {
     ...actionBtnBase,
-    flex: isCarouselActions ? "0 0 70px" : "1 1 0",
+    flex: isCarouselActions ? "0 0 72px" : "1 1 0",
   };
 
   const addWrapStyle = { flex: "1 1 0", minWidth: 124, display: "flex" };
@@ -112,7 +257,6 @@ export default function SetCard({
       onClick={goToSet}
       style={{
         width: "100%",
-        minHeight: 360,
         borderRadius: 12,
         border: "1px solid #e5e7eb",
         background: "white",
@@ -121,50 +265,26 @@ export default function SetCard({
         flexDirection: "column",
         cursor: "pointer",
         overflow: "hidden",
+        minHeight: 300,
       }}
     >
-      {/* Image */}
-      <div style={{ padding: 12, borderBottom: "1px solid #f3f4f6" }}>
-        <div
-          style={{
-            height: 200,
-            borderRadius: 10,
-            border: "1px solid #e5e7eb",
-            display: "grid",
-            placeItems: "center",
-            overflow: "hidden",
-            background: "white",
-          }}
-        >
-          {image_url ? (
-            <img
-              src={image_url}
-              alt={name || set_num}
-              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            />
-          ) : (
-            <div style={{ color: "#9ca3af", fontSize: 14 }}>No image</div>
-          )}
-        </div>
-      </div>
+      <SmartThumb src={image_url} alt={name || set_num} aspect="16 / 10" />
 
-      {/* Content */}
       <div
         style={{
-          padding: "10px 12px 12px",
+          padding: "8px 10px 10px",
           display: "flex",
           flexDirection: "column",
           flex: "1 1 auto",
         }}
       >
-        {/* Title + meta */}
         <div style={{ marginBottom: 6 }}>
           <div
             style={{
-              fontWeight: 600,
-              fontSize: "0.95rem",
-              lineHeight: "1.25em",
-              minHeight: "2.5em", // reserve 2 lines
+              fontWeight: 650,
+              fontSize: "0.92rem",
+              lineHeight: "1.22em",
+              minHeight: "2.44em",
               color: "#111827",
               display: "-webkit-box",
               WebkitLineClamp: 2,
@@ -181,7 +301,6 @@ export default function SetCard({
           </div>
         </div>
 
-        {/* Theme + Pieces */}
         {(theme || piecesLabel) && (
           <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 6 }}>
             {theme && (
@@ -193,7 +312,6 @@ export default function SetCard({
           </div>
         )}
 
-        {/* Rating */}
         {(displayAvg !== null || displayCount !== null) && (
           <div
             style={{
@@ -211,16 +329,14 @@ export default function SetCard({
           </div>
         )}
 
-        {/* Price */}
         {priceFrom !== null && (
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 750, color: "#111827", marginBottom: 6 }}>
             From ${priceFrom.toFixed(2)}
           </div>
         )}
 
         <div style={{ flex: "1 1 auto" }} />
 
-        {/* Footer */}
         {variant === "collection" ? (
           collectionFooter === "shop" ? (
             <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6 }}>
@@ -241,7 +357,7 @@ export default function SetCard({
               }}
             >
               <span style={{ color: "#6b7280" }}>Your rating</span>
-              <span style={{ fontWeight: 700 }}>
+              <span style={{ fontWeight: 750 }}>
                 {effectiveUserRating !== null
                   ? effectiveUserRating.toFixed(1)
                   : displayAvg !== null
