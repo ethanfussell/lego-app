@@ -1,422 +1,279 @@
 // frontend/src/MyListsSection.js
-import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { apiFetch, getToken } from "./lib/api";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "./auth";
+import { apiFetch } from "./lib/api";
 
-function safeCount(list) {
-  const c =
-    list?.items_count ??
-    (Array.isArray(list?.items) ? list.items.length : 0);
-  return Number.isFinite(c) ? c : 0;
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+function sortByPosition(lists) {
+  const arr = Array.isArray(lists) ? [...lists] : [];
+  arr.sort((a, b) => Number(a?.position ?? 0) - Number(b?.position ?? 0));
+  return arr;
 }
 
-function sortByPositionThenId(a, b) {
-  const pa = Number.isFinite(a?.position) ? a.position : 999999;
-  const pb = Number.isFinite(b?.position) ? b.position : 999999;
-  if (pa !== pb) return pa - pb;
-  return (a?.id ?? 0) - (b?.id ?? 0);
-}
+function SortableListCard({ list, disabled }) {
+  const id = String(list?.id);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled,
+  });
 
-export default function MyListsSection({ token: tokenProp }) {
-  const effectiveToken = tokenProp ?? getToken();
-  const isLoggedIn = !!effectiveToken;
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.7 : 1,
+    cursor: disabled ? "default" : "grab",
+  };
 
-  const [lists, setLists] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState(null);
-
-  // reorder save state
-  const [savingOrder, setSavingOrder] = useState(false);
-  const [orderErr, setOrderErr] = useState(null);
-
-  // create form
-  const [showCreate, setShowCreate] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [createErr, setCreateErr] = useState(null);
-
-  const sortedLists = useMemo(() => {
-    return [...lists].sort(sortByPositionThenId);
-  }, [lists]);
-
-  async function loadMyLists() {
-    if (!isLoggedIn) return;
-
-    try {
-      setLoading(true);
-      setErr(null);
-
-      const data = await apiFetch("/lists/me", { token: effectiveToken });
-      const arr = Array.isArray(data) ? data : [];
-      setLists(arr);
-    } catch (e) {
-      setErr(e?.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadMyLists();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveToken]);
-
-  async function saveOrder(nextOrdered) {
-    // nextOrdered is already sorted in the desired order (top -> bottom)
-    setSavingOrder(true);
-    setOrderErr(null);
-
-    try {
-      const orderedIds = nextOrdered
-        .filter((l) => !l.is_system)
-        .map((l) => l.id);
-
-      const updated = await apiFetch("/lists/me/order", {
-        method: "PUT",
-        token: effectiveToken,
-        body: { ordered_ids: orderedIds },
-      });
-
-      setLists(Array.isArray(updated) ? updated : nextOrdered);
-    } catch (e) {
-      setOrderErr(e?.message || String(e));
-      // reload from server to revert if needed
-      await loadMyLists();
-    } finally {
-      setSavingOrder(false);
-    }
-  }
-
-  function moveIndex(fromIndex, toIndex) {
-    const next = [...sortedLists];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-
-    // optimistic UI update immediately
-    setLists(next);
-    saveOrder(next);
-    setOrderErr(null);
-  }
-
-  function handleMoveUp(id) {
-    const idx = sortedLists.findIndex((l) => l.id === id);
-    if (idx <= 0) return;
-    moveIndex(idx, idx - 1);
-  }
-
-  function handleMoveDown(id) {
-    const idx = sortedLists.findIndex((l) => l.id === id);
-    if (idx === -1 || idx >= sortedLists.length - 1) return;
-    moveIndex(idx, idx + 1);
-  }
-
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!isLoggedIn) return;
-
-    const t = title.trim();
-    if (!t) {
-      setCreateErr("Title is required.");
-      return;
-    }
-
-    try {
-      setCreating(true);
-      setCreateErr(null);
-
-      await apiFetch("/lists", {
-        method: "POST",
-        token: effectiveToken,
-        body: {
-          title: t,
-          description: description.trim() || null,
-          is_public: !!isPublic,
-        },
-      });
-
-      // Better than guessing positions: just reload from server
-      setTitle("");
-      setDescription("");
-      setIsPublic(true);
-      setShowCreate(false);
-      await loadMyLists();
-    } catch (e2) {
-      setCreateErr(e2?.message || String(e2));
-    } finally {
-      setCreating(false);
-    }
-  }
+  // Disable clicks inside while dragging
+  const innerStyle = { pointerEvents: "none" };
 
   return (
-    <section style={{ marginTop: "1.25rem" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0 }}>My Lists</h2>
-          <p style={{ margin: "0.25rem 0 0 0", color: "#666" }}>
-            Create custom lists like “Top 10”, “To build”, “Favorite castles”, etc.
-          </p>
-        </div>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div style={innerStyle}>
+        <ListCard list={list} />
+      </div>
+    </div>
+  );
+}
 
-        <button
-          type="button"
-          onClick={() => setShowCreate((p) => !p)}
-          disabled={!isLoggedIn}
+function ListCard({ list, onClick }) {
+  const title = list?.title || list?.name || "Untitled list";
+  const count = Number(list?.items_count ?? 0);
+  const isPublic = !!list?.is_public;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 12,
+        background: "white",
+        padding: 12,
+        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+        cursor: onClick ? "pointer" : "default",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" }}>
+        <div style={{ fontWeight: 750, color: "#111827", lineHeight: "1.15em" }}>{title}</div>
+        <span
           style={{
-            padding: "0.4rem 0.8rem",
-            borderRadius: "999px",
-            border: "1px solid #ddd",
-            background: "white",
-            cursor: isLoggedIn ? "pointer" : "not-allowed",
-            opacity: isLoggedIn ? 1 : 0.6,
+            fontSize: 12,
+            padding: "2px 8px",
+            borderRadius: 999,
+            border: "1px solid #e5e7eb",
+            background: "#f9fafb",
+            color: "#4b5563",
+            whiteSpace: "nowrap",
           }}
         >
-          {showCreate ? "Close" : "➕ New list"}
-        </button>
+          {count} {count === 1 ? "set" : "sets"}
+        </span>
       </div>
 
-      {!isLoggedIn && (
-        <p style={{ marginTop: "0.75rem", color: "#777" }}>
-          Log in to create and view your lists.
-        </p>
-      )}
+      {list?.description ? (
+        <div style={{ marginTop: 6, fontSize: 13, color: "#6b7280" }}>{list.description}</div>
+      ) : null}
 
-      {showCreate && isLoggedIn && (
-        <form
-          onSubmit={handleCreate}
-          style={{
-            marginTop: "0.9rem",
-            border: "1px solid #e5e7eb",
-            borderRadius: "12px",
-            padding: "0.9rem",
-            background: "#fafafa",
-          }}
-        >
-          <div style={{ display: "grid", gap: "0.6rem" }}>
-            <label style={{ display: "grid", gap: "0.25rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>Title</span>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. My Favorites"
-                style={{
-                  padding: "0.5rem 0.6rem",
-                  borderRadius: "8px",
-                  border: "1px solid #d1d5db",
-                }}
-              />
-            </label>
+      <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: "#6b7280" }}>
+          {isPublic ? "Public" : "Private"}
+        </span>
+        {list?.is_system ? (
+          <span style={{ fontSize: 12.5, color: "#6b7280" }}>· System</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
-            <label style={{ display: "grid", gap: "0.25rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>
-                Description (optional)
-              </span>
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="e.g. sets I loved"
-                style={{
-                  padding: "0.5rem 0.6rem",
-                  borderRadius: "8px",
-                  border: "1px solid #d1d5db",
-                }}
-              />
-            </label>
+/**
+ * MyListsSection
+ * Props are flexible:
+ * - lists: array of list objects
+ * - onListsChange(nextLists): optional callback to sync parent state
+ */
+export default function MyListsSection({ lists = [], onListsChange }) {
+  const { token } = useAuth();
+  const navigate = useNavigate();
 
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={isPublic}
-                onChange={(e) => setIsPublic(e.target.checked)}
-              />
-              <span style={{ fontSize: "0.9rem", color: "#333" }}>
-                Public (shows up in Explore later)
-              </span>
-            </label>
+  const [items, setItems] = useState(() => sortByPosition(lists));
+  const [activeId, setActiveId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
 
-            {createErr && <div style={{ color: "red" }}>{createErr}</div>}
+  const lastGoodRef = useRef(items);
 
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                type="submit"
-                disabled={creating}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  background: creating ? "#888" : "#111827",
-                  color: "white",
-                  cursor: creating ? "default" : "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                {creating ? "Creating…" : "Create list"}
-              </button>
+  useEffect(() => {
+    const sorted = sortByPosition(lists);
+    setItems(sorted);
+    lastGoodRef.current = sorted;
+  }, [lists]);
 
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCreate(false);
-                  setCreateErr(null);
-                }}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "1px solid #ddd",
-                  background: "white",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                Cancel
-              </button>
-            </div>
+  const ids = useMemo(() => items.map((x) => String(x.id)), [items]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const activeItem = useMemo(() => {
+    if (!activeId) return null;
+    return items.find((x) => String(x.id) === String(activeId)) || null;
+  }, [activeId, items]);
+
+  const canReorder = ids.length > 1;
+
+  async function persistOrder(nextItems, prevItems) {
+    const listIds = nextItems.map((x) => x.id);
+
+    setSaving(true);
+    try {
+      // Most common payload shape:
+      await apiFetch("/lists/me/order", {
+        method: "PUT",
+        token,
+        body: { list_ids: listIds },
+      });
+
+      // Update local "position" so future sorts stay stable even if parent refetch is slow
+      const withPos = nextItems.map((l, i) => ({ ...l, position: i + 1 }));
+      setItems(withPos);
+      lastGoodRef.current = withPos;
+      onListsChange?.(withPos);
+    } catch (err) {
+      console.error(err);
+      setItems(prevItems);
+      lastGoodRef.current = prevItems;
+      onListsChange?.(prevItems);
+      window.alert(`Couldn’t save list order: ${err?.message || "unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDragStart(event) {
+    setActiveId(event.active?.id ?? null);
+    lastGoodRef.current = items;
+  }
+
+  function handleDragCancel() {
+    setActiveId(null);
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over || active.id === over.id) return;
+
+    const prevItems = lastGoodRef.current || items;
+    const oldIndex = items.findIndex((x) => String(x.id) === String(active.id));
+    const newIndex = items.findIndex((x) => String(x.id) === String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const nextItems = arrayMove(items, oldIndex, newIndex);
+    setItems(nextItems);
+    persistOrder(nextItems, prevItems);
+  }
+
+  const gridStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 14,
+    alignItems: "start",
+  };
+
+  return (
+    <section style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0 }}>My Lists</h2>
+          <span style={{ color: "#6b7280", fontSize: 14 }}>{items.length} lists</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ color: "#666", fontSize: 14 }}>
+            {saving ? "Saving order…" : reorderMode ? "Drag lists to reorder" : ""}
           </div>
-        </form>
-      )}
 
-      {isLoggedIn && (
-        <div style={{ marginTop: "0.9rem" }}>
-          {loading && <p>Loading your lists…</p>}
-          {err && <p style={{ color: "red" }}>Error: {err}</p>}
-          {savingOrder && <p style={{ color: "#666" }}>Saving order…</p>}
-          {orderErr && <p style={{ color: "red" }}>Order error: {orderErr}</p>}
-
-          {!loading && !err && sortedLists.length === 0 && (
-            <p style={{ color: "#777" }}>
-              No lists yet. Click <strong>New list</strong> to create one.
-            </p>
-          )}
-
-          {!loading && !err && sortedLists.length > 0 && (
-            <ul
-              style={{
-                listStyle: "none",
-                padding: 0,
-                margin: 0,
-                display: "grid",
-                gap: "0.75rem",
-              }}
-            >
-              {sortedLists.map((l, idx) => {
-                const count = safeCount(l);
-                const disableUp = idx === 0 || savingOrder;
-                const disableDown = idx === sortedLists.length - 1 || savingOrder;
-
-                return (
-                  <li
-                    key={l.id}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "12px",
-                      background: "white",
-                      padding: "0.9rem",
-                      display: "flex",
-                      gap: "0.75rem",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    {/* Main clickable content */}
-                    <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                      <Link
-                        to={`/lists/${l.id}`}
-                        style={{
-                          textDecoration: "none",
-                          color: "inherit",
-                          display: "block",
-                        }}
-                      >
-                        <div style={{ fontWeight: 700 }}>{l.title}</div>
-
-                        {l.description && (
-                          <div style={{ color: "#666", marginTop: "0.15rem" }}>
-                            {l.description}
-                          </div>
-                        )}
-
-                        <div
-                          style={{
-                            color: "#777",
-                            marginTop: "0.35rem",
-                            fontSize: "0.9rem",
-                          }}
-                        >
-                          {count} set{count === 1 ? "" : "s"} ·{" "}
-                          {l.is_public ? "Public" : "Private"}
-                        </div>
-                      </Link>
-                    </div>
-
-                    {/* Reorder controls */}
-                    <div style={{ display: "grid", gap: "0.35rem", flex: "0 0 auto" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveUp(l.id)}
-                        disabled={disableUp}
-                        title="Move up"
-                        style={{
-                          width: "36px",
-                          height: "30px",
-                          borderRadius: "10px",
-                          border: "1px solid #ddd",
-                          background: "white",
-                          cursor: disableUp ? "default" : "pointer",
-                          opacity: disableUp ? 0.5 : 1,
-                        }}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveDown(l.id)}
-                        disabled={disableDown}
-                        title="Move down"
-                        style={{
-                          width: "36px",
-                          height: "30px",
-                          borderRadius: "10px",
-                          border: "1px solid #ddd",
-                          background: "white",
-                          cursor: disableDown ? "default" : "pointer",
-                          opacity: disableDown ? 0.5 : 1,
-                        }}
-                      >
-                        ↓
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {!loading && (
+          {canReorder && (
             <button
               type="button"
-              onClick={loadMyLists}
+              onClick={() => {
+                if (saving) return;
+                setReorderMode((v) => !v);
+                setActiveId(null);
+              }}
+              disabled={saving}
               style={{
-                marginTop: "0.75rem",
                 padding: "0.35rem 0.8rem",
-                borderRadius: "999px",
+                borderRadius: 999,
                 border: "1px solid #ddd",
                 background: "white",
-                cursor: "pointer",
-                fontSize: "0.85rem",
+                cursor: saving ? "not-allowed" : "pointer",
+                fontWeight: 800,
+                opacity: saving ? 0.6 : 1,
               }}
             >
-              Refresh
+              {reorderMode ? "Done" : "Reorder"}
             </button>
           )}
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <p style={{ color: "#666" }}>You don’t have any custom lists yet.</p>
+      ) : reorderMode ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragCancel={handleDragCancel}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={ids} strategy={rectSortingStrategy}>
+            <div style={gridStyle}>
+              {items.map((list) => (
+                <SortableListCard key={list.id} list={list} disabled={saving} />
+              ))}
+            </div>
+          </SortableContext>
+
+          <DragOverlay>
+            {activeItem ? (
+              <div style={{ opacity: 0.95, pointerEvents: "none", width: 320 }}>
+                <ListCard list={activeItem} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        <div style={gridStyle}>
+          {items.map((list) => (
+            <ListCard
+              key={list.id}
+              list={list}
+              onClick={() => navigate(`/lists/${encodeURIComponent(list.id)}`)}
+            />
+          ))}
         </div>
       )}
     </section>
