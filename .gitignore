@@ -40,3 +40,7 @@ frontend/.env
 # allow env example files
 !backend/.env.example
 !frontend/.env.example
+
+node_modules/
+.env
+.DS_Store
