@@ -1,121 +1,254 @@
 // frontend/src/OwnedPage.js
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "./auth";
+
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
 import SetCard from "./SetCard";
+import { apiFetch } from "./lib/api";
 
-function sortSets(arr, sortKey) {
-  const items = Array.isArray(arr) ? [...arr] : [];
+function toPlainSetNum(sn) {
+  return String(sn || "").split("-")[0];
+}
 
-  const byName = (a, b) =>
-    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
+function DragHandle({ listeners, attributes, disabled }) {
+  return (
+    <button
+      type="button"
+      aria-label="Reorder"
+      disabled={disabled}
+      {...attributes}
+      {...listeners}
+      style={{
+        cursor: disabled ? "not-allowed" : "grab",
+        border: "1px solid #ddd",
+        background: "white",
+        borderRadius: 10,
+        padding: "6px 10px",
+        fontSize: 16,
+        lineHeight: 1,
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      ☰
+    </button>
+  );
+}
 
-  if (sortKey === "name_asc") items.sort(byName);
-  else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
-  else if (sortKey === "year_desc") items.sort((a, b) => (Number(b?.year || 0) - Number(a?.year || 0)) || byName(a, b));
-  else if (sortKey === "year_asc") items.sort((a, b) => (Number(a?.year || 0) - Number(b?.year || 0)) || byName(a, b));
-  else if (sortKey === "pieces_desc") items.sort((a, b) => (Number(b?.pieces || 0) - Number(a?.pieces || 0)) || byName(a, b));
-  else if (sortKey === "pieces_asc") items.sort((a, b) => (Number(a?.pieces || 0) - Number(b?.pieces || 0)) || byName(a, b));
-  else if (sortKey === "rating_desc") items.sort((a, b) => (Number(b?.rating || 0) - Number(a?.rating || 0)) || byName(a, b));
-  else if (sortKey === "rating_asc") items.sort((a, b) => (Number(a?.rating || 0) - Number(b?.rating || 0)) || byName(a, b));
+function SortableOwnedRow({
+  item,
+  ownedSetNums,
+  wishlistSetNums,
+  onMarkOwned,
+  onAddWishlist,
+  onOpenSet,
+  disabled,
+}) {
+  const id = item?.set_num;
 
-  return items;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    border: "1px solid #eee",
+    borderRadius: 14,
+    padding: 12,
+    background: "white",
+    boxShadow: isDragging
+      ? "0 10px 30px rgba(0,0,0,0.12)"
+      : "0 2px 10px rgba(0,0,0,0.04)",
+    display: "flex",
+    gap: 12,
+    alignItems: "flex-start",
+  };
+
+  const setNum = item?.set_num || "";
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div style={{ paddingTop: 4 }}>
+        <DragHandle listeners={listeners} attributes={attributes} disabled={disabled} />
+      </div>
+
+      <div style={{ flex: 1 }}>
+        <div onClick={() => onOpenSet?.(setNum)} style={{ cursor: "pointer" }}>
+          <SetCard
+            set={item}
+            isOwned={ownedSetNums?.has?.(setNum)}
+            isInWishlist={wishlistSetNums?.has?.(setNum)}
+            onMarkOwned={(sn) => onMarkOwned?.(sn)}
+            onAddWishlist={(sn) => onAddWishlist?.(sn)}
+            variant="default"
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function OwnedPage({
-  ownedSets = [],
+  ownedSets,
   ownedSetNums,
   wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
 }) {
+  const { token } = useAuth();
   const navigate = useNavigate();
 
-  const [sortKey, setSortKey] = useState("name_asc");
+  const [items, setItems] = useState(() => ownedSets || []);
+  const [activeId, setActiveId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const lastGoodRef = useRef(items);
 
-  const sortedOwned = useMemo(() => sortSets(ownedSets, sortKey), [ownedSets, sortKey]);
-  const total = Array.isArray(ownedSets) ? ownedSets.length : 0;
+  // keep local state in sync if parent reloads owned
+  useEffect(() => {
+    setItems(ownedSets || []);
+    lastGoodRef.current = ownedSets || [];
+  }, [ownedSets]);
+
+  const ids = useMemo(() => (items || []).map((x) => x.set_num), [items]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const activeItem = useMemo(
+    () => (activeId ? items.find((x) => x.set_num === activeId) : null),
+    [activeId, items]
+  );
+
+  function onOpenSet(setNum) {
+    if (!setNum) return;
+    navigate(`/sets/${setNum}`);
+  }
+
+  async function persistOrder(nextItems, prevItems) {
+    const setNums = nextItems.map((x) => toPlainSetNum(x.set_num));
+
+    setSaving(true);
+    try {
+      await apiFetch("/collections/owned/order", {
+        method: "PUT",
+        token,
+        body: { set_nums: setNums },
+      });
+
+      lastGoodRef.current = nextItems;
+    } catch (err) {
+      console.error(err);
+      setItems(prevItems);
+      lastGoodRef.current = prevItems;
+      window.alert(`Couldn’t save order: ${err?.message || "unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDragStart(event) {
+    setActiveId(event.active?.id ?? null);
+    lastGoodRef.current = items;
+  }
+
+  function handleDragCancel() {
+    setActiveId(null);
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over || active.id === over.id) return;
+
+    const prevItems = lastGoodRef.current || items;
+    const oldIndex = items.findIndex((x) => x.set_num === active.id);
+    const newIndex = items.findIndex((x) => x.set_num === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const nextItems = arrayMove(items, oldIndex, newIndex);
+    setItems(nextItems);
+
+    persistOrder(nextItems, prevItems);
+  }
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-      {/* ✅ Back button matches custom list page */}
-      <button
-        onClick={() => navigate(-1)}
-        style={{
-          marginBottom: "1rem",
-          padding: "0.35rem 0.75rem",
-          borderRadius: "999px",
-          border: "1px solid #ddd",
-          background: "white",
-          cursor: "pointer",
-        }}
-      >
-        ← Back
-      </button>
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          gap: "1rem",
-          flexWrap: "wrap",
-          marginBottom: "0.75rem",
-        }}
-      >
-        <div>
-          <h1 style={{ margin: 0 }}>Owned</h1>
-          <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
-            <strong>{total}</strong> set{total === 1 ? "" : "s"}
-          </p>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h1 style={{ marginTop: 0 }}>Owned</h1>
+        <div style={{ color: "#666", fontSize: 14 }}>
+          {saving ? "Saving order…" : ids.length ? "Drag the ☰ handle to reorder" : ""}
         </div>
-
-        {/* ✅ Keep sort feature (and no “Collection hub” button) */}
-        <label style={{ color: "#444", fontSize: "0.9rem" }}>
-          Sort{" "}
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value)}
-            style={{ padding: "0.25rem 0.5rem" }}
-          >
-            <option value="name_asc">Name (A–Z)</option>
-            <option value="name_desc">Name (Z–A)</option>
-            <option value="year_desc">Year (new → old)</option>
-            <option value="year_asc">Year (old → new)</option>
-            <option value="pieces_desc">Pieces (high → low)</option>
-            <option value="pieces_asc">Pieces (low → high)</option>
-            <option value="rating_desc">Rating (high → low)</option>
-            <option value="rating_asc">Rating (low → high)</option>
-          </select>
-        </label>
       </div>
 
-      {total === 0 ? (
-        <p style={{ color: "#777" }}>No owned sets yet.</p>
+      {ids.length === 0 ? (
+        <p style={{ color: "#666" }}>Your owned list is empty.</p>
       ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: "1rem",
-            alignItems: "start",
-          }}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragCancel={handleDragCancel}
+          onDragEnd={handleDragEnd}
         >
-          {sortedOwned.map((set) => (
-            <li key={set.set_num} style={{ maxWidth: 260 }}>
-              <SetCard
-                set={set}
-                isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : true}
-                isInWishlist={wishlistSetNums ? wishlistSetNums.has(set.set_num) : false}
-                onMarkOwned={onMarkOwned}
-                onAddWishlist={onAddWishlist}
-                variant="default"
-              />
-            </li>
-          ))}
-        </ul>
+          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+            <div style={{ display: "grid", gap: 14 }}>
+              {items.map((item) => (
+                <SortableOwnedRow
+                  key={item.set_num}
+                  item={item}
+                  ownedSetNums={ownedSetNums || new Set()}
+                  wishlistSetNums={wishlistSetNums || new Set()}
+                  onMarkOwned={onMarkOwned}
+                  onAddWishlist={onAddWishlist}
+                  onOpenSet={onOpenSet}
+                  disabled={saving}
+                />
+              ))}
+            </div>
+          </SortableContext>
+
+          <DragOverlay>
+            {activeItem ? (
+              <div style={{ opacity: 0.95 }}>
+                <div
+                  style={{
+                    border: "1px solid #eee",
+                    borderRadius: 14,
+                    padding: 12,
+                    background: "white",
+                    boxShadow: "0 14px 40px rgba(0,0,0,0.18)",
+                    width: 340,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>{activeItem.name}</div>
+                  <div style={{ color: "#666", fontSize: 13 }}>{activeItem.set_num}</div>
+                </div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
     </div>
   );

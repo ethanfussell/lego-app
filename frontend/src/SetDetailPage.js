@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import SetCard from "./SetCard";
 import AddToListMenu from "./AddToListMenu";
+import { getToken } from "./lib/api";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
@@ -30,7 +31,7 @@ function SetDetailPage({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const storedToken = localStorage.getItem("lego_token") || "";
+  const storedToken = getToken();
   const effectiveToken = token || storedToken || "";
   const isLoggedIn = !!effectiveToken;
   const currentUsername = getUsernameFromToken(effectiveToken);

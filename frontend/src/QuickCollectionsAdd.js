@@ -1,6 +1,6 @@
 import React, { useState } from "react";
+import { apiFetch } from "./lib/api";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
 function QuickCollectionsAdd({ token, onCollectionsChanged }) {
   const [setNum, setSetNum] = useState("");
@@ -24,22 +24,12 @@ function QuickCollectionsAdd({ token, onCollectionsChanged }) {
       setError(null);
       setMessage(null);
 
-      const url = `${API_BASE}/collections/${type}`;
-      const resp = await fetch(url, {
+      const data = await apiFetch(`/collections/${type}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ set_num: setNum.trim() }),
+        token,
+        body: { set_num: setNum.trim() },
       });
 
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Failed (${resp.status}): ${text}`);
-      }
-
-      const data = await resp.json();
       setMessage(
         `Added ${data.set_num} to ${type === "owned" ? "Owned" : "Wishlist"}`
       );

@@ -3,16 +3,21 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
-import { ToastProvider } from "./Toast"; // <-- adjust path if needed
-import "./index.css"; // if you have it
+import { ToastProvider } from "./Toast";
+import { AuthProvider } from "./auth";
+import "./index.css";
+
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+
 root.render(
   <React.StrictMode>
     <BrowserRouter>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

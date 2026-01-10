@@ -1,125 +1,107 @@
 // frontend/src/Login.js
 import React, { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "./auth";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
-function Login({ onLoginSuccess }) {
+export default function Login() {
+  const { loginWithToken } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = location.state?.returnTo || "/";
+
   const [username, setUsername] = useState("ethan");
   const [password, setPassword] = useState("lego123");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
 
-  async function handleSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
-    setLoading(true);
-    setError("");
+    setError(null);
 
     try {
-      // 🔑 Backend expects form data (OAuth2PasswordRequestForm),
-      // NOT JSON.
+      setLoading(true);
+
+      // ✅ FastAPI OAuth2PasswordRequestForm expects x-www-form-urlencoded
       const body = new URLSearchParams();
-      body.append("username", username);
-      body.append("password", password);
+      body.set("username", username);
+      body.set("password", password);
 
       const resp = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
       });
 
       if (!resp.ok) {
         const text = await resp.text();
-        throw new Error(text || `Login failed (${resp.status})`);
+        throw new Error(`Login failed (${resp.status}): ${text}`);
       }
 
-      const data = await resp.json(); // { access_token, token_type }
+      const data = await resp.json();
+      const token = data.access_token || data.token || "";
 
-      if (onLoginSuccess) {
-        onLoginSuccess(data.access_token);
-      }
+      if (!token) throw new Error("Login succeeded but no token was returned.");
 
-      console.log("✅ Logged in, token:", data.access_token);
+      loginWithToken(token);
+
+      navigate(returnTo, { replace: true });
+
+      // redirect back if you came from a protected route
+      const next = location.state?.from?.pathname || "/collection";
+      navigate(next);
     } catch (err) {
-      console.error("Login error:", err);
-      setError(err.message || String(err));
+      setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        padding: "1rem",
-        maxWidth: "320px",
-        marginTop: "1rem",
-      }}
-    >
-      <div style={{ marginBottom: "0.75rem" }}>
-        <label
-          style={{ display: "block", marginBottom: "0.25rem", fontWeight: 500 }}
-        >
-          Username
+    <form onSubmit={onSubmit} style={{ maxWidth: 420 }}>
+      <div style={{ display: "grid", gap: 10 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Username</span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
+          />
         </label>
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "0.5rem",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
-          }}
-        />
-      </div>
 
-      <div style={{ marginBottom: "0.75rem" }}>
-        <label
-          style={{ display: "block", marginBottom: "0.25rem", fontWeight: 500 }}
-        >
-          Password
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
+          />
         </label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+
+        {error && <div style={{ color: "#b42318" }}>{error}</div>}
+
+        <button
+          type="submit"
+          disabled={loading}
           style={{
-            width: "100%",
-            padding: "0.5rem",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
+            height: 36,
+            padding: "0 14px",
+            borderRadius: 999,
+            border: "none",
+            background: loading ? "#6b7280" : "#111827",
+            color: "white",
+            cursor: loading ? "not-allowed" : "pointer",
+            fontWeight: 800,
+            width: "fit-content",
           }}
-        />
+        >
+          {loading ? "Logging in…" : "Log in"}
+        </button>
       </div>
-
-      {error && (
-        <p style={{ color: "red", marginBottom: "0.5rem" }}>
-          {error}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={loading}
-        style={{
-          padding: "0.5rem 1rem",
-          cursor: loading ? "default" : "pointer",
-        }}
-      >
-        {loading ? "Logging in…" : "Log in"}
-      </button>
-
-      <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#777" }}>
-        Try <code>ethan</code> / <code>lego123</code>.
-      </p>
     </form>
   );
 }
-
-export default Login;

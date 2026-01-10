@@ -3,6 +3,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Link, NavLink, useNavigate } from "react-router-dom";
+import { apiFetch } from "./lib/api";
+import { useAuth } from "./auth";
+import RequireAuth from "./RequireAuth";
 
 import Login from "./Login";
 import Pagination from "./Pagination";
@@ -39,6 +42,23 @@ function hasSetNum(setSetNums, setNum) {
   if (!raw) return false;
   const plain = toPlainSetNum(raw);
   return setSetNums.has(raw) || setSetNums.has(plain);
+}
+
+function NavBar() {
+  const { me, logout } = useAuth();
+
+  return (
+    <div>
+      {me ? (
+        <>
+          <span>Logged in as {me.username}</span>
+          <button onClick={logout}>Logout</button>
+        </>
+      ) : (
+        <span>Not logged in</span>
+      )}
+    </div>
+  );
 }
 
 /* -------------------------------------------------------
@@ -316,7 +336,7 @@ function App() {
   const [page, setPage] = useState("home");
 
   // Auth token
-  const [token, setToken] = useState(() => localStorage.getItem("lego_token") || "");
+  const { token, me, logout } = useAuth();
 
   // Search bar + suggestions
   const [searchText, setSearchText] = useState("");
@@ -381,12 +401,6 @@ function App() {
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
   const searchLimit = 50;
-
-  // Persist token
-  useEffect(() => {
-    if (token) localStorage.setItem("lego_token", token);
-    else localStorage.removeItem("lego_token");
-  }, [token]);
 
   function getOrderForSort(sortKey) {
     if (sortKey === "rating" || sortKey === "pieces" || sortKey === "year") return "desc";
@@ -509,23 +523,15 @@ function App() {
       setWishlist([]);
       return;
     }
-
+  
     try {
       setCollectionsLoading(true);
       setCollectionsError(null);
-
-      const ownedResp = await fetch(`${API_BASE}/collections/me/owned`, {
-        headers: { Authorization: `Bearer ${currentToken}` },
-      });
-      if (!ownedResp.ok) throw new Error(`Failed to load owned sets (status ${ownedResp.status})`);
-      const ownedData = await ownedResp.json();
+  
+      const ownedData = await apiFetch("/collections/me/owned", { token: currentToken });
       setOwned(Array.isArray(ownedData) ? ownedData : []);
-
-      const wishlistResp = await fetch(`${API_BASE}/collections/me/wishlist`, {
-        headers: { Authorization: `Bearer ${currentToken}` },
-      });
-      if (!wishlistResp.ok) throw new Error(`Failed to load wishlist sets (status ${wishlistResp.status})`);
-      const wishlistData = await wishlistResp.json();
+  
+      const wishlistData = await apiFetch("/collections/me/wishlist", { token: currentToken });
       setWishlist(Array.isArray(wishlistData) ? wishlistData : []);
     } catch (err) {
       setCollectionsError(err?.message || String(err));
@@ -541,11 +547,8 @@ function App() {
     try {
       setPublicLoading(true);
       setPublicError(null);
-
-      const resp = await fetch(`${API_BASE}/lists/public`);
-      if (!resp.ok) throw new Error(`Request failed with status ${resp.status}`);
-
-      const data = await resp.json();
+  
+      const data = await apiFetch("/lists/public");
       setLists(Array.isArray(data) ? data : []);
     } catch (err) {
       setPublicError(err?.message || String(err));
@@ -559,7 +562,7 @@ function App() {
   }, []);
 
   /* -------------------------------
-     My lists (authed)
+    My lists (authed)
   --------------------------------*/
   useEffect(() => {
     if (!token) {
@@ -567,33 +570,36 @@ function App() {
       return;
     }
 
+    let cancelled = false;
+
     async function fetchMyLists() {
       try {
         setMyListsLoading(true);
         setMyListsError(null);
 
-        const resp = await fetch(`${API_BASE}/lists/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!resp.ok) {
-          if (resp.status === 404) {
-            setMyLists([]);
+        try {
+          const data = await apiFetch("/lists/me", { token });
+          if (!cancelled) setMyLists(Array.isArray(data) ? data : []);
+        } catch (err) {
+          // backend uses 404 when user has no lists yet
+          if (String(err?.message || "").startsWith("404")) {
+            if (!cancelled) setMyLists([]);
             return;
           }
-          throw new Error(`Failed to load your lists (status ${resp.status})`);
+          throw err;
         }
-
-        const data = await resp.json();
-        setMyLists(Array.isArray(data) ? data : []);
       } catch (err) {
-        setMyListsError(err?.message || String(err));
+        if (!cancelled) setMyListsError(err?.message || String(err));
       } finally {
-        setMyListsLoading(false);
+        if (!cancelled) setMyListsLoading(false);
       }
     }
 
     fetchMyLists();
+
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   /* -------------------------------
@@ -701,17 +707,15 @@ function App() {
   
     const plain = toPlainSetNum(setNum);
   
-    const resp = await fetch(`${API_BASE}/collections/${kind}/${encodeURIComponent(plain)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${currentToken}` },
-    });
-    console.log("DELETE COLLECTION ITEM", { kind, plain });
-    // 404 = already removed, treat as success
-    if (resp.status === 404) return;
-  
-    if (!resp.ok && resp.status !== 204) {
-      const text = await resp.text();
-      throw new Error(`Failed to remove from ${kind} (${resp.status}): ${text}`);
+    try {
+      await apiFetch(`/collections/${kind}/${encodeURIComponent(plain)}`, {
+        method: "DELETE",
+        token: currentToken,
+      });
+    } catch (err) {
+      // treat 404 as "already removed"
+      if (String(err?.message || "").startsWith("404")) return;
+      throw err;
     }
   }
 
@@ -725,31 +729,28 @@ function App() {
       setPage("login");
       return;
     }
-
+  
     const plain = toPlainSetNum(setNum);
     const alreadyOwned = hasSetNum(ownedSetNums, setNum);
-
+  
     try {
       if (alreadyOwned) {
         await deleteCollectionItem("owned", plain, token);
         await loadCollections(token);
         return;
       }
-
-      const resp = await fetch(`${API_BASE}/collections/owned`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ set_num: plain }),
-      });
-
-      if (!resp.ok && resp.status !== 409) {
-        const text = await resp.text();
-        throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+  
+      try {
+        await apiFetch("/collections/owned", {
+          method: "POST",
+          token,
+          body: { set_num: plain },
+        });
+      } catch (err) {
+        // backend may return 409 if already owned (treat as success)
+        if (!String(err?.message || "").startsWith("409")) throw err;
       }
-
+  
       await loadCollections(token);
     } catch (err) {
       alert(err?.message || String(err));
@@ -763,31 +764,28 @@ function App() {
       setPage("login");
       return;
     }
-
+  
     const plain = toPlainSetNum(setNum);
     const alreadyInWishlist = wishlistSetNums.has(setNum) || wishlistSetNums.has(plain);
-
+  
     try {
       if (alreadyInWishlist) {
         await deleteCollectionItem("wishlist", plain, token);
         await loadCollections(token);
         return;
       }
-
-      const resp = await fetch(`${API_BASE}/collections/wishlist`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ set_num: plain }),
-      });
-
-      if (!resp.ok && resp.status !== 409) {
-        const text = await resp.text();
-        throw new Error(`Failed to add to wishlist (${resp.status}): ${text}`);
+  
+      try {
+        await apiFetch("/collections/wishlist", {
+          method: "POST",
+          token,
+          body: { set_num: plain },
+        });
+      } catch (err) {
+        // backend may return 409 if already in wishlist (treat as success)
+        if (!String(err?.message || "").startsWith("409")) throw err;
       }
-
+  
       await loadCollections(token);
     } catch (err) {
       alert(err?.message || String(err));
@@ -808,25 +806,26 @@ function App() {
   // Used by SetDetailPage
   async function ensureOwned(setNum) {
     if (!token) return;
-
+  
     const plain = toPlainSetNum(setNum);
     if (hasSetNum(ownedSetNums, plain)) return;
-
-    const resp = await fetch(`${API_BASE}/collections/owned`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ set_num: plain }),
-    });
-
-    if (!resp.ok && resp.status !== 409) {
-      const text = await resp.text();
-      throw new Error(`Failed to mark owned (${resp.status}): ${text}`);
+  
+    try {
+      try {
+        await apiFetch("/collections/owned", {
+          method: "POST",
+          token,
+          body: { set_num: plain },
+        });
+      } catch (err) {
+        // backend may return 409 if already owned (treat as success)
+        if (!String(err?.message || "").startsWith("409")) throw err;
+      }
+  
+      await loadCollections(token);
+    } catch (err) {
+      alert(err?.message || String(err));
     }
-
-    await loadCollections(token);
   }
 
   /* -------------------------------
@@ -898,7 +897,7 @@ function App() {
      Logout
   --------------------------------*/
   function handleLogout() {
-    setToken("");
+    logout();
     setMyLists([]);
     setOwned([]);
     setWishlist([]);
@@ -1050,17 +1049,16 @@ function App() {
             )}
           </form>
 
-          {!token && (
+          {!token ? (
             <Link
               to="/login"
               style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none" }}
-              onClick={() => setPage("login")}
             >
               🔐 Login
             </Link>
+          ) : (
+            <ProfileMenu me={me} onLogout={handleLogout} />
           )}
-
-          {token && <ProfileMenu token={token} onLogout={handleLogout} />}
         </div>
       </nav>
 
@@ -1282,56 +1280,62 @@ function App() {
           />
 
           <Route
-            path="/collection/owned"
+            path="/collection"
             element={
-              <OwnedPage
-                ownedSets={owned}
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
+              <RequireAuth>
+                <CollectionsPage
+                  ownedSets={owned}
+                  wishlistSets={wishlist}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
+              </RequireAuth>
             }
           />
 
           <Route
-            path="/collection"
+            path="/collection/owned"
             element={
-              <CollectionsPage
-                ownedSets={owned}
-                wishlistSets={wishlist}
-                token={token}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
+              <RequireAuth>
+                <OwnedPage
+                  ownedSets={owned}
+                  ownedSetNums={ownedSetNums}
+                  wishlistSetNums={wishlistSetNums}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
+              </RequireAuth>
             }
           />
 
           <Route
             path="/collection/wishlist"
             element={
-              <WishlistPage
-                wishlistSets={wishlist}
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
+              <RequireAuth>
+                <WishlistPage
+                  wishlistSets={wishlist}
+                  ownedSetNums={ownedSetNums}
+                  wishlistSetNums={wishlistSetNums}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
+              </RequireAuth>
             }
           />
 
           <Route
             path="/lists/:listId"
             element={
+              <RequireAuth>
               <ListDetailPage
-                token={token}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
               />
-            }
-          />
+              </RequireAuth>
+           }
+         />
 
           <Route
             path="/login"
@@ -1342,12 +1346,7 @@ function App() {
                 {!token && (
                   <>
                     <p style={{ color: "#666" }}>Log in with your fake user (ethan / lego123).</p>
-                    <Login
-                      onLoginSuccess={(accessToken) => {
-                        setToken(accessToken);
-                        console.log("Logged in! Token:", accessToken);
-                      }}
-                    />
+                    <Login />
                   </>
                 )}
 
@@ -1451,7 +1450,6 @@ function App() {
             path="/sets/:setNum"
             element={
               <SetDetailPage
-                token={token}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}

@@ -1,19 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { apiFetch, getToken } from "./lib/api";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
-
-function getStoredToken() {
-  return localStorage.getItem("lego_token") || "";
-}
-
-async function apiFetch(path, { token, ...opts } = {}) {
-  const headers = new Headers(opts.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_BASE}${path}`, { ...opts, headers });
-}
-
-export default function ListsPage({ token }) {
-  const effectiveToken = token || getStoredToken();
+export default function ListsPage({ token: tokenProp }) {
+  const effectiveToken = tokenProp ?? getToken();
 
   const [publicLists, setPublicLists] = useState([]);
   const [myLists, setMyLists] = useState([]);
@@ -32,13 +21,11 @@ export default function ListsPage({ token }) {
       setLoading(true);
       setErr(null);
 
-      const pubResp = await apiFetch("/lists/public");
-      const pub = await pubResp.json();
+      const pub = await apiFetch("/lists/public");
       setPublicLists(Array.isArray(pub) ? pub : []);
 
       if (effectiveToken) {
-        const meResp = await apiFetch("/lists/me", { token: effectiveToken });
-        const me = await meResp.json();
+        const me = await apiFetch("/lists/me", { token: effectiveToken });
         setMyLists(Array.isArray(me) ? me : []);
       } else {
         setMyLists([]);
@@ -53,7 +40,7 @@ export default function ListsPage({ token }) {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [effectiveToken]);
 
   async function createList(e) {
     e.preventDefault();
@@ -70,21 +57,15 @@ export default function ListsPage({ token }) {
       setCreating(true);
       setCreateErr(null);
 
-      const resp = await apiFetch("/lists", {
+      await apiFetch("/lists", {
         token: effectiveToken,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           title: title.trim(),
           description: description.trim() || null,
           is_public: isPublic,
-        }),
+        },
       });
-
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`Create failed (${resp.status}): ${txt}`);
-      }
 
       setTitle("");
       setDescription("");

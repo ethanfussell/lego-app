@@ -1,15 +1,12 @@
 // frontend/src/MyListsSection.js
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
-
-function getStoredToken() {
-  return localStorage.getItem("lego_token") || "";
-}
+import { apiFetch, getToken } from "./lib/api";
 
 function safeCount(list) {
-  const c = list?.items_count ?? (Array.isArray(list?.items) ? list.items.length : 0);
+  const c =
+    list?.items_count ??
+    (Array.isArray(list?.items) ? list.items.length : 0);
   return Number.isFinite(c) ? c : 0;
 }
 
@@ -20,8 +17,8 @@ function sortByPositionThenId(a, b) {
   return (a?.id ?? 0) - (b?.id ?? 0);
 }
 
-export default function MyListsSection({ token }) {
-  const effectiveToken = token || getStoredToken();
+export default function MyListsSection({ token: tokenProp }) {
+  const effectiveToken = tokenProp ?? getToken();
   const isLoggedIn = !!effectiveToken;
 
   const [lists, setLists] = useState([]);
@@ -51,18 +48,8 @@ export default function MyListsSection({ token }) {
       setLoading(true);
       setErr(null);
 
-      const resp = await fetch(`${API_BASE}/lists/me`, {
-        headers: { Authorization: `Bearer ${effectiveToken}` },
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Failed to load my lists (${resp.status}): ${text}`);
-      }
-
-      const data = await resp.json();
+      const data = await apiFetch("/lists/me", { token: effectiveToken });
       const arr = Array.isArray(data) ? data : [];
-      // keep local state exactly as API gives, but stable-sort for UI
       setLists(arr);
     } catch (e) {
       setErr(e?.message || String(e));
@@ -86,22 +73,12 @@ export default function MyListsSection({ token }) {
         .filter((l) => !l.is_system)
         .map((l) => l.id);
 
-      const resp = await fetch(`${API_BASE}/lists/me/order`, {
+      const updated = await apiFetch("/lists/me/order", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${effectiveToken}`,
-        },
-        body: JSON.stringify({ ordered_ids: orderedIds }),
+        token: effectiveToken,
+        body: { ordered_ids: orderedIds },
       });
 
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Reorder failed (${resp.status}): ${text}`);
-      }
-
-      const updated = await resp.json();
-      // backend returns updated positions; keep it
       setLists(Array.isArray(updated) ? updated : nextOrdered);
     } catch (e) {
       setOrderErr(e?.message || String(e));
@@ -116,6 +93,7 @@ export default function MyListsSection({ token }) {
     const next = [...sortedLists];
     const [moved] = next.splice(fromIndex, 1);
     next.splice(toIndex, 0, moved);
+
     // optimistic UI update immediately
     setLists(next);
     saveOrder(next);
@@ -148,23 +126,15 @@ export default function MyListsSection({ token }) {
       setCreating(true);
       setCreateErr(null);
 
-      const resp = await fetch(`${API_BASE}/lists`, {
+      await apiFetch("/lists", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${effectiveToken}`,
-        },
-        body: JSON.stringify({
+        token: effectiveToken,
+        body: {
           title: t,
           description: description.trim() || null,
           is_public: !!isPublic,
-        }),
+        },
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Create list failed (${resp.status}): ${text}`);
-      }
 
       // Better than guessing positions: just reload from server
       setTitle("");
@@ -328,7 +298,15 @@ export default function MyListsSection({ token }) {
           )}
 
           {!loading && !err && sortedLists.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.75rem" }}>
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                display: "grid",
+                gap: "0.75rem",
+              }}
+            >
               {sortedLists.map((l, idx) => {
                 const count = safeCount(l);
                 const disableUp = idx === 0 || savingOrder;
@@ -352,7 +330,11 @@ export default function MyListsSection({ token }) {
                     <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                       <Link
                         to={`/lists/${l.id}`}
-                        style={{ textDecoration: "none", color: "inherit", display: "block" }}
+                        style={{
+                          textDecoration: "none",
+                          color: "inherit",
+                          display: "block",
+                        }}
                       >
                         <div style={{ fontWeight: 700 }}>{l.title}</div>
 
@@ -362,8 +344,15 @@ export default function MyListsSection({ token }) {
                           </div>
                         )}
 
-                        <div style={{ color: "#777", marginTop: "0.35rem", fontSize: "0.9rem" }}>
-                          {count} set{count === 1 ? "" : "s"} · {l.is_public ? "Public" : "Private"}
+                        <div
+                          style={{
+                            color: "#777",
+                            marginTop: "0.35rem",
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          {count} set{count === 1 ? "" : "s"} ·{" "}
+                          {l.is_public ? "Public" : "Private"}
                         </div>
                       </Link>
                     </div>

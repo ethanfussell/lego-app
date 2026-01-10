@@ -3,52 +3,31 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "./Toast";
 import SetCard from "./SetCard";
+import { apiFetch, getToken } from "./lib/api";
+import { useAuth } from "./auth";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 const PREVIEW_COUNT = 10;
-
 const LS_COLLECTION_SECTION_ORDER = "lego_collection_section_order_v1";
 
 /* ---------------- utils ---------------- */
-function getStoredToken() {
-  try {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem("lego_token") || "";
-  } catch {
-    return "";
-  }
+
+function isHttpStatus(err, code) {
+  // our apiFetch throws: new Error(`${status} ${detail}`)
+  return String(err?.message || "").startsWith(String(code));
 }
 
-async function fetchListDetail(listId, token) {
-  try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, { headers });
-    if (!resp.ok) return null;
-    return await resp.json(); // has .items
-  } catch {
-    return null;
-  }
-}
+// Filter out Owned/Wishlist “system lists” from custom lists
+function isSystemList(l) {
+  if (!l) return false;
+  if (l.is_system || l.isSystem || l.system) return true;
 
-// ✅ Faster: one request for many sets (preserves order)
-async function fetchSetsBulk(setNums, token) {
-  try {
-    const nums = (Array.isArray(setNums) ? setNums : []).filter(Boolean);
-    if (nums.length === 0) return [];
+  const key = String(l.system_key || l.systemKey || l.kind || l.type || "").toLowerCase();
+  if (key === "owned" || key === "wishlist") return true;
 
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const qs = encodeURIComponent(nums.join(","));
-    const resp = await fetch(`${API_BASE}/sets/bulk?set_nums=${qs}`, { headers });
+  const title = String(l.title || "").trim().toLowerCase();
+  if (title === "owned" || title === "wishlist") return true;
 
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    if (!Array.isArray(data)) return [];
-
-    const byNum = new Map(data.map((s) => [s.set_num, s]));
-    return nums.map((n) => byNum.get(n)).filter(Boolean);
-  } catch {
-    return [];
-  }
+  return false;
 }
 
 function useIsMobile(breakpointPx = 720) {
@@ -120,16 +99,45 @@ function normalizeOrder(savedOrder, listsNow) {
   return cleaned;
 }
 
+// ✅ Faster: one request for many sets (preserves order)
+async function fetchSetsBulk(setNums, token) {
+  const nums = (Array.isArray(setNums) ? setNums : []).filter(Boolean);
+  if (nums.length === 0) return [];
+
+  const params = new URLSearchParams();
+  params.set("set_nums", nums.join(","));
+
+  try {
+    const data = await apiFetch(`/sets/bulk?${params.toString()}`, { token });
+    if (!Array.isArray(data)) return [];
+    const byNum = new Map(data.map((s) => [s.set_num, s]));
+    return nums.map((n) => byNum.get(n)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchListDetail(listId, token) {
+  try {
+    const data = await apiFetch(`/lists/${encodeURIComponent(listId)}`, { token });
+    return data || null; // should include .items
+  } catch (e) {
+    if (isHttpStatus(e, 404)) return null;
+    return null;
+  }
+}
+
 /* ---------------- main page ---------------- */
-export default function CollectionsPage({ ownedSets = [], wishlistSets = [], token }) {
+
+export default function CollectionsPage({ ownedSets, wishlistSets, onMarkOwned, onAddWishlist }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { push: toast } = useToast();
+  const { token } = useAuth();
 
   const isMobile = useIsMobile(720);
 
-  const effectiveToken = token || getStoredToken();
-  const isLoggedIn = !!effectiveToken;
+  const isLoggedIn = !!token;
 
   // Accept arrays OR Sets OR array-of-objects
   const ownedNums = useMemo(() => {
@@ -191,74 +199,48 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
 
   /* ---------------- API helpers ---------------- */
   async function apiUpdateList(listId, payload) {
-    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
+    return await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
+      token,
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveToken}`,
-      },
-      body: JSON.stringify(payload),
+      body: payload,
     });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Update failed (${resp.status}): ${text}`);
-    }
-    return await resp.json();
   }
 
   async function apiDeleteList(listId) {
-    const resp = await fetch(`${API_BASE}/lists/${encodeURIComponent(listId)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${effectiveToken}` },
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Delete failed (${resp.status}): ${text}`);
-    }
-
+    // backend might return json or 204, our apiFetch likely tries json; handle both:
     try {
-      return await resp.json();
-    } catch {
-      return null;
+      return await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
+        token,
+        method: "DELETE",
+      });
+    } catch (e) {
+      // allow 204s if your apiFetch throws on empty body; otherwise rethrow
+      if (isHttpStatus(e, 204)) return null;
+      throw e;
     }
   }
 
   async function fetchMyLists() {
     if (!isLoggedIn) return [];
-
-    const resp = await fetch(`${API_BASE}/lists/me`, {
-      headers: { Authorization: `Bearer ${effectiveToken}` },
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Failed to load my lists (${resp.status}): ${text}`);
+    try {
+      const data = await apiFetch("/lists/me", { token });
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      // backend uses 404 when user has no lists yet
+      if (isHttpStatus(e, 404)) return [];
+      throw e;
     }
-
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
   }
 
   async function persistListOrder(orderedLists) {
     const orderedIds = orderedLists.map((l) => l.id);
 
-    const resp = await fetch(`${API_BASE}/lists/me/order`, {
+    const data = await apiFetch("/lists/me/order", {
+      token,
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveToken}`,
-      },
-      body: JSON.stringify({ ordered_ids: orderedIds }),
+      body: { ordered_ids: orderedIds },
     });
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Reorder failed (${resp.status}): ${text}`);
-    }
-
-    const data = await resp.json();
     return Array.isArray(data) ? data : orderedLists;
   }
 
@@ -277,8 +259,8 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
         setCollectionError(null);
 
         const [ownedFull, wishlistFull] = await Promise.all([
-          fetchSetsBulk(ownedNums.slice(0, PREVIEW_COUNT), effectiveToken),
-          fetchSetsBulk(wishlistNums.slice(0, PREVIEW_COUNT), effectiveToken),
+          fetchSetsBulk(ownedNums.slice(0, PREVIEW_COUNT), token),
+          fetchSetsBulk(wishlistNums.slice(0, PREVIEW_COUNT), token),
         ]);
 
         if (!cancelled) {
@@ -296,7 +278,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return () => {
       cancelled = true;
     };
-  }, [ownedNums, wishlistNums, effectiveToken]);
+  }, [ownedNums, wishlistNums, token]);
 
   /* ---------------- Lists ---------------- */
   const [myLists, setMyLists] = useState([]);
@@ -312,20 +294,6 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
   const [reorderError, setReorderError] = useState(null);
 
   const [listPreviewSets, setListPreviewSets] = useState({}); // { [listId]: [setObj,...] }
-
-  // Filter out Owned/Wishlist “system lists” from custom lists
-  function isSystemList(l) {
-    if (!l) return false;
-    if (l.is_system || l.isSystem || l.system) return true;
-
-    const key = String(l.system_key || l.kind || l.type || "").toLowerCase();
-    if (key === "owned" || key === "wishlist") return true;
-
-    const title = String(l.title || "").trim().toLowerCase();
-    if (title === "owned" || title === "wishlist") return true;
-
-    return false;
-  }
 
   // Load my lists
   useEffect(() => {
@@ -357,7 +325,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return () => {
       cancelled = true;
     };
-  }, [effectiveToken, isLoggedIn]);
+  }, [token, isLoggedIn]);
 
   // Load preview set cards for each list (detail -> first 10 -> bulk)
   useEffect(() => {
@@ -372,11 +340,11 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
       try {
         const entries = await Promise.all(
           myLists.map(async (l) => {
-            const detail = await fetchListDetail(l.id, effectiveToken);
+            const detail = await fetchListDetail(l.id, token);
             const items = Array.isArray(detail?.items) ? detail.items : [];
             const first = items.slice(0, PREVIEW_COUNT);
 
-            const sets = await fetchSetsBulk(first, effectiveToken);
+            const sets = await fetchSetsBulk(first, token);
             return [l.id, sets];
           })
         );
@@ -395,7 +363,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
     return () => {
       cancelled = true;
     };
-  }, [myLists, effectiveToken, isLoggedIn]);
+  }, [myLists, token, isLoggedIn]);
 
   /* ---------------- Create list (modal submit) ---------------- */
   async function submitCreateList(e) {
@@ -414,25 +382,11 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
       setMyListsLoadError(null);
       setReorderError(null);
 
-      const resp = await fetch(`${API_BASE}/lists`, {
+      const created = await apiFetch("/lists", {
+        token,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${effectiveToken}`,
-        },
-        body: JSON.stringify({
-          title,
-          description: null,
-          is_public: true,
-        }),
+        body: { title, description: null, is_public: true },
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Create list failed (${resp.status}): ${text}`);
-      }
-
-      const created = await resp.json();
 
       const optimistic = [created, ...myListsRef.current];
       setMyLists(optimistic);
@@ -657,7 +611,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/owned")}
           emptyText="No owned sets yet."
-          cardProps={{ collectionFooter: "rating", token: effectiveToken }}
+          cardProps={{ collectionFooter: "rating", token }}
         />
       );
     }
@@ -673,7 +627,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/wishlist")}
           emptyText="No wishlist sets yet."
-          cardProps={{ collectionFooter: "shop", token: effectiveToken }}
+          cardProps={{ collectionFooter: "shop", token }}
         />
       );
     }
@@ -758,7 +712,7 @@ export default function CollectionsPage({ ownedSets = [], wishlistSets = [], tok
           onViewAll={() => navigate(`/lists/${l.id}`)}
           emptyText="No sets in this list yet."
           rightActions={actions}
-          cardProps={{ token: effectiveToken }}
+          cardProps={{ token }}
         />
       );
     }
@@ -1151,12 +1105,7 @@ function CollectionRow({
                     display: "flex",
                   }}
                 >
-                  <SetCard
-                    set={set}
-                    token={cardProps?.token}
-                    variant="collection"
-                    {...cardProps}
-                  />
+                  <SetCard set={set} variant="collection" {...cardProps} />
                 </li>
               ))}
             </ul>

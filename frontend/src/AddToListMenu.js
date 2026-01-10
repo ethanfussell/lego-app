@@ -4,35 +4,8 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "./Toast";
 import { listHasSetNum } from "./setNums";
-
-const API_BASE = (process.env.REACT_APP_API_BASE || "http://localhost:8000").replace(/\/+$/, "");
-
-
-function getStoredToken() {
-  try {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem("lego_token") || "";
-  } catch {
-    return "";
-  }
-}
-
-
-async function apiFetch(path, { token, ...opts } = {}) {
-  const headers = new Headers(opts.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return fetch(`${API_BASE}${p}`, { ...opts, headers });
-}
-
-async function safeJson(resp) {
-  try {
-    return await resp.json();
-  } catch {
-    return null;
-  }
-}
+import { apiFetch } from "./lib/api";
+import { useAuth } from "./auth";
 
 function isSystemList(l) {
   if (!l) return false;
@@ -48,23 +21,19 @@ function isSystemList(l) {
 }
 
 function toPlainSetNum(sn) {
-  // backend accepts either, but plain keeps it consistent
   return String(sn || "").split("-")[0];
 }
 
-function sameSetNum(a, b) {
-  const A = String(a || "").trim();
-  const B = String(b || "").trim();
-  if (!A || !B) return false;
-  if (A === B) return true;
-  return toPlainSetNum(A) === toPlainSetNum(B);
+function isHttpStatus(err, code) {
+  // apiFetch throws: new Error(`${status} ${detail}`)
+  return String(err?.message || "").startsWith(String(code));
 }
 
 export default function AddToListMenu({
   setNum,
   lists: listsProp,
 
-  // allow parent to pass token (avoids stale localStorage token issues)
+  // allow parent to pass token (avoids stale token issues)
   token: tokenProp,
 
   includeOwned = true,
@@ -87,7 +56,8 @@ export default function AddToListMenu({
   const navigate = useNavigate();
   const { push: toast } = useToast();
 
-  const effectiveToken = tokenProp || getStoredToken();
+  const { token: authToken } = useAuth();
+  const effectiveToken = tokenProp ?? authToken ?? "";
   const isLoggedIn = !!effectiveToken;
 
   const btnRef = useRef(null);
@@ -104,13 +74,6 @@ export default function AddToListMenu({
   const [loadingLists, setLoadingLists] = useState(false);
   const [err, setErr] = useState(null);
 
-  // --- system list ids (Owned / Wishlist) ---
-  // NOTE: we still load these so the menu can show "ready" + for future usage,
-  // but Owned/Wishlist add/remove now uses /collections/* endpoints (NOT /lists/*)
-  const [ownedListId, setOwnedListId] = useState(null);
-  const [wishlistListId, setWishlistListId] = useState(null);
-  const [loadingSystem, setLoadingSystem] = useState(false);
-
   const [ownedLocal, setOwnedLocal] = useState(!!ownedSelected);
   const [wishlistLocal, setWishlistLocal] = useState(!!wishlistSelected);
 
@@ -120,9 +83,7 @@ export default function AddToListMenu({
   // ONLY custom lists (exclude system lists)
   const customLists = useMemo(() => {
     const arr = Array.isArray(lists) ? lists : [];
-    return arr
-      .filter((l) => l && l.id != null && l.title)
-      .filter((l) => !isSystemList(l));
+    return arr.filter((l) => l && l.id != null && l.title).filter((l) => !isSystemList(l));
   }, [lists]);
 
   useEffect(() => setOwnedLocal(!!ownedSelected), [ownedSelected]);
@@ -180,7 +141,7 @@ export default function AddToListMenu({
     setPos({ left, top, width: desiredWidth });
   }
 
-  // Outside click / escape / reposition
+  // Close on outside click / escape; reposition on resize/scroll
   useEffect(() => {
     if (!open) return;
 
@@ -215,54 +176,6 @@ export default function AddToListMenu({
     };
   }, [open, includeOwned, includeWishlist, customLists.length]);
 
-  // Load system list ids on open (when logged in)
-  useEffect(() => {
-    if (!open) return;
-
-    let cancelled = false;
-
-    async function loadSystemLists() {
-      if (!isLoggedIn) {
-        if (!cancelled) {
-          setOwnedListId(null);
-          setWishlistListId(null);
-          setLoadingSystem(false);
-        }
-        return;
-      }
-
-      try {
-        setLoadingSystem(true);
-
-        const resp = await apiFetch("/lists/me/system", { token: effectiveToken });
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Failed to load system lists (${resp.status}): ${text}`);
-        }
-
-        const data = (await safeJson(resp)) || {};
-        const sys = data.system_lists || {};
-
-        const owned = sys.owned?.id ?? sys.Owned?.id;
-        const wish = sys.wishlist?.id ?? sys.Wishlist?.id;
-
-        if (!cancelled) {
-          setOwnedListId(owned != null ? Number(owned) : null);
-          setWishlistListId(wish != null ? Number(wish) : null);
-        }
-      } catch (e) {
-        if (!cancelled) setErr(e?.message || String(e));
-      } finally {
-        if (!cancelled) setLoadingSystem(false);
-      }
-    }
-
-    loadSystemLists();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, isLoggedIn, effectiveToken]);
-
   // Load lists + membership map on open (custom lists only)
   useEffect(() => {
     if (!open) return;
@@ -273,7 +186,7 @@ export default function AddToListMenu({
       try {
         setErr(null);
 
-        // if logged out, do NOT try to fetch anything
+        // logged out -> no fetch
         if (!isLoggedIn) {
           if (!cancelled) {
             setLoadingLists(false);
@@ -288,12 +201,13 @@ export default function AddToListMenu({
         let baseLists = Array.isArray(listsProp) ? listsProp : null;
 
         if (!baseLists) {
-          const resp = await apiFetch("/lists/me", { token: effectiveToken });
-          if (!resp.ok) {
-            const text = await resp.text();
-            throw new Error(`Failed to load lists (${resp.status}): ${text}`);
+          try {
+            baseLists = await apiFetch("/lists/me", { token: effectiveToken });
+          } catch (e) {
+            // backend uses 404 when user has no lists yet
+            if (isHttpStatus(e, 404)) baseLists = [];
+            else throw e;
           }
-          baseLists = (await safeJson(resp)) || [];
         }
 
         if (cancelled) return;
@@ -313,10 +227,7 @@ export default function AddToListMenu({
                 return;
               }
 
-              const r = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token: effectiveToken });
-              if (!r.ok) return;
-
-              const detail = await safeJson(r);
+              const detail = await apiFetch(`/lists/${encodeURIComponent(l.id)}`, { token: effectiveToken });
               const items = Array.isArray(detail?.items) ? detail.items : [];
               if (listHasSetNum(items, setNum)) map[l.id] = true;
             } catch {
@@ -358,19 +269,16 @@ export default function AddToListMenu({
   async function addToCustomList(listId) {
     if (typeof onAddToList === "function") return onAddToList(listId);
     if (!isLoggedIn) throw new Error("Please log in to use lists.");
-    console.log("[AddToListMenu] addToCustomList", { setNum, listId });
 
-    const resp = await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
-      token: effectiveToken,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ set_num: setNum }),
-    });
-
-    if (resp.status === 409) return;
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Add failed (${resp.status}): ${text}`);
+    try {
+      await apiFetch(`/lists/${encodeURIComponent(listId)}/items`, {
+        token: effectiveToken,
+        method: "POST",
+        body: { set_num: setNum },
+      });
+    } catch (e) {
+      if (isHttpStatus(e, 409)) return; // already exists
+      throw e;
     }
   }
 
@@ -378,57 +286,50 @@ export default function AddToListMenu({
     if (typeof onRemoveFromList === "function") return onRemoveFromList(listId);
     if (!isLoggedIn) throw new Error("Please log in to use lists.");
 
-    const resp = await apiFetch(
-      `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
-      { token: effectiveToken, method: "DELETE" }
-    );
-
-    if (resp.status === 404) return;
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Remove failed (${resp.status}): ${text}`);
+    try {
+      await apiFetch(`/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`, {
+        token: effectiveToken,
+        method: "DELETE",
+      });
+    } catch (e) {
+      if (isHttpStatus(e, 404)) return; // idempotent
+      throw e;
     }
   }
 
-// --- system list add/remove via /collections endpoints (NOT /lists/:id/items) ---
-async function addToSystem(type) {
-  if (!isLoggedIn) throw new Error("Please log in to use lists.");
-  console.log("[AddToListMenu] addToSystem", { type, setNum, plain: toPlainSetNum(setNum) });
+  // system list add/remove via /collections endpoints
+  async function addToSystem(type) {
+    if (!isLoggedIn) throw new Error("Please log in to use lists.");
 
-  const plain = toPlainSetNum(setNum);
+    const plain = toPlainSetNum(setNum);
 
-  const resp = await apiFetch(`/collections/${encodeURIComponent(type)}`, {
-    token: effectiveToken,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ set_num: plain }),
-  });
-
-  // backend might return {"detail":"set_not_found"} etc
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Add failed (${resp.status}): ${text}`);
+    try {
+      await apiFetch(`/collections/${encodeURIComponent(type)}`, {
+        token: effectiveToken,
+        method: "POST",
+        body: { set_num: plain },
+      });
+    } catch (e) {
+      if (isHttpStatus(e, 409)) return;
+      throw e;
+    }
   }
-}
 
-async function removeFromSystem(type) {
-  if (!isLoggedIn) throw new Error("Please log in to use lists.");
+  async function removeFromSystem(type) {
+    if (!isLoggedIn) throw new Error("Please log in to use lists.");
 
-  const plain = toPlainSetNum(setNum);
+    const plain = toPlainSetNum(setNum);
 
-  const resp = await apiFetch(
-    `/collections/${encodeURIComponent(type)}/${encodeURIComponent(plain)}`,
-    { token: effectiveToken, method: "DELETE" }
-  );
-
-  // your delete is idempotent
-  if (resp.status === 204 || resp.status === 404) return;
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Remove failed (${resp.status}): ${text}`);
+    try {
+      await apiFetch(`/collections/${encodeURIComponent(type)}/${encodeURIComponent(plain)}`, {
+        token: effectiveToken,
+        method: "DELETE",
+      });
+    } catch (e) {
+      if (isHttpStatus(e, 404)) return;
+      throw e;
+    }
   }
-}
 
   async function handleClickItem(action) {
     try {
@@ -526,8 +427,6 @@ async function removeFromSystem(type) {
     paddingRight: 28,
   };
 
-  const systemReady = (!includeOwned || !!ownedListId) && (!includeWishlist || !!wishlistListId);
-
   return (
     <>
       <button
@@ -589,29 +488,15 @@ async function removeFromSystem(type) {
                 </div>
               )}
 
-              {isLoggedIn && loadingSystem && (
-                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
-                  Loading Owned/Wishlist…
-                </div>
-              )}
-
-              {isLoggedIn && !loadingSystem && !systemReady && (
-                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
-                  Owned/Wishlist not ready yet — try again in a second.
-                </div>
-              )}
-
               {err && (
-                <div style={{ color: "#b42318", fontSize: "0.85rem", padding: "8px 8px 6px" }}>
-                  {err}
-                </div>
+                <div style={{ color: "#b42318", fontSize: "0.85rem", padding: "8px 8px 6px" }}>{err}</div>
               )}
 
               {includeOwned && (
                 <MenuItem
                   label="Owned"
                   selected={ownedLocal}
-                  disabled={!isLoggedIn || (loadingSystem && !ownedListId)}
+                  disabled={!isLoggedIn}
                   onClick={() => handleClickItem({ type: "owned" })}
                 />
               )}
@@ -620,7 +505,7 @@ async function removeFromSystem(type) {
                 <MenuItem
                   label="Wishlist"
                   selected={wishlistLocal}
-                  disabled={!isLoggedIn || (loadingSystem && !wishlistListId)}
+                  disabled={!isLoggedIn}
                   onClick={() => handleClickItem({ type: "wishlist" })}
                 />
               )}
@@ -649,9 +534,7 @@ async function removeFromSystem(type) {
                   ))}
 
                 {!loadingLists && customLists.length === 0 && (
-                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
-                    No custom lists yet.
-                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>No custom lists yet.</div>
                 )}
               </div>
 
@@ -719,6 +602,7 @@ async function removeFromSystem(type) {
                     >
                       Cancel
                     </button>
+
                     <button
                       type="button"
                       onClick={(e) => {
@@ -757,7 +641,7 @@ function MenuItem({ label, selected, onClick, title, disabled = false }) {
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
-        if (!disabled) onClick();
+        if (!disabled) onClick?.();
       }}
       title={title || label}
       style={{

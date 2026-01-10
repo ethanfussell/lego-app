@@ -12,7 +12,6 @@ function useIsMobile(breakpointPx = 640) {
     const mql = window.matchMedia(`(max-width: ${breakpointPx}px)`);
     const handler = (e) => setIsMobile(e.matches);
 
-    // Safari compat
     if (mql.addEventListener) mql.addEventListener("change", handler);
     else mql.addListener(handler);
 
@@ -27,18 +26,14 @@ function useIsMobile(breakpointPx = 640) {
   return isMobile;
 }
 
-function usernameFromToken(token) {
-  if (!token) return "Account";
-  const prefix = "fake-token-for-";
-  if (token.startsWith(prefix)) return token.slice(prefix.length) || "Account";
-  return "Account";
-}
-
-export default function ProfileMenu({ token, onLogout }) {
+export default function ProfileMenu({ me, onLogout }) {
   const navigate = useNavigate();
   const isMobile = useIsMobile(640);
 
-  const username = useMemo(() => usernameFromToken(token), [token]);
+  const username = useMemo(() => {
+    return me?.username || me?.email || "Account";
+  }, [me]);
+
   const initials = useMemo(() => {
     const u = (username || "U").trim();
     return u.slice(0, 1).toUpperCase();
@@ -119,12 +114,7 @@ export default function ProfileMenu({ token, onLogout }) {
         </div>
 
         <div style={{ display: "grid", lineHeight: 1.1 }}>
-          <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-            {username}
-          </span>
-          <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-            
-          </span>
+          <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{username}</span>
         </div>
 
         <span aria-hidden style={{ fontSize: "0.85rem", color: "#6b7280" }}>
@@ -149,18 +139,9 @@ export default function ProfileMenu({ token, onLogout }) {
             zIndex: 50,
           }}
         >
-          <MenuButton
-            label="Account"
-            onClick={() => closeThen(() => alert("Account page coming soon."))}
-          />
-          <MenuButton
-            label="My Collection"
-            onClick={() => closeThen(() => navigate("/collection"))}
-          />
-          <MenuButton
-            label="Settings"
-            onClick={() => closeThen(() => alert("Settings coming soon."))}
-          />
+          <MenuButton label="Account" onClick={() => closeThen(() => alert("Account page coming soon."))} />
+          <MenuButton label="My Collection" onClick={() => closeThen(() => navigate("/collection"))} />
+          <MenuButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
           <Divider />
           <MenuButton
             label="Log out"
@@ -189,7 +170,6 @@ export default function ProfileMenu({ token, onLogout }) {
             justifyContent: "flex-end",
           }}
           onMouseDown={(e) => {
-            // close if clicking backdrop
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
@@ -206,7 +186,6 @@ export default function ProfileMenu({ token, onLogout }) {
               gap: "0.75rem",
             }}
           >
-            {/* Header */}
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <div
                 aria-hidden
@@ -227,9 +206,6 @@ export default function ProfileMenu({ token, onLogout }) {
 
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{username}</div>
-                <div style={{ color: "#6b7280", fontSize: "0.85rem" }}>
-                  Signed in
-                </div>
               </div>
 
               <button
@@ -249,18 +225,9 @@ export default function ProfileMenu({ token, onLogout }) {
 
             <div style={{ borderTop: "1px solid #eee", marginTop: "0.25rem" }} />
 
-            <SheetButton
-              label="Account"
-              onClick={() => closeThen(() => alert("Account page coming soon."))}
-            />
-            <SheetButton
-              label="My Collection"
-              onClick={() => closeThen(() => navigate("/collection"))}
-            />
-            <SheetButton
-              label="Settings"
-              onClick={() => closeThen(() => alert("Settings coming soon."))}
-            />
+            <SheetButton label="Account" onClick={() => closeThen(() => alert("Account page coming soon."))} />
+            <SheetButton label="My Collection" onClick={() => closeThen(() => navigate("/collection"))} />
+            <SheetButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
 
             <div style={{ marginTop: "auto" }} />
 

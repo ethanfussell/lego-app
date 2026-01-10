@@ -2,42 +2,21 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SetCard from "./SetCard";
-
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
+import { apiFetch, getToken as loadToken } from "./lib/api";
 
 /* ---------------------------
    small helpers
 ----------------------------*/
-function getStoredToken() {
-  try {
-    return localStorage.getItem("lego_token") || "";
-  } catch {
-    return "";
-  }
-}
-
 function getUsernameFromToken(token) {
   if (!token) return null;
   const prefix = "fake-token-for-";
   return token.startsWith(prefix) ? token.slice(prefix.length) : token;
 }
 
-async function apiFetch(path, { token, ...opts } = {}) {
-  const headers = new Headers(opts.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_BASE}${path}`, { ...opts, headers });
-}
-
-async function safeJson(resp) {
-  try {
-    return await resp.json();
-  } catch {
-    return null;
-  }
-}
-
 function countForList(list) {
-  const c = list?.items_count ?? (Array.isArray(list?.items) ? list.items.length : 0);
+  const c =
+    list?.items_count ??
+    (Array.isArray(list?.items) ? list.items.length : 0);
   return Number.isFinite(c) ? c : 0;
 }
 
@@ -45,35 +24,60 @@ function sortSets(arr, sortKey) {
   const items = Array.isArray(arr) ? [...arr] : [];
 
   const byName = (a, b) =>
-    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
+    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
+      sensitivity: "base",
+    });
 
   if (sortKey === "name_asc") items.sort(byName);
   else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
   else if (sortKey === "year_desc")
-    items.sort((a, b) => Number(b?.year || 0) - Number(a?.year || 0) || byName(a, b));
+    items.sort(
+      (a, b) =>
+        Number(b?.year || 0) - Number(a?.year || 0) || byName(a, b)
+    );
   else if (sortKey === "year_asc")
-    items.sort((a, b) => Number(a?.year || 0) - Number(b?.year || 0) || byName(a, b));
+    items.sort(
+      (a, b) =>
+        Number(a?.year || 0) - Number(b?.year || 0) || byName(a, b)
+    );
   else if (sortKey === "pieces_desc")
-    items.sort((a, b) => Number(b?.pieces || 0) - Number(a?.pieces || 0) || byName(a, b));
+    items.sort(
+      (a, b) =>
+        Number(b?.pieces || 0) - Number(a?.pieces || 0) || byName(a, b)
+    );
   else if (sortKey === "pieces_asc")
-    items.sort((a, b) => Number(a?.pieces || 0) - Number(b?.pieces || 0) || byName(a, b));
+    items.sort(
+      (a, b) =>
+        Number(a?.pieces || 0) - Number(b?.pieces || 0) || byName(a, b)
+    );
   else if (sortKey === "rating_desc")
     items.sort(
-      (a, b) => Number(b?.average_rating || 0) - Number(a?.average_rating || 0) || byName(a, b)
+      (a, b) =>
+        Number(b?.average_rating || 0) -
+          Number(a?.average_rating || 0) ||
+        byName(a, b)
     );
   else if (sortKey === "rating_asc")
     items.sort(
-      (a, b) => Number(a?.average_rating || 0) - Number(b?.average_rating || 0) || byName(a, b)
+      (a, b) =>
+        Number(a?.average_rating || 0) -
+          Number(b?.average_rating || 0) ||
+        byName(a, b)
     );
 
   return items;
+}
+
+function isHttpStatus(err, code) {
+  // apiFetch throws Error like: "404 ..." or "401 ..."
+  return String(err?.message || "").startsWith(String(code));
 }
 
 /* ==========================================================
    Page
 ==========================================================*/
 export default function ListDetailPage({
-  token,
+  token: tokenProp, // optional from App.js
   ownedSetNums,
   wishlistSetNums,
   onMarkOwned,
@@ -82,8 +86,12 @@ export default function ListDetailPage({
   const { listId } = useParams();
   const navigate = useNavigate();
 
-  const effectiveToken = token || getStoredToken();
-  const currentUsername = useMemo(() => getUsernameFromToken(effectiveToken), [effectiveToken]);
+  const effectiveToken = tokenProp ?? loadToken();
+
+  const currentUsername = useMemo(
+    () => getUsernameFromToken(effectiveToken),
+    [effectiveToken]
+  );
 
   const [list, setList] = useState(null);
 
@@ -96,15 +104,19 @@ export default function ListDetailPage({
   const [setsError, setSetsError] = useState(null);
 
   const [sortKey, setSortKey] = useState("name_asc");
-  const sortedSetDetails = useMemo(() => sortSets(setDetails, sortKey), [setDetails, sortKey]);
+  const sortedSetDetails = useMemo(
+    () => sortSets(setDetails, sortKey),
+    [setDetails, sortKey]
+  );
 
-  const isOwner = !!list?.owner && !!currentUsername && list.owner === currentUsername;
+  const isOwner =
+    !!list?.owner && !!currentUsername && list.owner === currentUsername;
 
   /* ---------------------------
-     Load list with invisibility rule:
-     - Try without auth first (public lists)
-     - If 404 and we have token, retry with auth (might be your private list)
-     - Otherwise: 404 => not_found
+     Load list with "invisibility rule":
+     - Try without auth first (public list)
+     - If 404 AND we have token, retry authed (private list)
+     - Otherwise 404 => not_found
   ----------------------------*/
   async function fetchListWithRules({ cancelled }) {
     if (!listId) return null;
@@ -117,79 +129,44 @@ export default function ListDetailPage({
 
     const path = `/lists/${encodeURIComponent(listId)}`;
 
-    const tryResp = async (withToken) => {
-      const resp = await apiFetch(path, withToken ? { token: effectiveToken } : undefined);
-      return resp;
-    };
-
+    // 1) public attempt
     try {
-      // 1) public attempt (no auth)
-      let resp = await tryResp(false);
-
-      // If it looks missing but we have a token, try authed once.
-      if (resp.status === 404 && effectiveToken) {
-        resp = await tryResp(true);
+      const data = await apiFetch(path);
+      if (cancelled()) return null;
+      setList(data);
+      setListStatus("ok");
+      return data;
+    } catch (e1) {
+      // 2) if 404 and logged in, retry authed
+      if (isHttpStatus(e1, 404) && effectiveToken) {
+        try {
+          const data = await apiFetch(path, { token: effectiveToken });
+          if (cancelled()) return null;
+          setList(data);
+          setListStatus("ok");
+          return data;
+        } catch (e2) {
+          if (cancelled()) return null;
+          if (isHttpStatus(e2, 404)) {
+            setListStatus("not_found");
+            return null;
+          }
+          setListStatus("error");
+          setListError(e2?.message || String(e2));
+          return null;
+        }
       }
 
       if (cancelled()) return null;
 
-      if (resp.ok) {
-        const data = await resp.json();
-        if (cancelled()) return null;
-        setList(data);
-        setListStatus("ok");
-        return data;
-      }
-
-      if (resp.status === 404) {
-        // ✅ includes: private list (not owner / logged out), bad id, etc.
+      if (isHttpStatus(e1, 404)) {
         setListStatus("not_found");
         return null;
       }
 
-      // other errors
-      const body = await safeJson(resp);
       setListStatus("error");
-      setListError(body?.detail || `Failed to load list (status ${resp.status})`);
+      setListError(e1?.message || String(e1));
       return null;
-    } catch (err) {
-      if (cancelled()) return null;
-      setListStatus("error");
-      setListError(err?.message || String(err));
-      return null;
-    }
-  }
-
-  async function removeFromList(setNum) {
-    if (!effectiveToken) {
-      alert("Log in to edit your lists.");
-      navigate("/login");
-      return;
-    }
-  
-    // optimistic UI
-    setSetDetails((prev) => prev.filter((s) => s?.set_num !== setNum));
-  
-    try {
-      const resp = await apiFetch(
-        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(setNum)}`,
-        { token: effectiveToken, method: "DELETE" }
-      );
-  
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Remove failed (${resp.status}): ${text}`);
-      }
-  
-      // also update list count (optional but nice)
-      setList((prev) =>
-        prev ? { ...prev, items_count: Math.max(0, countForList(prev) - 1) } : prev
-      );
-    } catch (e) {
-      // rollback by refetching (simple + reliable)
-      setSetsError(e?.message || String(e));
-      const data = await fetchListWithRules({ cancelled: () => false });
-      if (data) await loadSetCards(data, { cancelled: () => false });
     }
   }
 
@@ -216,16 +193,11 @@ export default function ListDetailPage({
         const params = new URLSearchParams();
         params.set("set_nums", chunk.join(","));
 
-        const resp = await apiFetch(`/sets/bulk?${params.toString()}`, {
-          token: effectiveToken ? effectiveToken : undefined,
+        // bulk sets endpoint might be public OR require auth; either way, token doesn't hurt if present
+        const data = await apiFetch(`/sets/bulk?${params.toString()}`, {
+          token: effectiveToken || undefined,
         });
 
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Failed to load sets (${resp.status}): ${text}`);
-        }
-
-        const data = await resp.json();
         if (Array.isArray(data)) results.push(...data);
 
         if (cancelled()) return;
@@ -233,12 +205,14 @@ export default function ListDetailPage({
 
       if (cancelled()) return;
 
-      // Preserve list order; bulk may skip missing
+      // Preserve list order
       const byNum = new Map(results.map((s) => [s.set_num, s]));
       const ordered = items.map((n) => byNum.get(n)).filter(Boolean);
 
       if (ordered.length !== items.length) {
-        setSetsError(`Loaded ${ordered.length}/${items.length} sets (some set numbers may not exist yet).`);
+        setSetsError(
+          `Loaded ${ordered.length}/${items.length} sets (some set numbers may not exist yet).`
+        );
       }
 
       setSetDetails(ordered);
@@ -248,6 +222,36 @@ export default function ListDetailPage({
       setSetsError(err?.message || String(err));
     } finally {
       if (!cancelled()) setSetsLoading(false);
+    }
+  }
+
+  async function removeFromList(setNum) {
+    if (!effectiveToken) {
+      alert("Log in to edit your lists.");
+      navigate("/login");
+      return;
+    }
+
+    // optimistic UI
+    setSetDetails((prev) => prev.filter((s) => s?.set_num !== setNum));
+    setList((prev) =>
+      prev
+        ? { ...prev, items_count: Math.max(0, countForList(prev) - 1) }
+        : prev
+    );
+
+    try {
+      await apiFetch(
+        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(
+          setNum
+        )}`,
+        { token: effectiveToken, method: "DELETE" }
+      );
+    } catch (e) {
+      // revert by reloading from server
+      setSetsError(e?.message || String(e));
+      const data = await fetchListWithRules({ cancelled: () => false });
+      if (data) await loadSetCards(data, { cancelled: () => false });
     }
   }
 
@@ -298,7 +302,9 @@ export default function ListDetailPage({
   if (listStatus === "error") {
     return (
       <div style={{ padding: "1.5rem" }}>
-        <p style={{ color: "red", marginTop: 0 }}>Error: {listError || "Something went wrong."}</p>
+        <p style={{ color: "red", marginTop: 0 }}>
+          Error: {listError || "Something went wrong."}
+        </p>
         <button
           onClick={() => navigate(-1)}
           style={{
@@ -316,7 +322,6 @@ export default function ListDetailPage({
     );
   }
 
-  // listStatus === "ok"
   if (!list) {
     return (
       <div style={{ padding: "1.5rem" }}>
@@ -364,11 +369,15 @@ export default function ListDetailPage({
             By <strong>{list.owner}</strong> ·{" "}
           </>
         )}
-        <strong>{list.is_public ? "Public" : "Private"}</strong> · <strong>{totalCount}</strong>{" "}
-        set{totalCount === 1 ? "" : "s"}
+        <strong>{list.is_public ? "Public" : "Private"}</strong> ·{" "}
+        <strong>{totalCount}</strong> set{totalCount === 1 ? "" : "s"}
       </p>
 
-      {list.description && <p style={{ marginTop: "0.75rem", color: "#444" }}>{list.description}</p>}
+      {list.description && (
+        <p style={{ marginTop: "0.75rem", color: "#444" }}>
+          {list.description}
+        </p>
+      )}
 
       <section style={{ marginTop: "1.5rem" }}>
         <div
@@ -403,9 +412,15 @@ export default function ListDetailPage({
         </div>
 
         {setsLoading && <p>Loading sets…</p>}
-        {setsError && <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>{setsError}</p>}
+        {setsError && (
+          <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>
+            {setsError}
+          </p>
+        )}
 
-        {!setsLoading && sortedSetDetails.length === 0 && <p style={{ color: "#777" }}>No sets in this list yet.</p>}
+        {!setsLoading && sortedSetDetails.length === 0 && (
+          <p style={{ color: "#777" }}>No sets in this list yet.</p>
+        )}
 
         {!setsLoading && sortedSetDetails.length > 0 && (
           <ul
@@ -420,7 +435,10 @@ export default function ListDetailPage({
             }}
           >
             {sortedSetDetails.map((set) => (
-              <li key={set.set_num} style={{ maxWidth: 260, position: "relative" }}>
+              <li
+                key={set.set_num}
+                style={{ maxWidth: 260, position: "relative" }}
+              >
                 {isOwner && (
                   <button
                     type="button"
@@ -451,7 +469,9 @@ export default function ListDetailPage({
                   set={set}
                   token={effectiveToken}
                   isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
-                  isInWishlist={wishlistSetNums ? wishlistSetNums.has(set.set_num) : false}
+                  isInWishlist={
+                    wishlistSetNums ? wishlistSetNums.has(set.set_num) : false
+                  }
                   onMarkOwned={onMarkOwned}
                   onAddWishlist={onAddWishlist}
                   variant="default"
