@@ -1,404 +1,319 @@
 // frontend/src/ListDetailPage.js
-import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "./auth";
 import SetCard from "./SetCard";
-import { apiFetch, getToken as loadToken } from "./lib/api";
+import { apiFetch } from "./lib/api";
 
-/* ---------------------------
-   small helpers
-----------------------------*/
-function getUsernameFromToken(token) {
-  if (!token) return null;
-  const prefix = "fake-token-for-";
-  return token.startsWith(prefix) ? token.slice(prefix.length) : token;
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+/* ---------------- helpers ---------------- */
+
+function toPlainSetNum(sn) {
+  const s = String(sn || "").trim();
+  if (!s) return "";
+  return s.includes("-") ? s.split("-")[0] : s;
 }
 
-function countForList(list) {
-  const c =
-    list?.items_count ??
-    (Array.isArray(list?.items) ? list.items.length : 0);
-  return Number.isFinite(c) ? c : 0;
+async function fetchSetsBulk(rawSetNums, token) {
+  // rawSetNums can be ["30708-1", ...] or sometimes objects
+  const nums = (Array.isArray(rawSetNums) ? rawSetNums : [])
+    .map((x) => {
+      if (typeof x === "string" || typeof x === "number") return String(x).trim();
+      if (x && typeof x === "object") return String(x.set_num || x.setNum || "").trim();
+      return "";
+    })
+    .filter(Boolean);
+
+  if (nums.length === 0) return [];
+
+  const params = new URLSearchParams();
+  params.set("set_nums", nums.join(","));
+
+  const data = await apiFetch(`/sets/bulk?${params.toString()}`, { token });
+
+  // Preserve original order
+  const arr = Array.isArray(data) ? data : [];
+  const byNum = new Map(arr.map((s) => [String(s?.set_num || "").trim(), s]));
+  return nums.map((n) => byNum.get(n)).filter(Boolean);
 }
 
 function sortSets(arr, sortKey) {
   const items = Array.isArray(arr) ? [...arr] : [];
-
   const byName = (a, b) =>
-    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
-      sensitivity: "base",
-    });
+    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
 
   if (sortKey === "name_asc") items.sort(byName);
   else if (sortKey === "name_desc") items.sort((a, b) => byName(b, a));
   else if (sortKey === "year_desc")
-    items.sort(
-      (a, b) =>
-        Number(b?.year || 0) - Number(a?.year || 0) || byName(a, b)
-    );
+    items.sort((a, b) => Number(b?.year || 0) - Number(a?.year || 0) || byName(a, b));
   else if (sortKey === "year_asc")
-    items.sort(
-      (a, b) =>
-        Number(a?.year || 0) - Number(b?.year || 0) || byName(a, b)
-    );
+    items.sort((a, b) => Number(a?.year || 0) - Number(b?.year || 0) || byName(a, b));
   else if (sortKey === "pieces_desc")
-    items.sort(
-      (a, b) =>
-        Number(b?.pieces || 0) - Number(a?.pieces || 0) || byName(a, b)
-    );
+    items.sort((a, b) => Number(b?.pieces || 0) - Number(a?.pieces || 0) || byName(a, b));
   else if (sortKey === "pieces_asc")
-    items.sort(
-      (a, b) =>
-        Number(a?.pieces || 0) - Number(b?.pieces || 0) || byName(a, b)
-    );
+    items.sort((a, b) => Number(a?.pieces || 0) - Number(b?.pieces || 0) || byName(a, b));
   else if (sortKey === "rating_desc")
     items.sort(
-      (a, b) =>
-        Number(b?.average_rating || 0) -
-          Number(a?.average_rating || 0) ||
-        byName(a, b)
+      (a, b) => Number(b?.average_rating || 0) - Number(a?.average_rating || 0) || byName(a, b)
     );
   else if (sortKey === "rating_asc")
     items.sort(
-      (a, b) =>
-        Number(a?.average_rating || 0) -
-          Number(b?.average_rating || 0) ||
-        byName(a, b)
+      (a, b) => Number(a?.average_rating || 0) - Number(b?.average_rating || 0) || byName(a, b)
     );
 
   return items;
 }
 
-function isHttpStatus(err, code) {
-  // apiFetch throws Error like: "404 ..." or "401 ..."
-  return String(err?.message || "").startsWith(String(code));
+function SortableSetTile({
+  item,
+  ownedSetNums,
+  wishlistSetNums,
+  onMarkOwned,
+  onAddWishlist,
+  disabled,
+}) {
+  const id = item?.set_num; // FULL set_num is the drag id in the UI
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.7 : 1,
+    cursor: disabled ? "default" : "grab",
+  };
+
+  // In reorder mode, prevent button clicks inside cards
+  const innerStyle = { pointerEvents: "none" };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div style={innerStyle}>
+        <SetCard
+          set={item}
+          isOwned={ownedSetNums?.has?.(item.set_num)}
+          isInWishlist={wishlistSetNums?.has?.(item.set_num)}
+          onMarkOwned={(sn) => onMarkOwned?.(sn)}
+          onAddWishlist={(sn) => onAddWishlist?.(sn)}
+          variant="default"
+        />
+      </div>
+    </div>
+  );
 }
 
-/* ==========================================================
-   Page
-==========================================================*/
+/* ---------------- page ---------------- */
+
 export default function ListDetailPage({
-  token: tokenProp, // optional from App.js
   ownedSetNums,
   wishlistSetNums,
   onMarkOwned,
   onAddWishlist,
 }) {
   const { listId } = useParams();
+  const { token } = useAuth();
   const navigate = useNavigate();
 
-  const effectiveToken = tokenProp ?? loadToken();
+  const [loading, setLoading] = useState(true);
+  const [listName, setListName] = useState("List");
+  const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
 
-  const currentUsername = useMemo(
-    () => getUsernameFromToken(effectiveToken),
-    [effectiveToken]
-  );
+  const [activeId, setActiveId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
 
-  const [list, setList] = useState(null);
+  // Sort: "custom" = backend order for THIS list
+  const [sortKey, setSortKey] = useState("custom");
 
-  // "loading" | "ok" | "not_found" | "error"
-  const [listStatus, setListStatus] = useState("loading");
-  const [listError, setListError] = useState(null);
-
-  const [setDetails, setSetDetails] = useState([]);
-  const [setsLoading, setSetsLoading] = useState(false);
-  const [setsError, setSetsError] = useState(null);
-
-  const [sortKey, setSortKey] = useState("name_asc");
-  const sortedSetDetails = useMemo(
-    () => sortSets(setDetails, sortKey),
-    [setDetails, sortKey]
-  );
-
-  const isOwner =
-    !!list?.owner && !!currentUsername && list.owner === currentUsername;
-
-  /* ---------------------------
-     Load list with "invisibility rule":
-     - Try without auth first (public list)
-     - If 404 AND we have token, retry authed (private list)
-     - Otherwise 404 => not_found
-  ----------------------------*/
-  async function fetchListWithRules({ cancelled }) {
-    if (!listId) return null;
-
-    setListStatus("loading");
-    setListError(null);
-    setList(null);
-    setSetDetails([]);
-    setSetsError(null);
-
-    const path = `/lists/${encodeURIComponent(listId)}`;
-
-    // 1) public attempt
-    try {
-      const data = await apiFetch(path);
-      if (cancelled()) return null;
-      setList(data);
-      setListStatus("ok");
-      return data;
-    } catch (e1) {
-      // 2) if 404 and logged in, retry authed
-      if (isHttpStatus(e1, 404) && effectiveToken) {
-        try {
-          const data = await apiFetch(path, { token: effectiveToken });
-          if (cancelled()) return null;
-          setList(data);
-          setListStatus("ok");
-          return data;
-        } catch (e2) {
-          if (cancelled()) return null;
-          if (isHttpStatus(e2, 404)) {
-            setListStatus("not_found");
-            return null;
-          }
-          setListStatus("error");
-          setListError(e2?.message || String(e2));
-          return null;
-        }
-      }
-
-      if (cancelled()) return null;
-
-      if (isHttpStatus(e1, 404)) {
-        setListStatus("not_found");
-        return null;
-      }
-
-      setListStatus("error");
-      setListError(e1?.message || String(e1));
-      return null;
-    }
-  }
-
-  /* ---------------------------
-     Load set cards using bulk endpoint
-  ----------------------------*/
-  async function loadSetCards(listData, { cancelled }) {
-    const items = Array.isArray(listData?.items) ? listData.items : [];
-    if (items.length === 0) {
-      setSetDetails([]);
-      return;
-    }
-
-    setSetsLoading(true);
-    setSetsError(null);
-
-    try {
-      const chunkSize = 40;
-      const results = [];
-
-      for (let i = 0; i < items.length; i += chunkSize) {
-        const chunk = items.slice(i, i + chunkSize);
-
-        const params = new URLSearchParams();
-        params.set("set_nums", chunk.join(","));
-
-        // bulk sets endpoint might be public OR require auth; either way, token doesn't hurt if present
-        const data = await apiFetch(`/sets/bulk?${params.toString()}`, {
-          token: effectiveToken || undefined,
-        });
-
-        if (Array.isArray(data)) results.push(...data);
-
-        if (cancelled()) return;
-      }
-
-      if (cancelled()) return;
-
-      // Preserve list order
-      const byNum = new Map(results.map((s) => [s.set_num, s]));
-      const ordered = items.map((n) => byNum.get(n)).filter(Boolean);
-
-      if (ordered.length !== items.length) {
-        setSetsError(
-          `Loaded ${ordered.length}/${items.length} sets (some set numbers may not exist yet).`
-        );
-      }
-
-      setSetDetails(ordered);
-    } catch (err) {
-      if (cancelled()) return;
-      setSetDetails([]);
-      setSetsError(err?.message || String(err));
-    } finally {
-      if (!cancelled()) setSetsLoading(false);
-    }
-  }
-
-  async function removeFromList(setNum) {
-    if (!effectiveToken) {
-      alert("Log in to edit your lists.");
-      navigate("/login");
-      return;
-    }
-
-    // optimistic UI
-    setSetDetails((prev) => prev.filter((s) => s?.set_num !== setNum));
-    setList((prev) =>
-      prev
-        ? { ...prev, items_count: Math.max(0, countForList(prev) - 1) }
-        : prev
-    );
-
-    try {
-      await apiFetch(
-        `/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(
-          setNum
-        )}`,
-        { token: effectiveToken, method: "DELETE" }
-      );
-    } catch (e) {
-      // revert by reloading from server
-      setSetsError(e?.message || String(e));
-      const data = await fetchListWithRules({ cancelled: () => false });
-      if (data) await loadSetCards(data, { cancelled: () => false });
-    }
-  }
+  const lastGoodRef = useRef(items);
 
   useEffect(() => {
-    let cancelledFlag = false;
-    const cancelled = () => cancelledFlag;
+    let cancelled = false;
 
-    (async () => {
-      const data = await fetchListWithRules({ cancelled });
-      if (cancelled()) return;
-      if (data) await loadSetCards(data, { cancelled });
-    })();
+    async function load() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await apiFetch(`/lists/${encodeURIComponent(listId)}`, { token });
+
+        const name = data?.name || data?.title || "List";
+        const rawItems = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.sets)
+          ? data.sets
+          : [];
+
+        const fullSets = await fetchSetsBulk(rawItems, token);
+        const cleaned = fullSets.filter((x) => x && x.set_num);
+        const expectedCount = Array.isArray(rawItems) ? rawItems.length : 0;
+        const loadedCount = cleaned.length;
+
+        const canReorderSafely = expectedCount > 1 && loadedCount === expectedCount;
+
+        if (cancelled) return;
+        setListName(name);
+        setItems(cleaned);
+        lastGoodRef.current = cleaned;
+      } catch (e) {
+        console.error(e);
+        if (cancelled) return;
+        setError(e?.message || "Failed to load list");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    if (listId) load();
 
     return () => {
-      cancelledFlag = true;
+      cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listId, effectiveToken]);
+  }, [listId, token]);
 
-  /* ---------------------------
-     UI states
-  ----------------------------*/
-  if (listStatus === "loading") {
-    return <div style={{ padding: "1.5rem" }}>Loading list…</div>;
+  const ids = useMemo(() => (items || []).map((x) => x.set_num), [items]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const activeItem = useMemo(
+    () => (activeId ? items.find((x) => x.set_num === activeId) : null),
+    [activeId, items]
+  );
+
+  const displayedItems = useMemo(() => {
+    if (reorderMode) return items;
+    if (sortKey === "custom") return items;
+    return sortSets(items, sortKey);
+  }, [items, sortKey, reorderMode]);
+
+  async function persistOrder(nextItems, prevItems) {
+    const setNums = (Array.isArray(nextItems) ? nextItems : [])
+      .map((x) => String(x?.set_num || "").trim())
+      .filter(Boolean);
+  
+    setSaving(true);
+    try {
+      await apiFetch(`/lists/${encodeURIComponent(listId)}/items/order`, {
+        method: "PUT",
+        token,
+        body: { set_nums: setNums },
+      });
+  
+      lastGoodRef.current = nextItems;
+    } catch (err) {
+      console.error(err);
+      setItems(prevItems);
+      lastGoodRef.current = prevItems;
+      window.alert(`Couldn’t save order: ${err?.message || "unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  if (listStatus === "not_found") {
-    return (
-      <div style={{ padding: "1.5rem" }}>
-        <p style={{ marginTop: 0 }}>List not found.</p>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            padding: "0.45rem 0.9rem",
-            borderRadius: "999px",
-            border: "1px solid #ddd",
-            background: "white",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-        >
-          ← Back
-        </button>
-      </div>
-    );
+  function handleDragStart(event) {
+    setActiveId(event.active?.id ?? null);
+    lastGoodRef.current = items;
   }
 
-  if (listStatus === "error") {
-    return (
-      <div style={{ padding: "1.5rem" }}>
-        <p style={{ color: "red", marginTop: 0 }}>
-          Error: {listError || "Something went wrong."}
-        </p>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            padding: "0.45rem 0.9rem",
-            borderRadius: "999px",
-            border: "1px solid #ddd",
-            background: "white",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-        >
-          ← Back
-        </button>
-      </div>
-    );
+  function handleDragCancel() {
+    setActiveId(null);
   }
 
-  if (!list) {
-    return (
-      <div style={{ padding: "1.5rem" }}>
-        <p style={{ marginTop: 0 }}>List not found.</p>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            padding: "0.45rem 0.9rem",
-            borderRadius: "999px",
-            border: "1px solid #ddd",
-            background: "white",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-        >
-          ← Back
-        </button>
-      </div>
-    );
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over || active.id === over.id) return;
+
+    const prevItems = lastGoodRef.current || items;
+
+    const oldIndex = items.findIndex((x) => x.set_num === active.id);
+    const newIndex = items.findIndex((x) => x.set_num === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const nextItems = arrayMove(items, oldIndex, newIndex);
+    setItems(nextItems);
+    persistOrder(nextItems, prevItems);
   }
 
-  const totalCount = countForList(list);
+  const canReorder = ids.length > 1;
+
+  const gridStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 14,
+    alignItems: "start",
+  };
+
+  if (loading) return <div>Loading…</div>;
+  if (error) return <div style={{ color: "#b91c1c" }}>{error}</div>;
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-      <button
-        onClick={() => navigate(-1)}
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 1rem" }}>
+      <div
         style={{
-          marginBottom: "1rem",
-          padding: "0.35rem 0.75rem",
-          borderRadius: "999px",
-          border: "1px solid #ddd",
-          background: "white",
-          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          gap: 12,
+          flexWrap: "wrap",
         }}
       >
-        ← Back
-      </button>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <h1 style={{ marginTop: 0 }}>{listName}</h1>
+          <span style={{ color: "#6b7280", fontSize: 14 }}>{items.length} sets</span>
+        </div>
 
-      <h1 style={{ margin: 0 }}>{list.title}</h1>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => navigate("/collection")}
+            style={{
+              padding: "0.35rem 0.75rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Back
+          </button>
 
-      <p style={{ margin: "0.35rem 0 0 0", color: "#666" }}>
-        {!isOwner && (
-          <>
-            By <strong>{list.owner}</strong> ·{" "}
-          </>
-        )}
-        <strong>{list.is_public ? "Public" : "Private"}</strong> ·{" "}
-        <strong>{totalCount}</strong> set{totalCount === 1 ? "" : "s"}
-      </p>
-
-      {list.description && (
-        <p style={{ marginTop: "0.75rem", color: "#444" }}>
-          {list.description}
-        </p>
-      )}
-
-      <section style={{ marginTop: "1.5rem" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            gap: "1rem",
-            flexWrap: "wrap",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1.05rem", margin: 0 }}>Sets</h2>
-
-          <label style={{ color: "#444", fontSize: "0.9rem" }}>
+          <label style={{ color: "#444", fontSize: 14 }}>
             Sort{" "}
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value)}
+              disabled={reorderMode}
               style={{ padding: "0.25rem 0.5rem" }}
+              title={reorderMode ? "Finish reordering to sort" : "Sort this list"}
             >
+              <option value="custom">Custom order</option>
               <option value="name_asc">Name (A–Z)</option>
               <option value="name_desc">Name (Z–A)</option>
               <option value="year_desc">Year (new → old)</option>
@@ -409,84 +324,91 @@ export default function ListDetailPage({
               <option value="rating_asc">Rating (low → high)</option>
             </select>
           </label>
+
+          <div style={{ color: "#666", fontSize: 14 }}>
+            {saving ? "Saving order…" : reorderMode ? "Drag cards to reorder" : ""}
+          </div>
+
+          {canReorder && (
+            <button
+              type="button"
+              onClick={() => {
+                if (saving) return;
+                setReorderMode((v) => !v);
+                setActiveId(null);
+                setSortKey("custom");
+              }}
+              disabled={saving}
+              style={{
+                padding: "0.35rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid #ddd",
+                background: "white",
+                cursor: saving ? "not-allowed" : "pointer",
+                fontWeight: 700,
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {reorderMode ? "Done" : "Reorder"}
+            </button>
+          )}
         </div>
+      </div>
 
-        {setsLoading && <p>Loading sets…</p>}
-        {setsError && (
-          <p style={{ color: setsError.startsWith("Loaded") ? "#777" : "red" }}>
-            {setsError}
-          </p>
-        )}
-
-        {!setsLoading && sortedSetDetails.length === 0 && (
-          <p style={{ color: "#777" }}>No sets in this list yet.</p>
-        )}
-
-        {!setsLoading && sortedSetDetails.length > 0 && (
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-              gap: "1rem",
-              alignItems: "start",
-            }}
-          >
-            {sortedSetDetails.map((set) => (
-              <li
-                key={set.set_num}
-                style={{ maxWidth: 260, position: "relative" }}
-              >
-                {isOwner && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeFromList(set.set_num);
-                    }}
-                    title="Remove from this list"
-                    style={{
-                      position: "absolute",
-                      top: 10,
-                      right: 10,
-                      zIndex: 5,
-                      width: 34,
-                      height: 34,
-                      borderRadius: "999px",
-                      border: "1px solid #e5e7eb",
-                      background: "white",
-                      cursor: "pointer",
-                      fontWeight: 900,
-                    }}
-                  >
-                    ✕
-                  </button>
-                )}
-
-                <SetCard
-                  set={set}
-                  token={effectiveToken}
-                  isOwned={ownedSetNums ? ownedSetNums.has(set.set_num) : false}
-                  isInWishlist={
-                    wishlistSetNums ? wishlistSetNums.has(set.set_num) : false
-                  }
+      {items.length === 0 ? (
+        <p style={{ color: "#666" }}>This list is empty.</p>
+      ) : reorderMode ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragCancel={handleDragCancel}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={ids} strategy={rectSortingStrategy}>
+            <div style={gridStyle}>
+              {items.map((item) => (
+                <SortableSetTile
+                  key={item.set_num}
+                  item={item}
+                  ownedSetNums={ownedSetNums || new Set()}
+                  wishlistSetNums={wishlistSetNums || new Set()}
                   onMarkOwned={onMarkOwned}
                   onAddWishlist={onAddWishlist}
-                  variant="default"
+                  disabled={saving}
                 />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              ))}
+            </div>
+          </SortableContext>
 
-      <div style={{ marginTop: "2rem", color: "#777" }}>
-        <Link to="/explore" style={{ color: "inherit" }}>
-          Browse more public lists →
-        </Link>
-      </div>
+          <DragOverlay>
+            {activeItem ? (
+              <div style={{ width: 320, opacity: 0.95, pointerEvents: "none" }}>
+                <SetCard set={activeItem} variant="default" />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        <div style={gridStyle}>
+          {displayedItems.map((item) => (
+            <div
+              key={item.set_num}
+              onClick={() => navigate(`/sets/${encodeURIComponent(item.set_num)}`)}
+              style={{ cursor: "pointer" }}
+            >
+              <SetCard
+                set={item}
+                isOwned={ownedSetNums?.has?.(item.set_num)}
+                isInWishlist={wishlistSetNums?.has?.(item.set_num)}
+                onMarkOwned={(sn) => onMarkOwned?.(sn)}
+                onAddWishlist={(sn) => onAddWishlist?.(sn)}
+                variant="default"
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

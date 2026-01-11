@@ -327,6 +327,11 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
 function App() {
   const navigate = useNavigate();
 
+  const loadPublicLists = async () => {
+    const data = await apiFetch("/lists/public");
+    setLists(Array.isArray(data) ? data : []);
+  };
+  
   // Public lists (Explore)
   const [lists, setLists] = useState([]);
   const [publicLoading, setPublicLoading] = useState(true);
@@ -543,22 +548,24 @@ function App() {
   /* -------------------------------
      Public lists (Explore)
   --------------------------------*/
-  async function loadPublicLists() {
-    try {
-      setPublicLoading(true);
-      setPublicError(null);
-  
-      const data = await apiFetch("/lists/public");
-      setLists(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setPublicError(err?.message || String(err));
-    } finally {
-      setPublicLoading(false);
-    }
-  }
-
   useEffect(() => {
-    loadPublicLists();
+    let cancelled = false;
+  
+    async function run() {
+      try {
+        setPublicLoading(true);
+        setPublicError(null);
+        const data = await apiFetch("/lists/public");
+        if (!cancelled) setLists(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) setPublicError(err?.message || String(err));
+      } finally {
+        if (!cancelled) setPublicLoading(false);
+      }
+    }
+  
+    run();
+    return () => { cancelled = true; };
   }, []);
 
   /* -------------------------------
@@ -1327,15 +1334,15 @@ function App() {
             path="/lists/:listId"
             element={
               <RequireAuth>
-              <ListDetailPage
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
+                <ListDetailPage
+                  ownedSetNums={ownedSetNums}
+                  wishlistSetNums={wishlistSetNums}
+                  onMarkOwned={handleMarkOwned}
+                  onAddWishlist={handleAddWishlist}
+                />
               </RequireAuth>
-           }
-         />
+            }
+          />
 
           <Route
             path="/login"
