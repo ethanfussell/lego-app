@@ -492,35 +492,38 @@ export default function AddToListMenu({
                 <div style={{ color: "#b42318", fontSize: "0.85rem", padding: "8px 8px 6px" }}>{err}</div>
               )}
 
-              {includeOwned && (
-                <MenuItem
-                  label="Owned"
-                  selected={ownedLocal}
-                  disabled={!isLoggedIn}
-                  onClick={() => handleClickItem({ type: "owned" })}
-                />
-              )}
-
-              {includeWishlist && (
-                <MenuItem
-                  label="Wishlist"
-                  selected={wishlistLocal}
-                  disabled={!isLoggedIn}
-                  onClick={() => handleClickItem({ type: "wishlist" })}
-                />
-              )}
-
-              {loadingLists && isLoggedIn && (
-                <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>Loading lists…</div>
-              )}
-
+              {/* Lists (scrollable: Owned + Wishlist + custom lists) */}
               <div
                 style={{
-                  maxHeight: shouldScrollLists ? 42 * 3 : "none",
-                  overflowY: shouldScrollLists ? "auto" : "visible",
+                  maxHeight: 42 * 6, // ~6 rows visible; tweak if you want
+                  overflowY: "auto",
                   overscrollBehavior: "contain",
                 }}
               >
+                {includeOwned && (
+                  <MenuItem
+                    label="Owned"
+                    selected={ownedLocal}
+                    disabled={!isLoggedIn}
+                    onClick={() => handleClickItem({ type: "owned" })}
+                  />
+                )}
+
+                {includeWishlist && (
+                  <MenuItem
+                    label="Wishlist"
+                    selected={wishlistLocal}
+                    disabled={!isLoggedIn}
+                    onClick={() => handleClickItem({ type: "wishlist" })}
+                  />
+                )}
+
+                {loadingLists && isLoggedIn && (
+                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                    Loading lists…
+                  </div>
+                )}
+
                 {!loadingLists &&
                   customLists.map((l) => (
                     <MenuItem
@@ -534,10 +537,13 @@ export default function AddToListMenu({
                   ))}
 
                 {!loadingLists && customLists.length === 0 && (
-                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>No custom lists yet.</div>
+                  <div style={{ padding: "8px 10px", fontSize: "0.85rem", color: "#666" }}>
+                    No custom lists yet.
+                  </div>
                 )}
               </div>
 
+              {/* Footer actions */}
               <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6 }}>
                 {isLoggedIn ? (
                   <MenuItem label="➕ Create list" selected={false} onClick={goToCreateList} />
@@ -545,6 +551,7 @@ export default function AddToListMenu({
                   <MenuItem label="🔐 Log in" selected={false} onClick={goToLogin} />
                 )}
               </div>
+
             </div>
 
             {confirm && (
