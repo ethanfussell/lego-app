@@ -8,8 +8,13 @@ const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 export default function Login() {
   const { loginWithToken } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const returnTo = location.state?.returnTo || "/";
+  const routerLocation = useLocation();
+
+  // Prefer returnTo (what you explicitly set), fallback to protected-route "from", fallback to /collection
+  const returnTo =
+    routerLocation.state?.returnTo ||
+    routerLocation.state?.from?.pathname ||
+    "/collection";
 
   const [username, setUsername] = useState("ethan");
   const [password, setPassword] = useState("lego123");
@@ -19,38 +24,34 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault();
     setError(null);
-
+  
     try {
       setLoading(true);
-
-      // ✅ FastAPI OAuth2PasswordRequestForm expects x-www-form-urlencoded
+  
       const body = new URLSearchParams();
       body.set("username", username);
       body.set("password", password);
-
+  
       const resp = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
       });
-
+  
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Login failed (${resp.status}): ${text}`);
       }
-
+  
       const data = await resp.json();
       const token = data.access_token || data.token || "";
-
       if (!token) throw new Error("Login succeeded but no token was returned.");
-
+  
       loginWithToken(token);
-
-      navigate(returnTo, { replace: true });
-
-      // redirect back if you came from a protected route
-      const next = location.state?.from?.pathname || "/collection";
-      navigate(next);
+  
+      // ✅ ONE redirect target (priority: returnTo -> from -> /collection)
+      const next = routerLocation.state?.returnTo || "/collection";
+      navigate(next, { replace: true });
     } catch (err) {
       setError(err?.message || String(err));
     } finally {

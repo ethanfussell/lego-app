@@ -1,6 +1,6 @@
 // frontend/src/SetDetailPage.js
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import SetCard from "./SetCard";
 import AddToListMenu from "./AddToListMenu";
 import { getToken } from "./lib/api";
@@ -15,6 +15,13 @@ function getUsernameFromToken(token) {
   }
   // fallback: sometimes the token might literally be the username
   return token;
+}
+
+function toThemeSlug(themeName) {
+  // Keep consistent with ThemeDetailPage decoding behavior:
+  // ThemeDetailPage does decodeURIComponent(themeSlug) -> themeName.
+  // So we encode the theme name here.
+  return encodeURIComponent(String(themeName || "").trim());
 }
 
 function SetDetailPage({
@@ -695,7 +702,18 @@ function SetDetailPage({
             <strong>{setNum}</strong>
             {year && <> · {year}</>}
           </p>
-          {theme && <p style={{ margin: "0.25rem 0 0 0", color: "#777" }}>{theme}</p>}
+          {theme && (
+            <p style={{ margin: "0.25rem 0 0 0", color: "#777" }}>
+              <strong style={{ color: "#6b7280", fontWeight: 700 }}>Theme:</strong>{" "}
+              <Link
+                to={`/themes/${toThemeSlug(theme)}`}
+                style={{ color: "#2563eb", textDecoration: "none", fontWeight: 700 }}
+                title={`Browse more sets in ${theme}`}
+              >
+                {theme}
+              </Link>
+            </p>
+          )}
           {pieces && <p style={{ margin: "0.1rem 0 0 0", color: "#777" }}>{pieces} pieces</p>}
           {isRetired && (
             <p style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "#b45309" }}>⏳ This set is retired</p>
@@ -868,11 +886,17 @@ function SetDetailPage({
         )}
 
         <ul style={{ listStyle: "none", padding: 0, marginTop: "0.75rem", fontSize: "0.9rem", color: "#555" }}>
-          {theme && (
-            <li>
-              <strong>Theme:</strong> {theme}
-            </li>
-          )}
+        {theme && (
+          <li>
+            <strong>Theme:</strong>{" "}
+            <Link
+              to={`/themes/${toThemeSlug(theme)}`}
+              style={{ color: "#2563eb", textDecoration: "none", fontWeight: 700 }}
+            >
+              {theme}
+            </Link>
+          </li>
+        )}
           {year && (
             <li>
               <strong>Year:</strong> {year}

@@ -13,17 +13,19 @@ from ..core.set_nums import resolve_set_num
 from ..db import get_db
 from ..models import Review as ReviewModel
 from ..models import User as UserModel
-from ..schemas.review import Review, ReviewCreate
+from ..models import Set as SetModel
+from ..schemas.review import Review, ReviewCreate, MyReviewItem
 
 router = APIRouter()
 
 
-def _review_to_dict(r: ReviewModel, username: str) -> Dict[str, Any]:
+def _review_to_dict(r: ReviewModel, username: str, image_url: str | None) -> Dict[str, Any]:
     return {
         "id": int(r.id),
         "set_num": r.set_num,
         "user": username,
         "rating": float(r.rating) if r.rating is not None else None,
+        "image_url": image_url,
         "text": r.text,
         "created_at": r.created_at,
         "updated_at": getattr(r, "updated_at", None),
@@ -41,14 +43,15 @@ def list_reviews_for_set(
     canonical = resolve_set_num(db, set_num)
 
     rows = db.execute(
-        select(ReviewModel, UserModel.username)
+        select(ReviewModel, UserModel.username, SetModel.image_url)
         .join(UserModel, UserModel.id == ReviewModel.user_id)
+        .join(SetModel, SetModel.set_num == ReviewModel.set_num)
         .where(ReviewModel.set_num == canonical)
         .order_by(ReviewModel.created_at.desc())
         .limit(int(limit))
     ).all()
 
-    return [_review_to_dict(r, username) for (r, username) in rows]
+    return [_review_to_dict(r, username, image_url) for (r, username, image_url) in rows]
 
 
 @router.post("/{set_num}/reviews", response_model=Review)
@@ -59,6 +62,9 @@ def create_or_update_review(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     canonical = resolve_set_num(db, set_num)
+    image_url = db.execute(
+        select(SetModel.image_url).where(SetModel.set_num == canonical)
+    ).scalar_one_or_none()
 
     existing = db.execute(
         select(ReviewModel)
@@ -93,7 +99,7 @@ def create_or_update_review(
     db.add(new_row)
     db.commit()
     db.refresh(new_row)
-    return _review_to_dict(new_row, current_user.username)
+    return _review_to_dict(existing_or_new, current_user.username, image_url)
 
 
 @router.delete("/{set_num}/reviews/me", status_code=status.HTTP_204_NO_CONTENT)
@@ -126,3 +132,33 @@ def delete_my_review(
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.get("/reviews/me", response_model=List[MyReviewItem])
+def list_my_reviews(
+    limit: int = 200,
+    offset: int = 0,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    rows = db.execute(
+        select(ReviewModel, SetModel.name)
+        .join(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .where(ReviewModel.user_id == current_user.id)
+        .order_by(ReviewModel.created_at.desc())
+        .offset(int(offset))
+        .limit(int(limit))
+    ).all()
+
+    out: List[Dict[str, Any]] = []
+    for (r, set_name) in rows:
+        out.append(
+            {
+                "set_num": r.set_num,
+                "set_name": set_name,
+                "rating": float(r.rating) if r.rating is not None else None,
+                "text": r.text,
+                "created_at": r.created_at,
+                "updated_at": getattr(r, "updated_at", None),
+            }
+        )
+    return out

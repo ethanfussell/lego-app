@@ -1,6 +1,6 @@
 // frontend/src/MyListsSection.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "./auth";
 import { apiFetch } from "./lib/api";
 
@@ -28,51 +28,24 @@ function sortByPosition(lists) {
   return arr;
 }
 
-function SortableListCard({ list, disabled }) {
-  const id = String(list?.id);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-    disabled,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.7 : 1,
-    cursor: disabled ? "default" : "grab",
-  };
-
-  // Disable clicks inside while dragging
-  const innerStyle = { pointerEvents: "none" };
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <div style={innerStyle}>
-        <ListCard list={list} />
-      </div>
-    </div>
-  );
-}
-
-function ListCard({ list, onClick }) {
+function ListCardInner({ list }) {
   const title = list?.title || list?.name || "Untitled list";
   const count = Number(list?.items_count ?? 0);
   const isPublic = !!list?.is_public;
 
   return (
     <div
-      onClick={onClick}
       style={{
         border: "1px solid #e5e7eb",
         borderRadius: 12,
         background: "white",
         padding: 12,
         boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
-        cursor: onClick ? "pointer" : "default",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" }}>
         <div style={{ fontWeight: 750, color: "#111827", lineHeight: "1.15em" }}>{title}</div>
+
         <span
           style={{
             fontSize: 12,
@@ -93,26 +66,55 @@ function ListCard({ list, onClick }) {
       ) : null}
 
       <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 12.5, color: "#6b7280" }}>
-          {isPublic ? "Public" : "Private"}
-        </span>
-        {list?.is_system ? (
-          <span style={{ fontSize: 12.5, color: "#6b7280" }}>· System</span>
-        ) : null}
+        <span style={{ fontSize: 12.5, color: "#6b7280" }}>{isPublic ? "Public" : "Private"}</span>
+        {list?.is_system ? <span style={{ fontSize: 12.5, color: "#6b7280" }}>· System</span> : null}
       </div>
     </div>
   );
 }
 
-/**
- * MyListsSection
- * Props are flexible:
- * - lists: array of list objects
- * - onListsChange(nextLists): optional callback to sync parent state
- */
+function ListCardLink({ list }) {
+  const to = `/lists/${encodeURIComponent(list.id)}`;
+
+  return (
+    <Link
+      to={to}
+      style={{
+        textDecoration: "none",
+        color: "inherit",
+        display: "block",
+      }}
+    >
+      <ListCardInner list={list} />
+    </Link>
+  );
+}
+
+function SortableListCard({ list, disabled }) {
+  const id = String(list?.id);
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.7 : 1,
+    cursor: disabled ? "default" : "grab",
+  };
+
+  // In reorder mode: NOT a link (so dragging is clean)
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <ListCardInner list={list} />
+    </div>
+  );
+}
+
 export default function MyListsSection({ lists = [], onListsChange }) {
   const { token } = useAuth();
-  const navigate = useNavigate();
 
   const [items, setItems] = useState(() => sortByPosition(lists));
   const [activeId, setActiveId] = useState(null);
@@ -142,19 +144,20 @@ export default function MyListsSection({ lists = [], onListsChange }) {
   const canReorder = ids.length > 1;
 
   async function persistOrder(nextItems, prevItems) {
-    const listIds = nextItems.map((x) => x.id);
+    const orderedIds = nextItems
+      .map((x) => x?.id)
+      .filter((x) => x !== null && x !== undefined)
+      .map((x) => Number(x));
 
     setSaving(true);
     try {
-      // Most common payload shape:
       await apiFetch("/lists/me/order", {
         method: "PUT",
         token,
-        body: { list_ids: listIds },
+        body: { ordered_ids: orderedIds },
       });
 
-      // Update local "position" so future sorts stay stable even if parent refetch is slow
-      const withPos = nextItems.map((l, i) => ({ ...l, position: i + 1 }));
+      const withPos = nextItems.map((l, i) => ({ ...l, position: i }));
       setItems(withPos);
       lastGoodRef.current = withPos;
       onListsChange?.(withPos);
@@ -196,14 +199,23 @@ export default function MyListsSection({ lists = [], onListsChange }) {
 
   const gridStyle = {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 240px))",
     gap: 14,
     alignItems: "start",
+    justifyContent: "start",
   };
 
   return (
     <section style={{ marginTop: 18 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "baseline",
+          flexWrap: "wrap",
+        }}
+      >
         <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
           <h2 style={{ margin: 0 }}>My Lists</h2>
           <span style={{ color: "#6b7280", fontSize: 14 }}>{items.length} lists</span>
@@ -260,7 +272,7 @@ export default function MyListsSection({ lists = [], onListsChange }) {
           <DragOverlay>
             {activeItem ? (
               <div style={{ opacity: 0.95, pointerEvents: "none", width: 320 }}>
-                <ListCard list={activeItem} />
+                <ListCardInner list={activeItem} />
               </div>
             ) : null}
           </DragOverlay>
@@ -268,11 +280,7 @@ export default function MyListsSection({ lists = [], onListsChange }) {
       ) : (
         <div style={gridStyle}>
           {items.map((list) => (
-            <ListCard
-              key={list.id}
-              list={list}
-              onClick={() => navigate(`/lists/${encodeURIComponent(list.id)}`)}
-            />
+            <ListCardLink key={list.id} list={list} />
           ))}
         </div>
       )}

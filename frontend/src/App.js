@@ -20,6 +20,14 @@ import CollectionsPage from "./CollectionsPage";
 import OwnedPage from "./OwnedPage";
 import WishlistPage from "./WishlistPage";
 import ProfileMenu from "./ProfileMenu";
+import DiscoverPage from "./DiscoverPage";
+import PublicListsPage from "./PublicListsPage";
+import AccountPage from "./AccountPage";
+import MyReviewsPage from "./MyReviewsPage";
+import SavedListsPage from "./SavedListsPage";
+import MyListsPage from "./MyListsPage";
+import NotFoundPage from "./NotFoundPage";
+import SearchPage from "./SearchPage";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
@@ -546,7 +554,7 @@ function App() {
   }
 
   /* -------------------------------
-     Public lists (Explore)
+     Public lists (Discover)
   --------------------------------*/
   useEffect(() => {
     let cancelled = false;
@@ -917,6 +925,11 @@ function App() {
       {/* ========================== TOP NAV ========================== */}
       <nav
         style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          background: "white",
+
           display: "flex",
           alignItems: "center",
           padding: "1rem",
@@ -930,32 +943,32 @@ function App() {
           <NavLink to="/" style={getNavLinkStyle} end onClick={() => setPage("home")}>
             Home
           </NavLink>
-
-          <NavLink to="/explore" style={getNavLinkStyle} onClick={() => setPage("public")}>
-            Explore
+  
+          <NavLink to="/discover" style={getNavLinkStyle} onClick={() => setPage("public")}>
+            Discover
           </NavLink>
-
+  
           <NavLink to="/themes" style={getNavLinkStyle}>
             Themes
           </NavLink>
-
+  
           <NavLink to="/new" style={getNavLinkStyle}>
             New
           </NavLink>
-
+  
           <NavLink to="/sale" style={getNavLinkStyle}>
             Sale
           </NavLink>
-
+  
           <NavLink to="/retiring-soon" style={getNavLinkStyle}>
             Retiring soon
           </NavLink>
-
+  
           <NavLink to="/collection" style={getNavLinkStyle} onClick={() => setPage("collection")}>
-            Collection
+            My Collection
           </NavLink>
         </div>
-
+  
         {/* RIGHT: search + auth */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
           {/* Search bar */}
@@ -973,7 +986,7 @@ function App() {
                 width: "220px",
               }}
             />
-
+  
             {showSuggestions && (suggestions.length > 0 || searchText.trim() !== "") && (
               <ul
                 style={{
@@ -997,13 +1010,13 @@ function App() {
                     Searching…
                   </li>
                 )}
-
+  
                 {suggestionsError && (
                   <li style={{ padding: "0.45rem 0.75rem", fontSize: "0.8rem", color: "red" }}>
                     Error: {suggestionsError}
                   </li>
                 )}
-
+  
                 {!suggestionsLoading && !suggestionsError && suggestions.length > 0 && (
                   <>
                     <li
@@ -1018,7 +1031,7 @@ function App() {
                     >
                       Sets
                     </li>
-
+  
                     {suggestions.map((s) => (
                       <li
                         key={s.set_num}
@@ -1037,7 +1050,7 @@ function App() {
                     ))}
                   </>
                 )}
-
+  
                 {!suggestionsLoading && searchText.trim() !== "" && !suggestionsError && (
                   <li
                     onMouseDown={handleSearchAllClick}
@@ -1055,12 +1068,9 @@ function App() {
               </ul>
             )}
           </form>
-
+  
           {!token ? (
-            <Link
-              to="/login"
-              style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none" }}
-            >
+            <Link to="/login" style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none" }}>
               🔐 Login
             </Link>
           ) : (
@@ -1068,409 +1078,210 @@ function App() {
           )}
         </div>
       </nav>
-
-      {/* ========================== MAIN CONTENT ========================== */}
+  
+      {/* ========================== ROUTES ========================== */}
       <div style={{ padding: "1.5rem" }}>
         <Routes>
-          <Route
-            path="/"
-            element={
-              <HomePage
+        {/* Home */}
+        <Route
+          path="/"
+          element={
+            <HomePage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+
+        {/* Feeds */}
+        <Route
+          path="/new"
+          element={
+            <NewSetsPage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+
+        <Route
+          path="/sale"
+          element={
+            <FeedPage
+              title="On sale (placeholder)"
+              description="For now this shows a curated slice of highly-rated sets. Later, this will filter by real discounts and affiliate data."
+              queryParams={{ q: "lego", sort: "rating", order: "desc", page: 1, limit: 50 }}
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+              variant="sale"
+            />
+          }
+        />
+
+        <Route
+          path="/retiring-soon"
+          element={
+            <FeedPage
+              title="Retiring soon"
+              description="Right now this approximates older sets. Later, we'll plug in real retiring flags."
+              queryParams={{ q: "lego", sort: "year", order: "asc", page: 1, limit: 50 }}
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+
+        {/* Themes */}
+        <Route path="/themes" element={<ThemesPage />} />
+        <Route
+          path="/themes/:themeSlug"
+          element={
+            <ThemeDetailPage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+
+        {/* Discover */}
+        <Route path="/discover" element={<DiscoverPage />} />
+        <Route path="/discover/lists" element={<PublicListsPage />} />
+
+        {/* Account / Login */}
+        <Route path="/account" element={<AccountPage />} />
+        <Route path="/login" element={<AccountPage />} />
+        <Route path="/account/reviews" element={<MyReviewsPage />} />
+
+        {/* ✅ Lists pages (protected) */}
+        <Route
+          path="/account/lists"
+          element={
+            <RequireAuth>
+              <MyListsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/account/saved-lists"
+          element={
+            <RequireAuth>
+              <SavedListsPage />
+            </RequireAuth>
+          }
+        />
+
+        {/* Search (keep your existing full search route if you had it) */}
+        <Route
+          path="/search"
+          element={
+            <SearchPage
+              searchQuery={searchQuery}
+              searchResults={searchResults}
+              searchLoading={searchLoading}
+              searchError={searchError}
+              searchSort={searchSort}
+              onChangeSort={(s) => setSearchSort(s)}
+              searchPage={searchPage}
+              totalPages={totalPages}
+              searchTotal={searchTotal}
+              onRunSearch={runSearch}
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+        {/* Collection (protected) */}
+        <Route
+          path="/collection"
+          element={
+            <RequireAuth>
+              <CollectionsPage
+                ownedSets={owned}
+                wishlistSets={wishlist}
+                onMarkOwned={handleMarkOwned}
+                onAddWishlist={handleAddWishlist}
+              />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/collection/owned"
+          element={
+            <RequireAuth>
+              <OwnedPage
+                ownedSets={owned}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
               />
-            }
-          />
+            </RequireAuth>
+          }
+        />
 
-          <Route
-            path="/new"
-            element={
-              <NewSetsPage
+        <Route
+          path="/collection/wishlist"
+          element={
+            <RequireAuth>
+              <WishlistPage
+                wishlistSets={wishlist}
                 ownedSetNums={ownedSetNums}
                 wishlistSetNums={wishlistSetNums}
                 onMarkOwned={handleMarkOwned}
                 onAddWishlist={handleAddWishlist}
               />
-            }
-          />
+            </RequireAuth>
+          }
+        />
 
-          <Route
-            path="/sale"
-            element={
-              <FeedPage
-                title="On sale (placeholder)"
-                description="For now this shows a curated slice of highly-rated sets. Later, this will filter by real discounts and affiliate data."
-                queryParams={{ q: "lego", sort: "rating", order: "desc", page: 1, limit: 50 }}
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-                variant="sale"
-              />
-            }
-          />
+        {/* List detail */}
+        <Route
+          path="/lists/:listId"
+          element={
+            <ListDetailPage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
 
-          <Route
-            path="/retiring-soon"
-            element={
-              <FeedPage
-                title="Retiring soon"
-                description="Right now this approximates older sets. Later, we'll plug in real retiring flags."
-                queryParams={{ q: "lego", sort: "year", order: "asc", page: 1, limit: 50 }}
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
-            }
-          />
+        {/* Set detail */}
+        <Route
+          path="/sets/:setNum"
+          element={
+            <SetDetailPage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+              onRemoveWishlist={onRemoveWishlist}
+              onEnsureOwned={ensureOwned}
+              myLists={myLists}
+            />
+          }
+        />
 
-          <Route path="/themes" element={<ThemesPage />} />
-
-          <Route
-            path="/themes/:themeSlug"
-            element={
-              <ThemeDetailPage
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-              />
-            }
-          />
-
-          <Route
-            path="/explore"
-            element={
-              <>
-                <h1>Explore public lists</h1>
-                <p style={{ color: "#666" }}>
-                  Browse lists created by other LEGO fans (GET <code>/lists/public</code>).
-                </p>
-
-                {publicLoading && <p>Loading public lists…</p>}
-                {publicError && <p style={{ color: "red" }}>Error: {publicError}</p>}
-
-                {!publicLoading && !publicError && lists.length === 0 && (
-                  <p>No public lists yet. Create one from your account page.</p>
-                )}
-
-                {!publicLoading && !publicError && lists.length > 0 && (
-                  <ul style={{ listStyle: "none", padding: 0 }}>
-                    {lists.map((list) => (
-                      <li
-                        key={list.id}
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: "8px",
-                          padding: "1rem",
-                          marginBottom: "1rem",
-                        }}
-                      >
-                        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>
-                          <Link to={`/lists/${list.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-                            {list.title}
-                          </Link>
-                        </h2>
-                        <p>
-                          Owner: <strong>{list.owner}</strong>
-                        </p>
-                        <p>
-                          Sets in list: <strong>{list.items_count}</strong>
-                        </p>
-                        <p>
-                          Visibility: <strong>{list.is_public ? "Public" : "Private"}</strong>
-                        </p>
-                        {list.description && <p>{list.description}</p>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            }
-          />
-
-          <Route
-            path="/search"
-            element={
-              <div>
-                <h1>Search Results</h1>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    margin: "0.5rem 0 1rem 0",
-                    gap: "1rem",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <p style={{ color: "#666", margin: 0 }}>
-                      Showing results for: <strong>{searchQuery}</strong>
-                    </p>
-
-                    <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.9rem", color: "#666" }}>
-                      Showing <strong>{searchTotal === 0 ? 0 : (searchPage - 1) * searchLimit + 1}</strong> –{" "}
-                      <strong>{searchTotal === 0 ? 0 : Math.min(searchPage * searchLimit, searchTotal)}</strong> of{" "}
-                      <strong>{searchTotal}</strong> results
-                    </p>
-                  </div>
-
-                  <div>
-                    <label>
-                      Sort by{" "}
-                      <select value={searchSort} onChange={handleSearchSortChange} style={{ padding: "0.25rem 0.5rem" }}>
-                        <option value="relevance">Best match</option>
-                        <option value="rating">Rating</option>
-                        <option value="year">Year</option>
-                        <option value="pieces">Pieces</option>
-                        <option value="name">Name (A–Z)</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
-
-                {searchLoading && <p>Searching…</p>}
-                {searchError && <p style={{ color: "red" }}>Error: {searchError}</p>}
-
-                {!searchLoading && !searchError && searchResults.length === 0 && <p>No sets found.</p>}
-
-                {!searchLoading && !searchError && searchResults.length > 0 && (
-                  <div>
-                    <ul
-                      style={{
-                        listStyle: "none",
-                        padding: 0,
-                        margin: 0,
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                        columnGap: "1rem",
-                        rowGap: "1.75rem",
-                      }}
-                    >
-                      {searchResults.map((set) => {
-                        const full = set?.set_num || "";
-                        const plain = toPlainSetNum(full);
-                        const key = full || `${set?.name || "set"}-${plain}`;
-
-                        return (
-                          <li key={key} style={{ width: "240px", maxWidth: "240px" }}>
-                            <SetCard
-                              set={set}
-                              isOwned={hasSetNum(ownedSetNums, full)}
-                              isInWishlist={hasSetNum(wishlistSetNums, full)}
-                              onMarkOwned={handleMarkOwned}
-                              onAddWishlist={handleAddWishlist}
-                              variant="default"
-                            />
-                          </li>
-                        );
-                      })}
-                    </ul>
-
-                    <Pagination
-                      currentPage={searchPage}
-                      totalPages={totalPages}
-                      totalItems={searchTotal}
-                      pageSize={searchLimit}
-                      disabled={searchLoading}
-                      onPageChange={(p) => runSearch(searchQuery, searchSort, p)}
-                    />
-                  </div>
-                )}
-              </div>
-            }
-          />
-
-          <Route
-            path="/collection"
-            element={
-              <RequireAuth>
-                <CollectionsPage
-                  ownedSets={owned}
-                  wishlistSets={wishlist}
-                  onMarkOwned={handleMarkOwned}
-                  onAddWishlist={handleAddWishlist}
-                />
-              </RequireAuth>
-            }
-          />
-
-          <Route
-            path="/collection/owned"
-            element={
-              <RequireAuth>
-                <OwnedPage
-                  ownedSets={owned}
-                  ownedSetNums={ownedSetNums}
-                  wishlistSetNums={wishlistSetNums}
-                  onMarkOwned={handleMarkOwned}
-                  onAddWishlist={handleAddWishlist}
-                />
-              </RequireAuth>
-            }
-          />
-
-          <Route
-            path="/collection/wishlist"
-            element={
-              <RequireAuth>
-                <WishlistPage
-                  wishlistSets={wishlist}
-                  ownedSetNums={ownedSetNums}
-                  wishlistSetNums={wishlistSetNums}
-                  onMarkOwned={handleMarkOwned}
-                  onAddWishlist={handleAddWishlist}
-                />
-              </RequireAuth>
-            }
-          />
-
-          <Route
-            path="/lists/:listId"
-            element={
-              <RequireAuth>
-                <ListDetailPage
-                  ownedSetNums={ownedSetNums}
-                  wishlistSetNums={wishlistSetNums}
-                  onMarkOwned={handleMarkOwned}
-                  onAddWishlist={handleAddWishlist}
-                />
-              </RequireAuth>
-            }
-          />
-
-          <Route
-            path="/login"
-            element={
-              <div>
-                <h1>Account</h1>
-
-                {!token && (
-                  <>
-                    <p style={{ color: "#666" }}>Log in with your fake user (ethan / lego123).</p>
-                    <Login />
-                  </>
-                )}
-
-                {token && (
-                  <div style={{ marginTop: "1.5rem" }}>
-                    <p style={{ color: "#666", marginTop: 0 }}>
-                      Owned: <strong>{owned.length}</strong> · Wishlist: <strong>{wishlist.length}</strong> · Custom lists:{" "}
-                      <strong>{myLists.length}</strong>
-                    </p>
-
-                    {collectionsLoading && <p>Loading collections…</p>}
-                    {collectionsError && <p style={{ color: "red" }}>Error: {collectionsError}</p>}
-                    {myListsError && <p style={{ color: "red" }}>Lists error: {myListsError}</p>}
-
-                    {showCreateForm && (
-                      <form onSubmit={handleCreateList} style={{ marginTop: 12, maxWidth: 520 }}>
-                        <div style={{ display: "grid", gap: 10 }}>
-                          <label style={{ display: "grid", gap: 6 }}>
-                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Title</span>
-                            <input
-                              value={newListTitle}
-                              onChange={(e) => setNewListTitle(e.target.value)}
-                              style={{
-                                padding: "0.55rem 0.65rem",
-                                borderRadius: 10,
-                                border: "1px solid #d1d5db",
-                              }}
-                            />
-                          </label>
-
-                          <label style={{ display: "grid", gap: 6 }}>
-                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Description (optional)</span>
-                            <input
-                              value={newListDescription}
-                              onChange={(e) => setNewListDescription(e.target.value)}
-                              style={{
-                                padding: "0.55rem 0.65rem",
-                                borderRadius: 10,
-                                border: "1px solid #d1d5db",
-                              }}
-                            />
-                          </label>
-
-                          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                            <input
-                              type="checkbox"
-                              checked={newListIsPublic}
-                              onChange={(e) => setNewListIsPublic(e.target.checked)}
-                            />
-                            <span style={{ fontSize: "0.9rem", color: "#333" }}>Public (shows up in Explore)</span>
-                          </label>
-
-                          {createError && <div style={{ color: "red" }}>{createError}</div>}
-
-                          <button
-                            type="submit"
-                            disabled={createLoading}
-                            style={{
-                              padding: "0.5rem 0.9rem",
-                              borderRadius: "999px",
-                              border: "none",
-                              background: createLoading ? "#888" : "#111827",
-                              color: "white",
-                              cursor: createLoading ? "not-allowed" : "pointer",
-                              fontWeight: 700,
-                              width: "fit-content",
-                            }}
-                          >
-                            {createLoading ? "Creating…" : "Create list"}
-                          </button>
-                        </div>
-                      </form>
-                    )}
-
-                    {!showCreateForm && (
-                      <button
-                        type="button"
-                        onClick={() => setShowCreateForm(true)}
-                        style={{
-                          marginTop: 12,
-                          padding: "0.45rem 0.9rem",
-                          borderRadius: "999px",
-                          border: "1px solid #ddd",
-                          background: "white",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                        }}
-                      >
-                        ➕ Create list
-                      </button>
-                    )}
-
-                    {myListsLoading && <p style={{ marginTop: 10 }}>Loading your lists…</p>}
-                  </div>
-                )}
-              </div>
-            }
-          />
-
-          <Route
-            path="/sets/:setNum"
-            element={
-              <SetDetailPage
-                ownedSetNums={ownedSetNums}
-                wishlistSetNums={wishlistSetNums}
-                onMarkOwned={handleMarkOwned}
-                onAddWishlist={handleAddWishlist}
-                onRemoveWishlist={onRemoveWishlist}
-                onEnsureOwned={ensureOwned}
-                myLists={myLists}
-              />
-            }
-          />
-        </Routes>
-      </div>
-    </div>
-  );
-}
+        {/* Not found */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+            </div>
+          </div>
+        );
+      }
 
 export default App;

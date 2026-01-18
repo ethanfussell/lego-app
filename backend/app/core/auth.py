@@ -1,7 +1,7 @@
 # backend/app/core/auth.py
 from __future__ import annotations
-import bcrypt
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict
@@ -64,35 +64,44 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ) -> Token:
-    username = (form_data.username or "").strip()
+    username_raw = (form_data.username or "").strip()
     password = form_data.password or ""
 
-    if not username:
+    if not username_raw:
         raise HTTPException(status_code=400, detail="Missing username")
 
-    db_user = _get_user_by_username(db, username)
-    if db_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"User '{username}' not found in DB. Seed/create it first.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    username_key = username_raw.lower()  # ✅ normalize for FAKE_USERS_DB
+    expected = FAKE_USERS_DB.get(username_key)
 
-    expected = FAKE_USERS_DB.get(username)
-
-    # 1) dev-only fake users (ethan)
+    # 1) Dev-only fake users (ethan) — auto-create in DB if missing
     if expected is not None:
         if password != expected["password"]:
             raise HTTPException(status_code=400, detail="Incorrect username or password")
-        return Token(access_token=create_access_token(username))
 
-    # 2) real DB-backed password_hash (bob/alice)
+        db_user = _get_user_by_username(db, username_key)
+        if db_user is None:
+            db_user = UserModel(username=username_key, password_hash="")
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+
+        return Token(access_token=create_access_token(username_key))
+
+    # 2) Real DB-backed users must exist
+    db_user = _get_user_by_username(db, username_raw)
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"User '{username_raw}' not found in DB. Seed/create it first.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     stored = (db_user.password_hash or "").encode("utf-8")
     ok = bcrypt.checkpw(password.encode("utf-8"), stored)
     if not ok:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
 
-    return Token(access_token=create_access_token(username))
+    return Token(access_token=create_access_token(db_user.username))
 
 
 async def get_current_user(
@@ -116,7 +125,7 @@ async def get_current_user_optional(
     token: str | None = Depends(oauth2_scheme_optional),
     db: Session = Depends(get_db),
 ) -> UserModel | None:
-    # ✅ NEVER raise here. This is for “optional auth” routes.
+    # NEVER raise here. This is for “optional auth” routes.
     if not token:
         return None
 

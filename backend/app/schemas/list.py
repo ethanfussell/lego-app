@@ -1,3 +1,4 @@
+# backend/app/schemas/list.py
 from datetime import datetime
 from typing import List, Optional
 
@@ -38,8 +39,17 @@ class ListSummary(BaseModel):
     updated_at: datetime
 
 
+class ListItemOut(BaseModel):
+    """
+    Returned inside ListDetail.items
+    """
+    set_num: str
+    added_at: Optional[datetime] = None
+    position: Optional[int] = None
+
+
 class ListDetail(ListSummary):
-    items: List[str] = Field(default_factory=list)
+    items: List[ListItemOut] = Field(default_factory=list)
 
 
 class ListUpdate(BaseModel):

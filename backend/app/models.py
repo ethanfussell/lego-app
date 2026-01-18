@@ -24,11 +24,15 @@ from .db import Base
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(BigInteger, primary_key=True)
-    username = Column(String, unique=True, nullable=False, index=True)
-    password_hash = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # IMPORTANT for SQLite auto-increment:
+    id = Column(Integer, primary_key=True, autoincrement=True)
 
+    username = Column(String, unique=True, nullable=False, index=True)
+
+    # tests create users with password_hash=None, and your fake login doesn’t need it
+    password_hash = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     reviews = relationship(
         "Review",
@@ -68,8 +72,8 @@ class Set(Base):
 class Review(Base):
     __tablename__ = "reviews"
 
-    id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     set_num = Column(String, ForeignKey("sets.set_num", ondelete="CASCADE"), nullable=False, index=True)
 
     rating = Column(Numeric(2, 1), nullable=True)
@@ -91,8 +95,8 @@ class Review(Base):
 class List(Base):
     __tablename__ = "lists"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    owner_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -123,7 +127,7 @@ class List(Base):
 class ListItem(Base):
     __tablename__ = "list_items"
 
-    list_id = Column(BigInteger, ForeignKey("lists.id", ondelete="CASCADE"), primary_key=True)
+    list_id = Column(Integer, ForeignKey("lists.id", ondelete="CASCADE"), primary_key=True)
     set_num = Column(String, ForeignKey("sets.set_num", ondelete="CASCADE"), primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     position = Column(Integer, nullable=True)

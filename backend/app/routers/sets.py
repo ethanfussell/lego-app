@@ -17,6 +17,7 @@ from ..data.offers import get_offers_for_set
 from ..data import reviews as reviews_data
 from ..db import get_db
 from ..models import Review as ReviewModel
+from ..models import Set as SetModel
 from ..schemas.pricing import StoreOffer
 
 router = APIRouter()
@@ -493,6 +494,48 @@ def bulk_get_sets(
     r["rating_count"] = cnt
     r["user_rating"] = user_rating
     out.append(r)
+
+  return out
+
+@router.get("/reviews/me")
+def list_my_reviews(
+  limit: int = Query(200, ge=1, le=500),
+  db: Session = Depends(get_db),
+  authorization: Optional[str] = Header(default=None, alias="Authorization"),
+):
+  # auth -> username (matches your existing helper)
+  if not authorization:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+  username = get_current_user(authorization).username
+
+  rows = db.execute(
+    select(ReviewModel, SetModel)
+    .join(SetModel, SetModel.set_num == ReviewModel.set_num)
+    .where(ReviewModel.user.has(username=username))
+    .order_by(func.coalesce(ReviewModel.updated_at, ReviewModel.created_at).desc())
+    .limit(int(limit))
+  ).all()
+
+  out: List[Dict[str, Any]] = []
+  for (rev, s) in rows:
+    # robust fallback (optional): if DB image_url is null, try cache
+    img = s.image_url
+    if not img:
+      cached = get_set_by_num(rev.set_num)
+      img = (cached or {}).get("image_url")
+
+    out.append(
+      {
+        "set_num": rev.set_num,
+        "set_name": s.name,
+        "image_url": img,  # ✅ IMPORTANT
+        "rating": float(rev.rating) if rev.rating is not None else None,
+        "text": rev.text,
+        "created_at": rev.created_at,
+        "updated_at": getattr(rev, "updated_at", None),
+      }
+    )
 
   return out
 

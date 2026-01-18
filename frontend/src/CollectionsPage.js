@@ -1,6 +1,6 @@
 // frontend/src/CollectionsPage.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useToast } from "./Toast";
 import SetCard from "./SetCard";
 import { apiFetch } from "./lib/api";
@@ -396,9 +396,16 @@ export default function CollectionsPage({ ownedSets, wishlistSets }) {
         const entries = await Promise.all(
           myLists.map(async (l) => {
             const detail = await fetchListDetail(l.id, token);
-            const items = Array.isArray(detail?.items) ? detail.items : [];
-            const first = items.slice(0, PREVIEW_COUNT);
-            const sets = await fetchSetsBulk(first, token);
+
+            const raw = Array.isArray(detail?.items) ? detail.items : [];
+
+            // ✅ normalize items to set_num strings
+            const setNums = raw
+              .map((x) => (typeof x === "string" ? x : x?.set_num || x?.setNum))
+              .filter(Boolean)
+              .slice(0, PREVIEW_COUNT);
+
+            const sets = await fetchSetsBulk(setNums, token);
             return [l.id, sets];
           })
         );
@@ -696,6 +703,7 @@ export default function CollectionsPage({ ownedSets, wishlistSets }) {
           sets={ownedDetails}
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/owned")}
+          viewHref="/collection/owned"
           emptyText="No owned sets yet."
           rightActions={desktopReorderButtons}
           cardProps={{ collectionFooter: "rating", token }}
@@ -713,6 +721,7 @@ export default function CollectionsPage({ ownedSets, wishlistSets }) {
           sets={wishlistDetails}
           viewAllLabel="View all"
           onViewAll={() => navigate("/collection/wishlist")}
+          viewHref="/collection/wishlist"
           emptyText="No wishlist sets yet."
           rightActions={desktopReorderButtons}
           cardProps={{ collectionFooter: "shop", token }}
@@ -754,7 +763,7 @@ export default function CollectionsPage({ ownedSets, wishlistSets }) {
           totalCount={count}
           sets={sets}
           viewAllLabel="View all"
-          onViewAll={() => navigate(`/lists/${l.id}`)}
+          viewHref={`/lists/${encodeURIComponent(l.id)}`}
           emptyText="No sets in this list yet."
           rightActions={actions}
           cardProps={{ token }}
@@ -982,6 +991,7 @@ function CollectionRow({
   sets,
   viewAllLabel,
   onViewAll,
+  viewHref,
   emptyText,
   rightActions,
   cardProps = {},
@@ -1037,7 +1047,15 @@ function CollectionRow({
         }}
       >
         <div>
+        {viewHref ? (
+          <Link to={viewHref} style={{ textDecoration: "none", color: "inherit" }}>
+            <h2 style={{ margin: 0, fontSize: "1.05rem", cursor: "pointer" }}>
+              {title}
+            </h2>
+          </Link>
+        ) : (
           <h2 style={{ margin: 0, fontSize: "1.05rem" }}>{title}</h2>
+        )}
           <p style={{ margin: "0.2rem 0 0 0", color: "#777", fontSize: "0.9rem" }}>
             {visibility ? `${visibility} • ` : ""}
             {totalCount === 1 ? "1 set" : `${totalCount} sets`}
@@ -1046,22 +1064,41 @@ function CollectionRow({
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           {rightActions}
-          <button
-            type="button"
-            onClick={onViewAll}
-            disabled={!onViewAll}
-            style={{
-              padding: "0.35rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-              background: "white",
-              fontSize: "0.85rem",
-              cursor: onViewAll ? "pointer" : "not-allowed",
-              opacity: onViewAll ? 1 : 0.6,
-            }}
-          >
-            {viewAllLabel}
-          </button>
+          {viewHref ? (
+            <Link
+              to={viewHref}
+              style={{
+                padding: "0.35rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid #ddd",
+                background: "white",
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                textDecoration: "none",
+                color: "inherit",
+                display: "inline-block",
+              }}
+            >
+              {viewAllLabel}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={onViewAll}
+              disabled={!onViewAll}
+              style={{
+                padding: "0.35rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid #ddd",
+                background: "white",
+                fontSize: "0.85rem",
+                cursor: onViewAll ? "pointer" : "not-allowed",
+                opacity: onViewAll ? 1 : 0.6,
+              }}
+            >
+              {viewAllLabel}
+            </button>
+          )}
         </div>
       </div>
 

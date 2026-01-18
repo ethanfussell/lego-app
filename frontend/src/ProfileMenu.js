@@ -1,6 +1,6 @@
 // frontend/src/ProfileMenu.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link, NavLink } from "react-router-dom";
 
 function useIsMobile(breakpointPx = 640) {
   const [isMobile, setIsMobile] = useState(() => {
@@ -139,7 +139,7 @@ export default function ProfileMenu({ me, onLogout }) {
             zIndex: 50,
           }}
         >
-          <MenuButton label="Account" onClick={() => closeThen(() => alert("Account page coming soon."))} />
+          <MenuButton label="Account" onClick={() => closeThen(() => navigate("/account"))} />
           <MenuButton label="My Collection" onClick={() => closeThen(() => navigate("/collection"))} />
           <MenuButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
           <Divider />
@@ -225,7 +225,7 @@ export default function ProfileMenu({ me, onLogout }) {
 
             <div style={{ borderTop: "1px solid #eee", marginTop: "0.25rem" }} />
 
-            <SheetButton label="Account" onClick={() => closeThen(() => alert("Account page coming soon."))} />
+            <SheetButton label="Account" onClick={() => closeThen(() => navigate("/account"))} />
             <SheetButton label="My Collection" onClick={() => closeThen(() => navigate("/collection"))} />
             <SheetButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
 

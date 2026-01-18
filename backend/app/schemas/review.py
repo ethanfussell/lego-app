@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 
 
 class Review(BaseModel):
@@ -18,7 +18,7 @@ class Review(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     likes_count: int = 0
-    liked_by: List[str] = []
+    liked_by: List[str] = Field(default_factory=list)
 
 
 class ActorPayload(BaseModel):
@@ -51,3 +51,32 @@ class ReviewCreate(BaseModel):
             raise ValueError("Rating must be in increments of 0.5")
 
         return value
+    
+class RecentReview(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    set_num: str
+    set_name: Optional[str] = None
+    rating: Optional[float] = None
+    text: Optional[str] = None
+    created_at: datetime
+
+
+class ReviewStats(BaseModel):
+    total_reviews: int
+    rated_reviews: int
+    avg_rating: Optional[float] = None
+    rating_histogram: Dict[str, int] = Field(default_factory=dict)
+    recent: List[RecentReview] = Field(default_factory=list)
+
+class MyReviewItem(BaseModel):
+    set_num: str
+    set_name: str
+    image_url: Optional[str] = None
+    
+    rating: Optional[float] = None
+    text: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+ReviewStats.model_rebuild()

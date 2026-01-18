@@ -15,7 +15,6 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
   const [transform, setTransform] = useState("");
   const lastSrcRef = useRef(null);
 
-  // derive boxRatio from aspect string like "16 / 10"
   const boxRatio = (() => {
     const parts = String(aspect).split("/").map((x) => Number(x.trim()));
     const a = parts?.[0] || 16;
@@ -37,14 +36,12 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
     const h = img.naturalHeight || 1;
     const imgRatio = w / h;
 
-    // only cover when ratio is very close (so crop is tiny)
     const ratioDiff = Math.abs(imgRatio - boxRatio) / boxRatio;
-    const shouldCover = ratioDiff < 0.08; // tighten/loosen: 0.06–0.12
+    const shouldCover = ratioDiff < 0.08;
 
     setFit(shouldCover ? "cover" : "contain");
     setTransform("");
 
-    // --- Conservative whitespace zoom (ONLY when contain) ---
     if (shouldCover) return;
 
     try {
@@ -74,8 +71,6 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
             b = data[i + 2],
             a = data[i + 3];
           if (a < 20) continue;
-
-          // treat near-white as background
           if (r > 245 && g > 245 && b > 245) continue;
 
           if (x < minX) minX = x;
@@ -85,19 +80,14 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
         }
       }
 
-      // nothing detected
       if (maxX < 0 || maxY < 0) return;
 
       const bw = (maxX - minX + 1) / S;
       const bh = (maxY - minY + 1) / S;
 
-      // only zoom if lots of whitespace
       if (bw >= 0.78 && bh >= 0.78) return;
 
-      // safe zoom range so we don't "feel like cropping"
       const s = Math.min(1.22, Math.max(1.0, 1 / Math.min(bw, bh)));
-
-      // keep centered to avoid weird pans
       setTransform(`scale(${s})`);
     } catch {
       // ignore
@@ -113,7 +103,7 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
           borderRadius: 10,
           border: "1px solid #e5e7eb",
           overflow: "hidden",
-          background: "white",
+          background: "white", // ✅ white bars if contain
           position: "relative",
         }}
       >
@@ -129,6 +119,7 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
               objectFit: fit,
               objectPosition: "center",
               display: "block",
+              background: "white", // ✅ if image has transparency or gaps
               transform: transform || undefined,
               transformOrigin: "center",
               willChange: transform ? "transform" : undefined,
@@ -153,6 +144,12 @@ function SmartThumb({ src, alt, aspect = "16 / 10" }) {
   );
 }
 
+function money(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return null;
+  return `$${x.toFixed(2)}`;
+}
+
 export default function SetCard({
   set,
   token,
@@ -169,6 +166,8 @@ export default function SetCard({
 }) {
   const navigate = useNavigate();
   if (!set) return null;
+  
+  window.__lastSetCardSet = set;
 
   const {
     set_num,
@@ -179,19 +178,22 @@ export default function SetCard({
     image_url,
     average_rating,
     rating_count,
+
     price_from,
     retail_price,
+    sale_price, // ✅ new
+
     user_rating,
   } = set;
 
   const isCarouselActions = actionsLayout === "carousel";
 
-  const priceFrom =
-    typeof price_from === "number"
-      ? price_from
-      : typeof retail_price === "number"
-      ? retail_price
-      : null;
+  const retail = typeof retail_price === "number" ? retail_price : null;
+  const sale = typeof sale_price === "number" ? sale_price : null;
+  const from =
+    typeof price_from === "number" ? price_from : typeof retail_price === "number" ? retail_price : null;
+
+  const hasSale = sale !== null && retail !== null && sale < retail;
 
   const displayAvg = typeof average_rating === "number" ? average_rating : null;
   const displayCount = typeof rating_count === "number" ? rating_count : null;
@@ -270,14 +272,7 @@ export default function SetCard({
     >
       <SmartThumb src={image_url} alt={name || set_num} aspect="16 / 10" />
 
-      <div
-        style={{
-          padding: "8px 10px 10px",
-          display: "flex",
-          flexDirection: "column",
-          flex: "1 1 auto",
-        }}
-      >
+      <div style={{ padding: "8px 10px 10px", display: "flex", flexDirection: "column", flex: "1 1 auto" }}>
         <div style={{ marginBottom: 6 }}>
           <div
             style={{
@@ -304,34 +299,51 @@ export default function SetCard({
         {(theme || piecesLabel) && (
           <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 6 }}>
             {theme && (
-              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {theme}
-              </div>
+              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{theme}</div>
             )}
             {piecesLabel && <div>{piecesLabel}</div>}
           </div>
         )}
 
         {(displayAvg !== null || displayCount !== null) && (
-          <div
-            style={{
-              fontSize: 12.5,
-              color: "#4b5563",
-              marginBottom: 6,
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-            }}
-          >
+          <div style={{ fontSize: 12.5, color: "#4b5563", marginBottom: 6, display: "flex", gap: 6, alignItems: "center" }}>
             <span>⭐</span>
             <span>{displayAvg !== null ? displayAvg.toFixed(1) : "—"}</span>
             {displayCount !== null && <span style={{ color: "#9ca3af" }}>({displayCount})</span>}
           </div>
         )}
 
-        {priceFrom !== null && (
-          <div style={{ fontSize: 13, fontWeight: 750, color: "#111827", marginBottom: 6 }}>
-            From ${priceFrom.toFixed(2)}
+        {/* ✅ Option B pricing */}
+        {(hasSale || from !== null || retail !== null) && (
+          <div style={{ marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontSize: 12.5, color: "#6b7280", fontWeight: 800 }}>Price</div>
+
+            {hasSale ? (
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 950, color: "#111827" }}>{money(sale)}</div>
+                <div style={{ fontSize: 12.5, color: "#9ca3af", textDecoration: "line-through", fontWeight: 800 }}>
+                  {money(retail)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 900,
+                    color: "#111827",
+                    border: "1px solid #e5e7eb",
+                    background: "#f9fafb",
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Save {money(retail - sale)}
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: "#111827" }}>
+                {from !== null ? (price_from != null ? `From ${money(from)}` : money(from)) : "—"}
+              </div>
+            )}
           </div>
         )}
 
@@ -367,15 +379,7 @@ export default function SetCard({
             </div>
           )
         ) : (
-          <div
-            style={{
-              borderTop: "1px solid #f3f4f6",
-              marginTop: 6,
-              paddingTop: 6,
-              display: "flex",
-              gap: 8,
-            }}
-          >
+          <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 6, paddingTop: 6, display: "flex", gap: 8 }}>
             <button type="button" onClick={goToShop} style={shopBtnStyle}>
               Shop
             </button>

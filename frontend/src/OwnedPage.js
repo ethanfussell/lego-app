@@ -1,6 +1,6 @@
 // frontend/src/OwnedPage.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "./auth";
 
 import {
@@ -65,7 +65,7 @@ function SortableSetTile({ item, ownedSetNums, wishlistSetNums, onMarkOwned, onA
     cursor: disabled ? "default" : "grab",
   };
 
-  // While in reorder mode, make the whole card draggable + disable inner clicks
+  // disable inner clicks while dragging
   const innerStyle = { pointerEvents: "none" };
 
   return (
@@ -77,20 +77,15 @@ function SortableSetTile({ item, ownedSetNums, wishlistSetNums, onMarkOwned, onA
           isInWishlist={wishlistSetNums?.has?.(item.set_num)}
           onMarkOwned={(sn) => onMarkOwned?.(sn)}
           onAddWishlist={(sn) => onAddWishlist?.(sn)}
-          variant="default"
+          // ✅ THIS matches the screenshot card
+          variant="collection"
         />
       </div>
     </div>
   );
 }
 
-export default function OwnedPage({
-  ownedSets,
-  ownedSetNums,
-  wishlistSetNums,
-  onMarkOwned,
-  onAddWishlist,
-}) {
+export default function OwnedPage({ ownedSets, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist }) {
   const { token } = useAuth();
   const navigate = useNavigate();
 
@@ -99,11 +94,11 @@ export default function OwnedPage({
   const [saving, setSaving] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
 
-  // Sort: "custom" = backend order (your saved order)
   const [sortKey, setSortKey] = useState("custom");
-
   const lastGoodRef = useRef(items);
 
+  const [searchParams] = useSearchParams();
+  const themeParam = (searchParams.get("theme") || "").trim();
   useEffect(() => {
     setItems(ownedSets || []);
     lastGoodRef.current = ownedSets || [];
@@ -121,16 +116,27 @@ export default function OwnedPage({
     [activeId, items]
   );
 
-  const displayedItems = useMemo(() => {
-    // While reordering, always show custom order (otherwise confusing)
+  const sortedItems = useMemo(() => {
     if (reorderMode) return items;
     if (sortKey === "custom") return items;
     return sortSets(items, sortKey);
   }, [items, sortKey, reorderMode]);
 
+  const displayedItems = useMemo(() => {
+    if (reorderMode) return sortedItems;
+    if (!themeParam) return sortedItems;
+    const t = themeParam.toLowerCase();
+    return sortedItems.filter((s) => String(s?.theme || "").toLowerCase() === t);
+  }, [sortedItems, themeParam, reorderMode]);
+
+  const themeFilteredItems = useMemo(() => {
+    if (!themeParam) return displayedItems;
+    const t = themeParam.toLowerCase();
+    return displayedItems.filter((s) => String(s?.theme || "").toLowerCase() === t);
+  }, [displayedItems, themeParam]);
+
   async function persistOrder(nextItems, prevItems) {
     const setNums = nextItems.map((x) => toPlainSetNum(x.set_num));
-
     setSaving(true);
     try {
       await apiFetch("/collections/owned/order", {
@@ -161,7 +167,6 @@ export default function OwnedPage({
   function handleDragEnd(event) {
     const { active, over } = event;
     setActiveId(null);
-
     if (!over || active.id === over.id) return;
 
     const prevItems = lastGoodRef.current || items;
@@ -176,29 +181,34 @@ export default function OwnedPage({
 
   const canReorder = ids.length > 1;
 
-  // Match Wishlist layout: tighter grid, less dead space
+  // ✅ “~5 per row” like your Collection page section
   const gridStyle = {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
     gap: 14,
     alignItems: "start",
   };
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 1rem" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <h1 style={{ marginTop: 0 }}>Owned</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <h1 style={{ marginTop: 0, marginBottom: 0 }}>Owned</h1>
+
+          {themeParam ? (
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ color: "#6b7280", fontWeight: 800 }}>Filtered by theme:</div>
+              <div style={{ padding: "0.2rem 0.55rem", borderRadius: 999, border: "1px solid #e5e7eb", background: "white", fontWeight: 900 }}>
+                {themeParam}
+              </div>
+              <Link to="/collection/owned" style={{ color: "#2563eb", fontWeight: 900, textDecoration: "none" }}>
+                Clear
+              </Link>
+            </div>
+          ) : null}
+        </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {/* Sort */}
           <label style={{ color: "#444", fontSize: 14 }}>
             Sort{" "}
             <select
@@ -206,7 +216,6 @@ export default function OwnedPage({
               onChange={(e) => setSortKey(e.target.value)}
               disabled={reorderMode}
               style={{ padding: "0.25rem 0.5rem" }}
-              title={reorderMode ? "Finish reordering to sort" : "Sort owned sets"}
             >
               <option value="custom">Custom order</option>
               <option value="name_asc">Name (A–Z)</option>
@@ -220,9 +229,7 @@ export default function OwnedPage({
             </select>
           </label>
 
-          <div style={{ color: "#666", fontSize: 14 }}>
-            {saving ? "Saving order…" : reorderMode ? "Drag cards to reorder" : ""}
-          </div>
+          <div style={{ color: "#666", fontSize: 14 }}>{saving ? "Saving order…" : reorderMode ? "Drag cards to reorder" : ""}</div>
 
           {canReorder && (
             <button
@@ -231,7 +238,6 @@ export default function OwnedPage({
                 if (saving) return;
                 setReorderMode((v) => !v);
                 setActiveId(null);
-                // entering reorder mode should be custom order
                 setSortKey("custom");
               }}
               disabled={saving}
@@ -263,7 +269,7 @@ export default function OwnedPage({
         >
           <SortableContext items={ids} strategy={rectSortingStrategy}>
             <div style={gridStyle}>
-              {items.map((item) => (
+              {themeFilteredItems.map((item) => (
                 <SortableSetTile
                   key={item.set_num}
                   item={item}
@@ -279,29 +285,25 @@ export default function OwnedPage({
 
           <DragOverlay>
             {activeItem ? (
-              <div style={{ width: 320, opacity: 0.95, pointerEvents: "none" }}>
-                <SetCard set={activeItem} variant="default" />
+              <div style={{ width: 260, opacity: 0.95, pointerEvents: "none" }}>
+                <SetCard set={activeItem} variant="collection" />
               </div>
             ) : null}
           </DragOverlay>
         </DndContext>
       ) : (
         <div style={gridStyle}>
-          {displayedItems.map((item) => (
-            <div
+          {themeFilteredItems.map((item) => (
+            <SetCard
               key={item.set_num}
-              onClick={() => navigate(`/sets/${encodeURIComponent(item.set_num)}`)}
-              style={{ cursor: "pointer" }}
-            >
-              <SetCard
-                set={item}
-                isOwned={ownedSetNums?.has?.(item.set_num)}
-                isInWishlist={wishlistSetNums?.has?.(item.set_num)}
-                onMarkOwned={(sn) => onMarkOwned?.(sn)}
-                onAddWishlist={(sn) => onAddWishlist?.(sn)}
-                variant="default"
-              />
-            </div>
+              set={item}
+              isOwned={ownedSetNums?.has?.(item.set_num)}
+              isInWishlist={wishlistSetNums?.has?.(item.set_num)}
+              onMarkOwned={(sn) => onMarkOwned?.(sn)}
+              onAddWishlist={(sn) => onAddWishlist?.(sn)}
+              // ✅ EXACT same card style as your screenshot
+              variant="collection"
+            />
           ))}
         </div>
       )}
