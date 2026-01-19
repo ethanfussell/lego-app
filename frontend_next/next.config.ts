@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    root: __dirname, // <-- forces turbopack to treat frontend_next as the root
+  },
 };
 
 export default nextConfig;
