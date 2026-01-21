@@ -96,7 +96,7 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
     # Optional: include a capped set list (expand later with sitemap index if needed)
     set_rows = db.execute(
         select(SetModel.set_num)
-        .order_by(SetModel.created_at.desc())
+        .order_by(func.coalesce(ListModel.updated_at, ListModel.created_at).desc(), ListModel.id.desc())
         .limit(5000)
     ).scalars().all()
 
@@ -138,3 +138,14 @@ def db_ping(db: Session = Depends(get_db)):
         .mappings()
         .one()
     )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3001",
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

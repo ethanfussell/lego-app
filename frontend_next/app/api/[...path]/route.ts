@@ -8,7 +8,10 @@ function cleanRequestHeaders(headers: Headers) {
   h.delete("host");
   h.delete("connection");
   h.delete("content-length");
-  h.delete("accept-encoding"); // let node handle it
+  h.delete("accept-encoding");
+  h.delete("sec-fetch-mode");
+  h.delete("sec-fetch-site");
+  h.delete("sec-fetch-dest"); // let node handle it
   return h;
 }
 
@@ -51,6 +54,7 @@ async function proxy(req: NextRequest) {
     headers: respHeaders,
   });
 }
+
 
 export const GET = proxy;
 export const POST = proxy;

@@ -1,63 +1,90 @@
 // frontend_next/lib/api.ts
+export class APIError extends Error {
+  status: number;
+  detail?: string;
 
-type ApiFetchOptions = {
-    method?: string;
-    token?: string | null;
-    body?: any;
-    headers?: Record<string, string>;
-    // if you ever need to call absolute URLs, you can pass fullUrl
-    fullUrl?: string;
-  };
-  
-  export async function apiFetch(path: string, opts: ApiFetchOptions = {}) {
-    const {
-      method = "GET",
-      token = null,
-      body,
-      headers = {},
-      fullUrl,
-    } = opts;
-  
-    const url = fullUrl || (path.startsWith("/api") ? path : `/api${path}`);
-  
-    const finalHeaders: Record<string, string> = {
-      ...headers,
-    };
-  
-    if (token) {
-      finalHeaders.Authorization = `Bearer ${token}`;
-    }
-  
-    // Only set JSON header if we actually send a body
-    let payload: BodyInit | undefined = undefined;
-    if (body !== undefined) {
-      finalHeaders["Content-Type"] = finalHeaders["Content-Type"] || "application/json";
-      payload = typeof body === "string" ? body : JSON.stringify(body);
-    }
-  
-    const resp = await fetch(url, {
-      method,
-      headers: finalHeaders,
-      body: payload,
-    });
-  
-    // Try to parse JSON if possible
-    const contentType = resp.headers.get("content-type") || "";
-    const isJson = contentType.includes("application/json");
-  
-    if (!resp.ok) {
-      const errText = isJson ? JSON.stringify(await safeJson(resp)) : await resp.text();
-      // keep your existing style where errors start with status code (useful in UI)
-      throw new Error(`${resp.status} ${errText}`);
-    }
-  
-    return isJson ? await resp.json() : await resp.text();
+  constructor(status: number, detail?: string) {
+    super(`${status}${detail ? " " + detail : ""}`);
+    this.name = "APIError";
+    this.status = status;
+    this.detail = detail;
   }
-  
-  async function safeJson(resp: Response) {
+}
+
+function apiBase() {
+  // In the browser: use Next's same-origin proxy
+  if (typeof window !== "undefined") return "/api";
+
+  // On the server (Route Handlers / Server Components): you can still use the proxy too,
+  // but if you *want* direct-to-backend SSR you can set API_BASE_URL.
+  return process.env.API_BASE_URL || "http://localhost:8000";
+}
+
+function buildUrl(path: string) {
+  if (path.startsWith("http")) return path;
+
+  const base = apiBase();
+
+  // If we're using the proxy, ensure it starts with /api
+  if (base === "/api") {
+    // allow callers to pass "/api/..." or "/lists/me" etc.
+    const p = path.startsWith("/api") ? path : `/api${path.startsWith("/") ? "" : "/"}${path}`;
+    return p;
+  }
+
+  // Direct backend mode
+  return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+type ApiFetchOptions = Omit<RequestInit, "body" | "headers" | "method"> & {
+  method?: string;
+  token?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+};
+
+export async function apiFetch<T = unknown>(
+  path: string,
+  opts: ApiFetchOptions = {}
+): Promise<T | null> {
+  const url = buildUrl(path);
+
+  const { method = "GET", token, body, headers = {}, ...rest } = opts;
+
+  const finalHeaders: Record<string, string> = { ...headers };
+  if (token) finalHeaders.Authorization = `Bearer ${token}`;
+  if (body != null) finalHeaders["Content-Type"] = "application/json";
+
+  const resp = await fetch(url, {
+    method,
+    headers: finalHeaders,
+    body: body != null ? JSON.stringify(body) : undefined,
+    ...rest,
+  });
+
+  if (!resp.ok) {
+    let detail = "";
     try {
-      return await resp.json();
+      const data = await resp.json();
+      detail = data?.detail ? String(data.detail) : JSON.stringify(data);
     } catch {
-      return null;
+      try {
+        detail = await resp.text();
+      } catch {
+        detail = "";
+      }
     }
+    throw new APIError(resp.status, detail);
   }
+
+  // 204 / empty body
+  const text = await resp.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Some endpoints might return plain text
+    return text as unknown as T;
+  }
+}

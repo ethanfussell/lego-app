@@ -1,5 +1,6 @@
 // frontend_next/app/sets/[setNum]/page.tsx
 import type { Metadata } from "next";
+import { cache } from "react";
 import SetDetailClient from "./SetDetailClient";
 
 const SITE_NAME = "YourSite";
@@ -25,20 +26,31 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-async function fetchSet(setNum: string): Promise<LegoSet | null> {
-  const url = `${apiBase()}/api/sets/${encodeURIComponent(setNum)}`;
+// Handles Next versions where params may be a Promise (sync dynamic APIs) or a plain object
+async function unwrapParams<T extends object>(p: T | Promise<T>): Promise<T> {
+  // don't touch p.anything until after we unwrap (avoids Next warning)
+  return typeof (p as any)?.then === "function" ? await (p as any) : (p as T);
+}
+
+/**
+ * OPTIONAL STEP:
+ * Use React cache() to dedupe identical fetchSet calls within the same request,
+ * so Page() and generateMetadata() won't double-hit the API.
+ */
+const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
+  const url = `${apiBase()}/sets/${encodeURIComponent(setNum)}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return null;
   return (await res.json()) as LegoSet;
-}
+});
 
 function buildJsonLd(setDetail: LegoSet) {
   const avg =
     typeof setDetail.average_rating === "number"
       ? setDetail.average_rating
       : typeof setDetail.rating_avg === "number"
-      ? setDetail.rating_avg
-      : null;
+        ? setDetail.rating_avg
+        : null;
 
   const count = typeof setDetail.rating_count === "number" ? setDetail.rating_count : 0;
 
@@ -76,37 +88,44 @@ function buildJsonLd(setDetail: LegoSet) {
   return jsonLd;
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ setNum: string }>;
-}): Promise<Metadata> {
-  const { setNum } = await params;
-  const decoded = decodeURIComponent(setNum);
-  const data = await fetchSet(decoded);
-
+function buildDescription(decodedSetNum: string, data: LegoSet | null) {
   const name = data?.name || "LEGO Set";
   const pieces = data?.pieces ? `${data.pieces} pieces` : null;
   const year = data?.year ? `from ${data.year}` : null;
 
   const descParts = [pieces, year].filter(Boolean).join(" · ");
-  const description = descParts
-    ? `Details for LEGO set ${decoded}: ${name}. ${descParts}.`
-    : `Details for LEGO set ${decoded}: ${name}.`;
+  return descParts
+    ? `Details for LEGO set ${decodedSetNum}: ${name}. ${descParts}.`
+    : `Details for LEGO set ${decodedSetNum}: ${name}.`;
+}
 
-  const canonical = `/sets/${encodeURIComponent(decoded)}`;
+export async function generateMetadata({
+  params,
+}: {
+  params: { setNum: string } | Promise<{ setNum: string }>;
+}): Promise<Metadata> {
+  const { setNum } = await unwrapParams(params);
+  const decoded = decodeURIComponent(setNum);
+
+  const data = await fetchSet(decoded);
+
+  const name = data?.name || "LEGO Set";
+  const description = buildDescription(decoded, data);
+
+  const canonicalPath = `/sets/${encodeURIComponent(decoded)}`;
 
   return {
     title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
     description,
 
+    // Ensures canonical & OG URLs resolve to absolute URLs
     metadataBase: new URL(siteBase()),
-    alternates: { canonical },
+    alternates: { canonical: canonicalPath },
 
     openGraph: {
       title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
       description,
-      url: canonical,
+      url: canonicalPath,
       type: "website",
       images: data?.image_url ? [{ url: data.image_url, alt: name }] : undefined,
     },
@@ -123,9 +142,9 @@ export async function generateMetadata({
 export default async function Page({
   params,
 }: {
-  params: Promise<{ setNum: string }>;
+  params: { setNum: string } | Promise<{ setNum: string }>;
 }) {
-  const { setNum } = await params;
+  const { setNum } = await unwrapParams(params);
   const decoded = decodeURIComponent(setNum);
 
   const data = await fetchSet(decoded);
@@ -135,6 +154,7 @@ export default async function Page({
       {data ? (
         <script
           type="application/ld+json"
+          // JSON-LD needs to be in the initial HTML
           dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
         />
       ) : null}

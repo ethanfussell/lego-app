@@ -1,80 +1,76 @@
+// app/themes/page.tsx
+import type { Metadata } from "next";
 import Link from "next/link";
 
-export const THEMES = [
-  { slug: "star-wars", name: "Star Wars", logoText: "SW", tagline: "Jedi, Sith, UCS ships and more.", query: "Star Wars" },
-  { slug: "harry-potter", name: "Harry Potter", logoText: "HP", tagline: "Hogwarts, Diagon Alley, magical builds.", query: "Harry Potter" },
-  { slug: "city", name: "City", logoText: "CITY", tagline: "Everyday life, vehicles and rescue.", query: "City" },
-  { slug: "technic", name: "Technic", logoText: "T", tagline: "Advanced building with real mechanisms.", query: "Technic" },
-  { slug: "icons", name: "Icons / Creator Expert", logoText: "IC", tagline: "Display models, modulars, and adult sets.", query: "Icons" },
-  { slug: "ninjago", name: "NINJAGO", logoText: "NJ", tagline: "Ninja, mechs, and epic temples.", query: "NINJAGO" },
-  { slug: "speed-champions", name: "Speed Champions", logoText: "SC", tagline: "Licensed performance cars in brick form.", query: "Speed Champions" },
-  { slug: "friends", name: "Friends", logoText: "F", tagline: "Heartlake City stories and characters.", query: "Friends" },
+const SITE_NAME = "YourSite";
+
+function siteBase() {
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
+export const metadata: Metadata = {
+  title: `Themes | ${SITE_NAME}`,
+  description: `Browse LEGO themes on ${SITE_NAME}.`,
+  metadataBase: new URL(siteBase()),
+  alternates: { canonical: "/themes" },
+  openGraph: {
+    title: `Themes | ${SITE_NAME}`,
+    description: `Browse LEGO themes on ${SITE_NAME}.`,
+    url: "/themes",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: `Themes | ${SITE_NAME}`,
+    description: `Browse LEGO themes on ${SITE_NAME}.`,
+  },
+};
+
+// Curated starter list (edit any time)
+const THEMES = [
+  "Star Wars",
+  "Technic",
+  "City",
+  "Creator",
+  "Creator Expert",
+  "Ideas",
+  "Harry Potter",
+  "Marvel",
+  "DC",
+  "Architecture",
+  "NINJAGO",
+  "Friends",
+  "Minecraft",
+  "Disney",
+  "Speed Champions",
+  "Icons",
 ];
 
-export default function ThemesPage() {
+export default function ThemesIndexPage() {
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1000px", margin: "0 auto" }}>
-      <h1 style={{ margin: 0, fontSize: "1.4rem" }}>Browse by theme</h1>
-      <p style={{ marginTop: "0.5rem", color: "#4b5563", maxWidth: "600px", fontSize: "0.95rem" }}>
-        Pick a LEGO theme to explore sets, track your collection, and find deals within that universe.
+    <div className="mx-auto max-w-4xl p-6">
+      <h1 className="text-3xl font-bold">Themes</h1>
+      <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+        Pick a theme to browse sets. (We’ll wire a full themes directory once the API
+        exposes a themes list endpoint.)
       </p>
 
-      <div
-        style={{
-          marginTop: "1.5rem",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        {THEMES.map((theme) => (
-          <Link
-            key={theme.slug}
-            href={`/themes/${encodeURIComponent(theme.slug)}`}
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <div
-              style={{
-                borderRadius: "16px",
-                border: "1px solid #e5e7eb",
-                padding: "1rem",
-                background: "linear-gradient(135deg, #020617, #111827)",
-                color: "white",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.7rem",
-                height: "100%",
-              }}
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {THEMES.map((t) => {
+          const href = `/themes/${encodeURIComponent(t)}`;
+          return (
+            <Link
+              key={t}
+              href={href}
+              className="rounded-xl border border-black/[.08] bg-white p-4 hover:bg-zinc-50 dark:border-white/[.145] dark:bg-black dark:hover:bg-zinc-900"
             >
-              <div
-                style={{
-                  width: "40px",
-                  height: "40px",
-                  borderRadius: "999px",
-                  background: "rgba(255,255,255,0.12)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: "0.9rem",
-                }}
-              >
-                {theme.logoText || theme.name[0]}
+              <div className="font-semibold">{t}</div>
+              <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                View sets →
               </div>
-
-              <div>
-                <div style={{ fontWeight: 600, fontSize: "0.98rem" }}>{theme.name}</div>
-                {theme.tagline && (
-                  <div style={{ marginTop: "0.25rem", fontSize: "0.85rem", opacity: 0.9 }}>{theme.tagline}</div>
-                )}
-              </div>
-
-              <div style={{ marginTop: "auto", fontSize: "0.78rem", opacity: 0.85 }}>
-                Click to see sets from this theme →
-              </div>
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

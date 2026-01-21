@@ -1,9 +1,9 @@
 # backend/app/routers/users.py
 from __future__ import annotations
 
-from typing import Any, Dict, List as TypingList
+from typing import Any, Dict, List as TypingList, Optional, Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -12,8 +12,7 @@ from ..models import User as UserModel
 from ..models import List as ListModel
 from ..models import ListItem as ListItemModel
 
-router = APIRouter(prefix="/users")
-
+router = APIRouter(prefix="/users", tags=["users"])
 
 def _items_count_expr():
     return (
@@ -24,11 +23,35 @@ def _items_count_expr():
     )
 
 
+@router.get("/me")
+def me(authorization: Annotated[Optional[str], Header()] = None):
+    """
+    Return the current user from the fake bearer token.
+    Expected token format: "fake-token-for-<username>"
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    token = authorization.split(" ", 1)[1]
+    prefix = "fake-token-for-"
+    if not token.startswith(prefix):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    username = token[len(prefix) :]
+    return {"username": username}
+
+
+@router.get("")
+def list_users(limit: int = 20):
+    with next(get_db()) as db:
+        rows = db.execute(select(UserModel.username).limit(limit)).scalars().all()
+        return rows
+
+
 @router.get("/{username}")
 def get_user(username: str):
     # lightweight “public profile” endpoint
-    # (not used much yet, but safe)
-    with next(get_db()) as db:  # simple use; keeps your existing get_db generator
+    with next(get_db()) as db:
         user = db.execute(
             select(UserModel).where(UserModel.username == username).limit(1)
         ).scalar_one_or_none()
@@ -57,7 +80,10 @@ def get_user_public_lists(username: str) -> TypingList[Dict[str, Any]]:
         rows = db.execute(
             select(ListModel, items_count.label("items_count"))
             .where(ListModel.owner_id == user.id, ListModel.is_public.is_(True))
-            .order_by(ListModel.position.asc(), ListModel.id.asc())
+            .order_by(
+                func.coalesce(ListModel.updated_at, ListModel.created_at).desc(),
+                ListModel.id.desc(),
+            )
         ).all()
 
         out: TypingList[Dict[str, Any]] = []
