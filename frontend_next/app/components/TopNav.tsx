@@ -77,6 +77,7 @@ export default function TopNav() {
     if (!setNum) return;
     setShow(false);
     router.push(`/sets/${encodeURIComponent(setNum)}`);
+    setSearchText(""); // conf want
   }
 
   return (

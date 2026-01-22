@@ -20,30 +20,28 @@ function toNum(v: unknown, fallback: number) {
 }
 
 function normalizeSort(v: unknown) {
-  const s = String(v || "relevance");
-  const allowed = new Set(["relevance", "rating", "pieces", "year", "name"]);
-  return allowed.has(s) ? s : "relevance";
+  // For "feed", default to newest-ish.
+  // If your backend supports these, keep them. Otherwise we can adjust.
+  const s = String(v || "year").trim();
+  const allowed = new Set(["year", "rating", "pieces", "name", "relevance"]);
+  return allowed.has(s) ? s : "year";
 }
 
 function normalizeOrder(v: unknown) {
-  const s = String(v || "desc");
+  const s = String(v || "desc").trim();
   return s === "asc" ? "asc" : "desc";
 }
 
-async function fetchSets(opts: { q: string; sort: string; order: string; page: number; limit: number }) {
+async function fetchFeed(opts: { sort: string; order: string; page: number; limit: number }) {
   const params = new URLSearchParams();
-  params.set("q", opts.q);
   params.set("sort", opts.sort);
   params.set("order", opts.order);
   params.set("page", String(opts.page));
   params.set("limit", String(opts.limit));
 
-  // Your backend already supports /sets?...
+  // ✅ No q param — discover is a feed, not search
   const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
 
-  // Accept either shape:
-  // 1) array
-  // 2) { results, total, page, total_pages }
   const results: SetLite[] = Array.isArray(data)
     ? data
     : Array.isArray(data?.results)
@@ -66,15 +64,18 @@ export default async function Page({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const q = String(searchParams?.q ?? "").trim();
-  const sort = normalizeSort(searchParams?.sort);
-  const order = normalizeOrder(searchParams?.order);
+  // ✅ Ignore q entirely (even if someone manually adds it)
+  const sortRaw = searchParams?.sort;
+  const orderRaw = searchParams?.order;
+
+  const sort = normalizeSort(Array.isArray(sortRaw) ? sortRaw[0] : sortRaw);
+  const order = normalizeOrder(Array.isArray(orderRaw) ? orderRaw[0] : orderRaw);
   const page = toNum(searchParams?.page, 1);
 
   const pageSize = 50;
 
   let initial: DiscoverInitial = {
-    q,
+    q: "", // keep field if DiscoverClient expects it, but it's always empty here
     sort,
     order,
     page,
@@ -85,19 +86,17 @@ export default async function Page({
     error: null,
   };
 
-  if (q) {
-    try {
-      const r = await fetchSets({ q, sort, order, page, limit: pageSize });
-      initial = {
-        ...initial,
-        results: r.results,
-        total: r.total,
-        totalPages: r.totalPages,
-        page: r.page,
-      };
-    } catch (e: any) {
-      initial = { ...initial, error: e?.message || String(e) };
-    }
+  try {
+    const r = await fetchFeed({ sort, order, page, limit: pageSize });
+    initial = {
+      ...initial,
+      results: r.results,
+      total: r.total,
+      totalPages: r.totalPages,
+      page: r.page,
+    };
+  } catch (e: any) {
+    initial = { ...initial, error: e?.message || String(e) };
   }
 
   return <DiscoverClient initial={initial} />;

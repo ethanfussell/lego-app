@@ -89,9 +89,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       me,
       loadingMe,
       hydrated,
-      isAuthed: !!token,
-      loginWithToken: (t) => setToken(t || ""),
-      logout: () => setToken(""),
+      isAuthed: hydrated && !!token,
+      loginWithToken: (t) => {
+        setMe(null);
+        setToken(t || "");
+      },
+      logout: () => {
+        setMe(null);
+        setToken("");
+      },
     }),
     [token, me, loadingMe, hydrated]
   );
