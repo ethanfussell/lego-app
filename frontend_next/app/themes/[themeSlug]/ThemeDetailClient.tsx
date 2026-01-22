@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import SetCard from "@/app/components/SetCard";
+import { useAuth } from "@/app/providers";
 
 const PAGE_SIZE = 36;
 
@@ -84,6 +86,7 @@ function sortKeyToBackend(sortKey: SortKey): { sort: "name" | "year" | "pieces";
 export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) {
   const router = useRouter();
   const sp = useSearchParams();
+  const { token } = useAuth();
 
   const themeName = useMemo(() => prettyFromSlug(themeSlug), [themeSlug]);
 
@@ -261,91 +264,11 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
               alignItems: "start",
             }}
           >
-            {sets.map((s) => {
-              const rating =
-                typeof s.average_rating === "number"
-                  ? s.average_rating
-                  : typeof s.rating_avg === "number"
-                  ? s.rating_avg
-                  : null;
-
-              return (
-                <Link
-                  key={s.set_num}
-                  href={`/sets/${encodeURIComponent(s.set_num)}`}
-                  style={{ textDecoration: "none", color: "inherit" }}
-                >
-                  <div
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 14,
-                      background: "white",
-                      padding: 10,
-                      boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
-                      display: "grid",
-                      gap: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        borderRadius: 12,
-                        border: "1px solid #f1f5f9",
-                        background: "#f8fafc",
-                        height: 150,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {s.image_url ? (
-                        <img
-                          src={s.image_url}
-                          alt={s.name || s.set_num}
-                          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                        />
-                      ) : (
-                        <div style={{ color: "#94a3b8", fontSize: 13 }}>No image</div>
-                      )}
-                    </div>
-
-                    <div style={{ fontWeight: 900, lineHeight: "1.25em" }}>
-                      {s.name || "Unknown set"}
-                    </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 10,
-                        color: "#6b7280",
-                        fontSize: 13,
-                      }}
-                    >
-                      <div>{s.set_num}</div>
-                      <div>{s.year || ""}</div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 10,
-                        color: "#6b7280",
-                        fontSize: 13,
-                      }}
-                    >
-                      <div>{s.pieces ? `${s.pieces} pcs` : ""}</div>
-                      <div>
-                        {rating != null ? `★ ${rating.toFixed(1)}` : ""}
-                        {s.rating_count ? ` (${s.rating_count})` : ""}
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+            {sets.map((s) => (
+              <div key={s.set_num} className="w-[220px]">
+                <SetCard set={s as any} token={token || undefined} />
+              </div>
+            ))}
           </div>
 
           {/* Pagination (Search-style) */}
@@ -419,10 +342,7 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
               >
                 Next
               </button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+              </div>
+    )}
+  </>
+)}

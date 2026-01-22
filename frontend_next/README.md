@@ -34,3 +34,18 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Dev
+
+### Backend
+cd backend
+uvicorn app.main:app --reload --port 8000
+
+### Frontend (Next)
+cd frontend_next
+npm install
+npm run dev
+
+Env: frontend_next/.env.local
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000

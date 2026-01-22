@@ -17,7 +17,7 @@ function apiBase() {
 
   // On the server (Route Handlers / Server Components): you can still use the proxy too,
   // but if you *want* direct-to-backend SSR you can set API_BASE_URL.
-  return process.env.API_BASE_URL || "http://localhost:8000";
+  return process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
 function buildUrl(path: string) {

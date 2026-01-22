@@ -1,93 +1,245 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
-import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd"; // ✅ add this
+import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
+import CarouselRow from "@/app/components/CarouselRow";
 
 const PREVIEW_COUNT = 10;
 
-// ...rest of your file unchanged...
+type ListSummary = {
+  id: string | number;
+  title?: string | null;
+  is_public?: boolean | null;
+  items_count?: number | null;
+  system_key?: string | null; // "owned" | "wishlist" | null
+};
+
+type ListItemLike = {
+  set_num?: string | null;
+  // some APIs might name it differently:
+  setNum?: string | null;
+};
+
+type ListDetail = {
+  id: string | number;
+  title?: string | null;
+  system_key?: string | null;
+  is_public?: boolean | null;
+  items_count?: number | null;
+
+  // common shapes:
+  items?: ListItemLike[] | null;
+  set_nums?: string[] | null;
+  setNums?: string[] | null;
+};
+
+type SetLite = {
+  set_num: string;
+  name?: string;
+  year?: number;
+  num_parts?: number;
+  image_url?: string | null;
+  theme?: string;
+};
+
+function isSystemList(l: any): boolean {
+  return !!String(l?.system_key || "").trim();
+}
+
+function toSetNums(detail: ListDetail | null): string[] {
+  if (!detail) return [];
+
+  // 1) explicit array
+  const a = (detail.set_nums || detail.setNums) as unknown;
+  if (Array.isArray(a)) {
+    return a.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+
+  // 2) items with set_num
+  const items = detail.items as unknown;
+  if (Array.isArray(items)) {
+    return items
+      .map((it: any) => String(it?.set_num || it?.setNum || "").trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+async function fetchSet(setNum: string, token?: string): Promise<SetLite | null> {
+  const s = String(setNum || "").trim();
+  if (!s) return null;
+  try {
+    // assumes your API supports GET /sets/{set_num}
+    return await apiFetch<SetLite>(`/sets/${encodeURIComponent(s)}`, { token, cache: "no-store" });
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite[]> {
+  const uniq = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
+  if (uniq.length === 0) return [];
+  const results = await Promise.all(uniq.map((sn) => fetchSet(sn, token)));
+  return results.filter(Boolean) as SetLite[];
+}
+
+function Row({
+  title,
+  subtitle,
+  sets,
+  href,
+  emptyText = "No sets yet.",
+  renderFooter,
+}: {
+  title: string;
+  subtitle?: string;
+  sets: SetLite[];
+  href?: string;
+  emptyText?: string;
+  renderFooter?: (set: SetLite) => React.ReactNode;
+}) {
+  const hasItems = Array.isArray(sets) && sets.length > 0;
+
+  return (
+    <div className="mt-8">
+      <CarouselRow title={title} subtitle={subtitle} viewHref={href} emptyText={emptyText}>
+        {hasItems
+          ? sets.map((set) => {
+              const setNum = String(set?.set_num || "").trim();
+              if (!setNum) return null;
+
+              return (
+                <div key={setNum} className="w-[220px] shrink-0">
+                  <SetCard set={set} footer={renderFooter ? renderFooter(set) : null} />
+                </div>
+              );
+            })
+          : null}
+      </CarouselRow>
+    </div>
+  );
+}
 
 export default function CollectionClient() {
   const { token } = useAuth();
-  const router = useRouter();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // ...state + memos unchanged...
+  const [lists, setLists] = useState<ListSummary[]>([]);
+  const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
+  const [wishlistDetail, setWishlistDetail] = useState<ListDetail | null>(null);
 
-  async function refreshAll() {
+  const [ownedPreview, setOwnedPreview] = useState<SetLite[]>([]);
+  const [wishlistPreview, setWishlistPreview] = useState<SetLite[]>([]);
+  const [customPreviewById, setCustomPreviewById] = useState<Record<string, SetLite[]>>({});
+
+  const customLists = useMemo(() => lists.filter((l) => !isSystemList(l)), [lists]);
+
+  const renderFooterForSet = useCallback(
+    (set: SetLite) => {
+      if (!token) return null;
+      return <AddToListMenu token={token} setNum={set.set_num} />;
+    },
+    [token]
+  );
+
+  const refreshAll = useCallback(async () => {
     if (!token) return;
 
-    // (unchanged)
-    const mine = await apiFetch<ListSummary[]>("/lists/me", { token });
-    const mineArr = Array.isArray(mine) ? mine : [];
-    setLists(mineArr);
+    setLoading(true);
+    setErr(null);
 
-    const owned = mineArr.find((l) => String(l.system_key).toLowerCase() === "owned");
-    const wish = mineArr.find((l) => String(l.system_key).toLowerCase() === "wishlist");
+    try {
+      const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
+      const mineArr = Array.isArray(mine) ? mine : [];
+      setLists(mineArr);
 
-    const [ownedD, wishD] = await Promise.all([
-      owned ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, { token }) : Promise.resolve(null),
-      wish ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, { token }) : Promise.resolve(null),
-    ]);
+      const owned = mineArr.find((l) => String(l.system_key || "").toLowerCase() === "owned");
+      const wish = mineArr.find((l) => String(l.system_key || "").toLowerCase() === "wishlist");
 
-    setOwnedDetail(ownedD);
-    setWishlistDetail(wishD);
+      const [ownedD, wishD] = await Promise.all([
+        owned ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, { token, cache: "no-store" }) : null,
+        wish ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, { token, cache: "no-store" }) : null,
+      ]);
 
-    const ownedNums = toSetNums(ownedD).slice(0, PREVIEW_COUNT);
-    const wishNums = toSetNums(wishD).slice(0, PREVIEW_COUNT);
+      setOwnedDetail(ownedD);
+      setWishlistDetail(wishD);
 
-    const [ownedSets, wishSets] = await Promise.all([fetchSetsBulk(ownedNums, token), fetchSetsBulk(wishNums, token)]);
+      const ownedNums = toSetNums(ownedD).slice(0, PREVIEW_COUNT);
+      const wishNums = toSetNums(wishD).slice(0, PREVIEW_COUNT);
 
-    setOwnedPreview(ownedSets);
-    setWishlistPreview(wishSets);
+      const [ownedSets, wishSets] = await Promise.all([
+        fetchSetsBulk(ownedNums, token),
+        fetchSetsBulk(wishNums, token),
+      ]);
 
-    const customOnly = mineArr.filter((l) => !isSystemList(l));
-    const entries = await Promise.all(
-      customOnly.map(async (l) => {
-        try {
-          const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(l.id))}`, { token });
-          const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
-          const sets = await fetchSetsBulk(nums, token);
-          return [String(l.id), sets] as const;
-        } catch {
-          return [String(l.id), []] as const;
-        }
-      })
-    );
+      setOwnedPreview(ownedSets);
+      setWishlistPreview(wishSets);
 
-    const map: Record<string, SetLite[]> = {};
-    for (const [id, sets] of entries) map[id] = sets;
-    setCustomPreviewById(map);
-  }
+      // custom list previews
+      const customOnly = mineArr.filter((l) => !isSystemList(l));
+      const entries = await Promise.all(
+        customOnly.map(async (l) => {
+          const id = String(l.id);
+          try {
+            const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
+            const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
+            const sets = await fetchSetsBulk(nums, token);
+            return [id, sets] as const;
+          } catch {
+            return [id, []] as const;
+          }
+        })
+      );
 
-  // ...effects + toggleOwned/toggleWishlist unchanged...
+      const map: Record<string, SetLite[]> = {};
+      for (const [id, sets] of entries) map[id] = sets;
+      setCustomPreviewById(map);
+    } catch (e: any) {
+      setErr(e?.message || String(e) || "Failed to load collection");
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  // load on login / token change
+  useEffect(() => {
+    if (!token) {
+      // reset on logout
+      setLists([]);
+      setOwnedDetail(null);
+      setWishlistDetail(null);
+      setOwnedPreview([]);
+      setWishlistPreview([]);
+      setCustomPreviewById({});
+      setErr(null);
+      setLoading(false);
+      return;
+    }
+    refreshAll();
+  }, [token, refreshAll]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <h1 className="text-2xl font-semibold tracking-tight">My Collection</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Owned, Wishlist, and your custom lists.
-        </p>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Owned, Wishlist, and your custom lists.</p>
 
-        {/* ✅ Quick add box */}
         <div className="mt-5 max-w-xl">
           <QuickCollectionsAdd onCollectionsChanged={refreshAll} />
         </div>
       </div>
 
-      {loading && <p className="mt-6 text-sm">Loading…</p>}
-      {err && <p className="mt-6 text-sm text-red-600">Error: {err}</p>}
+      {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
+      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
-      {/* rows unchanged */}
       <Row
         title="Owned"
         subtitle={ownedDetail?.items_count ? `${ownedDetail.items_count} sets` : undefined}
@@ -108,6 +260,7 @@ export default function CollectionClient() {
         const id = String(l.id);
         const sets = customPreviewById[id] || [];
         const count = l.items_count ?? 0;
+
         return (
           <Row
             key={id}

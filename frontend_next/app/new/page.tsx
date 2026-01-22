@@ -1,6 +1,6 @@
 // frontend_next/app/new/page.tsx
-import NewClient from "./NewClient";
 import { apiFetch } from "@/lib/api";
+import NewSetsClient from "./NewSetsClient";
 
 type SetLite = {
   set_num: string;
@@ -43,5 +43,5 @@ export default async function Page() {
     error = e?.message || String(e);
   }
 
-  return <NewClient initialSets={sets} initialError={error} />;
+  return <NewSetsClient initialSets={sets} initialError={error} />;
 }

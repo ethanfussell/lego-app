@@ -69,6 +69,7 @@ export default function TopNav() {
     setShow(false);
 
     router.push(`/search?q=${encodeURIComponent(q)}`);
+    setSearchText("");
   }
 
   function pickSuggestion(s: any) {
@@ -116,7 +117,7 @@ export default function TopNav() {
                 setSearchText(v);
                 setShow(!!v.trim());
               }}
-              // ✅ Enter submits to /discover?q=...
+              // ✅ Enter submits to /search?q=...
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
