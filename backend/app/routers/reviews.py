@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
@@ -19,19 +19,25 @@ from ..schemas.review import Review, ReviewCreate, MyReviewItem
 router = APIRouter()
 
 
-def _review_to_dict(r: ReviewModel, username: str, image_url: str | None) -> Dict[str, Any]:
+def _review_to_dict(r: ReviewModel, username: str, image_url: Optional[str]) -> Dict[str, Any]:
     return {
         "id": int(r.id),
         "set_num": r.set_num,
         "user": username,
         "rating": float(r.rating) if r.rating is not None else None,
-        "image_url": image_url,
         "text": r.text,
+        "image_url": image_url,
         "created_at": r.created_at,
         "updated_at": getattr(r, "updated_at", None),
         "likes_count": 0,
         "liked_by": [],
     }
+
+
+def _get_set_image_url(db: Session, canonical_set_num: str) -> Optional[str]:
+    return db.execute(
+        select(SetModel.image_url).where(SetModel.set_num == canonical_set_num)
+    ).scalar_one_or_none()
 
 
 @router.get("/{set_num}/reviews", response_model=List[Review])
@@ -45,7 +51,7 @@ def list_reviews_for_set(
     rows = db.execute(
         select(ReviewModel, UserModel.username, SetModel.image_url)
         .join(UserModel, UserModel.id == ReviewModel.user_id)
-        .join(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
         .where(ReviewModel.set_num == canonical)
         .order_by(ReviewModel.created_at.desc())
         .limit(int(limit))
@@ -62,32 +68,28 @@ def create_or_update_review(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     canonical = resolve_set_num(db, set_num)
-    image_url = db.execute(
-        select(SetModel.image_url).where(SetModel.set_num == canonical)
-    ).scalar_one_or_none()
+    image_url = _get_set_image_url(db, canonical)
 
     existing = db.execute(
-        select(ReviewModel)
-        .where(
+        select(ReviewModel).where(
             ReviewModel.user_id == current_user.id,
             ReviewModel.set_num == canonical,
         )
-        .limit(1)
     ).scalar_one_or_none()
 
-    if existing:
+    if existing is not None:
+        # update only provided fields
         if payload.rating is not None:
             existing.rating = payload.rating
         if payload.text is not None:
             existing.text = payload.text
 
-        # only works if/when you add + migrate updated_at
         if hasattr(existing, "updated_at"):
             setattr(existing, "updated_at", datetime.utcnow())
 
         db.commit()
         db.refresh(existing)
-        return _review_to_dict(existing, current_user.username)
+        return _review_to_dict(existing, current_user.username, image_url)
 
     new_row = ReviewModel(
         user_id=current_user.id,
@@ -95,11 +97,10 @@ def create_or_update_review(
         rating=payload.rating,
         text=payload.text,
     )
-
     db.add(new_row)
     db.commit()
     db.refresh(new_row)
-    return _review_to_dict(existing_or_new, current_user.username, image_url)
+    return _review_to_dict(new_row, current_user.username, image_url)
 
 
 @router.delete("/{set_num}/reviews/me", status_code=status.HTTP_204_NO_CONTENT)
@@ -133,6 +134,7 @@ def delete_my_review(
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
 @router.get("/reviews/me", response_model=List[MyReviewItem])
 def list_my_reviews(
     limit: int = 200,
@@ -142,7 +144,7 @@ def list_my_reviews(
 ) -> List[Dict[str, Any]]:
     rows = db.execute(
         select(ReviewModel, SetModel.name)
-        .join(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
         .where(ReviewModel.user_id == current_user.id)
         .order_by(ReviewModel.created_at.desc())
         .offset(int(offset))

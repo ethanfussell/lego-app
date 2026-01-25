@@ -18,7 +18,7 @@ from .routers import reviews as reviews_router
 from .routers import sets as sets_router
 from .routers import users as users_router
 from .routers import review_stats as review_stats_router
-
+from .routers import ratings
 
 app = FastAPI(title="LEGO API")
 
@@ -130,6 +130,7 @@ app.include_router(themes.router, tags=["themes"])
 app.include_router(lists_router.router)  # lists router already has prefix="/lists"
 
 app.include_router(review_stats_router.router)
+app.include_router(ratings.router)
 
 # ---- debug ----
 @app.get("/db/ping", tags=["debug"])

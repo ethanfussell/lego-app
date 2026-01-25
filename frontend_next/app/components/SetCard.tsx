@@ -1,332 +1,314 @@
+// frontend_next/app/components/SetCard.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import AddToListMenu from "@/app/components/AddToListMenu";
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
+import { apiFetch } from "@/lib/api";
 
 export type SetLite = {
   set_num: string;
   name?: string;
   year?: number;
+  pieces?: number | null;
+  num_parts?: number | null;
   theme?: string;
-
-  // API variations
-  pieces?: number | string;
-  num_parts?: number | string;
-
   image_url?: string | null;
 
-  // ratings
+  // global ratings
+  rating_avg?: number | null;
   average_rating?: number | null;
   rating_count?: number | null;
 
-  // pricing (optional)
-  price_from?: number | null;
-  retail_price?: number | null;
-  sale_price?: number | null;
-
-  // user rating (optional)
+  // user rating
   user_rating?: number | null;
+
+  // pricing
+  price_from?: number | null;
+  price?: number | null;
+  original_price?: number | null;
+  sale_price?: number | null;
+  sale_price_from?: number | null;
 };
 
-function money(n: unknown) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return null;
-  return `$${x.toFixed(2)}`;
+type Props = {
+  set: SetLite;
+  variant?: "default" | "owned" | "wishlist" | "feed";
+  footer?: React.ReactNode;
+
+  // only needed if you want to submit user ratings from the card (owned)
+  token?: string;
+};
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
-/**
- * SmartThumb:
- * - Fixed aspect ratio box
- * - Default contain (no crop)
- * - If close ratio: cover (minimal crop)
- * - Optional conservative whitespace zoom in contain mode
- */
-function SmartThumb({
-  src,
-  alt,
-  aspect = "16 / 10",
-}: {
-  src?: string | null;
-  alt: string;
-  aspect?: string;
-}) {
-  const [fit, setFit] = useState<"contain" | "cover">("contain");
-  const [transform, setTransform] = useState<string>("");
-  const lastSrcRef = useRef<string | null | undefined>(null);
+function formatPrice(n: number | null | undefined) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "";
+  return `$${n.toFixed(2)}`;
+}
 
-  const boxRatio = useMemo(() => {
-    const parts = String(aspect)
-      .split("/")
-      .map((x) => Number(x.trim()));
-    const a = parts?.[0] || 16;
-    const b = parts?.[1] || 10;
-    return a / b;
-  }, [aspect]);
+function pickRatingAvg(s: SetLite) {
+  const v =
+    typeof s.rating_avg === "number"
+      ? s.rating_avg
+      : typeof s.average_rating === "number"
+      ? s.average_rating
+      : null;
+  return typeof v === "number" && Number.isFinite(v) ? clamp(v, 0, 5) : null;
+}
 
-  useEffect(() => {
-    if (lastSrcRef.current !== src) {
-      lastSrcRef.current = src;
-      setFit("contain");
-      setTransform("");
-    }
-  }, [src]);
+function pickRatingCount(s: SetLite) {
+  const v = s.rating_count;
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
+}
 
-  function analyzeAndSet(e: React.SyntheticEvent<HTMLImageElement>) {
-    const img = e.currentTarget;
-    const w = img.naturalWidth || 1;
-    const h = img.naturalHeight || 1;
-    const imgRatio = w / h;
+function pickPieces(s: SetLite) {
+  const v =
+    typeof s.pieces === "number"
+      ? s.pieces
+      : typeof s.num_parts === "number"
+      ? s.num_parts
+      : null;
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
+}
 
-    const ratioDiff = Math.abs(imgRatio - boxRatio) / boxRatio;
-    const shouldCover = ratioDiff < 0.08;
+function StarIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+      <path d="M12 17.27l-5.18 3.04 1.4-5.96-4.62-4 6.08-.52L12 4l2.32 5.83 6.08.52-4.62 4 1.4 5.96z" />
+    </svg>
+  );
+}
 
-    setFit(shouldCover ? "cover" : "contain");
-    setTransform("");
+function Stars({ value, className = "" }: { value: number; className?: string }) {
+  const v = clamp(value, 0, 5);
+  const full = Math.floor(v);
+  const half = v - full >= 0.5 ? 1 : 0;
+  const empty = 5 - full - half;
 
-    if (shouldCover) return;
-
-    // whitespace-zoom (conservative)
-    try {
-      const S = 64;
-      const canvas = document.createElement("canvas");
-      canvas.width = S;
-      canvas.height = S;
-
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (!ctx) return;
-
-      ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(img, 0, 0, S, S);
-
-      const { data } = ctx.getImageData(0, 0, S, S);
-
-      let minX = S,
-        minY = S,
-        maxX = -1,
-        maxY = -1;
-
-      for (let y = 0; y < S; y++) {
-        for (let x = 0; x < S; x++) {
-          const i = (y * S + x) * 4;
-          const r = data[i],
-            g = data[i + 1],
-            b = data[i + 2],
-            a = data[i + 3];
-
-          if (a < 20) continue;
-          if (r > 245 && g > 245 && b > 245) continue; // near-white
-
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
-        }
-      }
-
-      if (maxX < 0 || maxY < 0) return;
-
-      const bw = (maxX - minX + 1) / S;
-      const bh = (maxY - minY + 1) / S;
-
-      if (bw >= 0.78 && bh >= 0.78) return;
-
-      const s = Math.min(1.22, Math.max(1.0, 1 / Math.min(bw, bh)));
-      setTransform(`scale(${s})`);
-    } catch {
-      // ignore
-    }
-  }
+  const Star = ({ fillPct }: { fillPct: 0 | 50 | 100 }) => (
+    <span className="relative inline-block h-4 w-4">
+      <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300 dark:text-zinc-700" />
+      {fillPct !== 0 ? (
+        <span className="absolute inset-0 overflow-hidden" style={{ width: fillPct === 100 ? "100%" : "50%" }}>
+          <StarIcon className="h-4 w-4 text-zinc-900 dark:text-zinc-50" />
+        </span>
+      ) : null}
+    </span>
+  );
 
   return (
-    <div className="border-b border-black/[.06] p-2 dark:border-white/[.10]">
-      <div
-        className="relative w-full overflow-hidden rounded-xl border border-black/[.10] bg-white dark:border-white/[.14] dark:bg-zinc-950"
-        style={{ aspectRatio: aspect as any }}
-      >
-        {src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={alt}
-            loading="lazy"
-            onLoad={analyzeAndSet}
-            className="h-full w-full"
-            style={{
-              objectFit: fit,
-              objectPosition: "center",
-              background: "white",
-              transform: transform || undefined,
-              transformOrigin: "center",
-              willChange: transform ? "transform" : undefined,
-            }}
-          />
-        ) : (
-          <div className="absolute inset-0 grid place-items-center text-sm text-zinc-500">No image</div>
-        )}
-      </div>
+    <span className={`inline-flex items-center gap-0.5 ${className}`} aria-label={`Rating ${v} out of 5`}>
+      {Array.from({ length: full }).map((_, i) => (
+        <Star key={`f${i}`} fillPct={100} />
+      ))}
+      {half ? <Star key="h" fillPct={50} /> : null}
+      {Array.from({ length: empty }).map((_, i) => (
+        <Star key={`e${i}`} fillPct={0} />
+      ))}
+    </span>
+  );
+}
+
+function StarPicker({
+  disabled,
+  onPick,
+}: {
+  disabled?: boolean;
+  onPick: (n: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(n)}
+          className="rounded p-0.5 disabled:opacity-60"
+          aria-label={`Rate ${n} stars`}
+          title={`Rate ${n}`}
+        >
+          <StarIcon className="h-5 w-5 text-zinc-900 dark:text-zinc-50" />
+        </button>
+      ))}
     </div>
   );
 }
 
-export default function SetCard({
-  set,
-  token,
+export default function SetCard({ set, variant = "default", footer, token }: Props) {
+  const title = set.name || set.set_num;
+  const year = set.year ? String(set.year) : "—";
+  const pieces = pickPieces(set);
 
-  // controls
-  showShop = true,
-  showAddToList = true,
+  const ratingAvg = pickRatingAvg(set);
+  const ratingCount = pickRatingCount(set);
 
-  // optional override: some pages may want a custom footer instead
-  footer,
-  // if parent wants to disable navigation (rare)
-  disableNavigate = false,
-}: {
-  set: SetLite;
-  token?: string;
-
-  showShop?: boolean;
-  showAddToList?: boolean;
-
-  footer?: React.ReactNode;
-  disableNavigate?: boolean;
-}) {
-  const router = useRouter();
-  if (!set) return null;
-
-  const setNum = String(set.set_num || "").trim();
-  const name = set.name || "Unknown set";
-
-  const piecesRaw =
-    set.pieces != null ? set.pieces : set.num_parts != null ? set.num_parts : null;
-
-  const piecesLabel =
-    typeof piecesRaw === "number"
-      ? `${piecesRaw.toLocaleString()} pieces`
-      : typeof piecesRaw === "string" && piecesRaw.trim()
-      ? `${piecesRaw.trim()} pieces`
+  const initialUser =
+    typeof set.user_rating === "number" && Number.isFinite(set.user_rating)
+      ? clamp(set.user_rating, 0, 5)
       : null;
 
-  const avg = typeof set.average_rating === "number" ? set.average_rating : null;
-  const count = typeof set.rating_count === "number" ? set.rating_count : null;
+  const [userRating, setUserRating] = useState<number | null>(initialUser);
+  const [showRate, setShowRate] = useState(false);
+  const [savingRate, setSavingRate] = useState(false);
+  const [rateErr, setRateErr] = useState<string | null>(null);
 
-  const retail = typeof set.retail_price === "number" ? set.retail_price : null;
-  const sale = typeof set.sale_price === "number" ? set.sale_price : null;
-  const from =
-    typeof set.price_from === "number"
-      ? set.price_from
-      : typeof set.retail_price === "number"
-      ? set.retail_price
+  const price = useMemo(() => {
+    const sale =
+      typeof set.sale_price === "number"
+        ? set.sale_price
+        : typeof set.sale_price_from === "number"
+        ? set.sale_price_from
+        : null;
+
+    const original =
+      typeof set.original_price === "number"
+        ? set.original_price
+        : typeof set.price === "number"
+        ? set.price
+        : typeof set.price_from === "number"
+        ? set.price_from
+        : null;
+
+    return { original, sale };
+  }, [set]);
+
+  // Per your plan:
+  // - owned: only user rating footer (or add rating)
+  // - wishlist: show price area (and parent can inject shop button via footer)
+  // - feed/default: show price area (sale/new/retiring soon)
+  const showPrice = variant === "wishlist" || variant === "feed" || variant === "default";
+  const isOwned = variant === "owned";
+
+  const globalRatingCompact =
+    ratingAvg != null
+      ? {
+          text: ratingAvg.toFixed(1),
+          count: ratingCount,
+        }
       : null;
 
-  const hasSale = sale !== null && retail !== null && sale < retail;
+  async function submitRating(n: number) {
+    if (!token) {
+      setRateErr("Login required");
+      return;
+    }
 
-  function goToSet() {
-    if (disableNavigate) return;
-    if (!setNum) return;
-    router.push(`/sets/${encodeURIComponent(setNum)}`);
+    setRateErr(null);
+    setSavingRate(true);
+
+    try {
+      // ⚠️ If your backend rating endpoint differs, change ONLY this call.
+      // Common options:
+      //  - PUT  /ratings/{set_num}   body { rating }
+      //  - POST /ratings             body { set_num, rating }
+      await apiFetch(`/ratings/${encodeURIComponent(set.set_num)}`, {
+        token,
+        method: "PUT",
+        body: { rating: n },
+      });
+
+      setUserRating(n);
+      setShowRate(false);
+    } catch (e: any) {
+      setRateErr(e?.message || String(e));
+    } finally {
+      setSavingRate(false);
+    }
   }
 
-  function goToShop(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!setNum) return;
-    router.push(`/sets/${encodeURIComponent(setNum)}#shop`);
-  }
+  return (
+    <div className="overflow-hidden rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+      <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block">
+        <div className="aspect-[4/3] w-full bg-zinc-50 dark:bg-white/5">
+          {set.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={set.image_url} alt={title} className="h-full w-full object-contain p-4" loading="lazy" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>
+          )}
+        </div>
 
-  const defaultFooter =
-    footer ?? (
-      <div className="flex gap-2">
-        {showShop ? (
-          <button
-            type="button"
-            onClick={goToShop}
-            className="h-8 flex-1 rounded-full border border-black/[.12] bg-white px-3 text-xs font-extrabold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-          >
-            Shop
-          </button>
-        ) : null}
+        <div className="px-4 pb-4 pt-3">
+          <div className="line-clamp-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
 
-        {showAddToList ? (
-          <div className="flex-[2] min-w-[120px]" onClick={(e) => e.stopPropagation()}>
-            {token ? (
-              <AddToListMenu token={token} setNum={setNum} />
+          {/* line 1: set_num • year */}
+          <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+            <span className="truncate">{set.set_num}</span>
+            <span aria-hidden="true">•</span>
+            <span className="shrink-0">{year}</span>
+          </div>
+
+          {/* line 2: pieces • global rating compact */}
+          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <div className="truncate">{pieces != null ? `${pieces.toLocaleString()} pcs` : "—"}</div>
+
+            {globalRatingCompact ? (
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                  {globalRatingCompact.text}
+                </span>
+                <StarIcon className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />
+                {typeof globalRatingCompact.count === "number" ? (
+                  <span className="text-zinc-500">({globalRatingCompact.count})</span>
+                ) : null}
+              </div>
+            ) : (
+              <span className="text-zinc-500"> </span>
+            )}
+          </div>
+
+          {/* price area */}
+          {showPrice ? (
+            <div className="mt-2 flex items-baseline gap-2 text-sm">
+              {typeof price.sale === "number" &&
+              typeof price.original === "number" &&
+              Number.isFinite(price.sale) &&
+              Number.isFinite(price.original) &&
+              price.sale < price.original ? (
+                <>
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.sale)}</span>
+                  <span className="text-xs text-zinc-500 line-through">{formatPrice(price.original)}</span>
+                </>
+              ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
+                <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.original)}</span>
+              ) : (
+                <span className="text-xs text-zinc-500"> </span>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </Link>
+
+      {/* footer */}
+      {isOwned ? (
+        <div className="border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">
+          <div className="flex flex-col items-center gap-2">
+            {userRating != null ? (
+              <Stars value={userRating} className="justify-center" />
+            ) : showRate ? (
+              <StarPicker disabled={savingRate} onPick={submitRating} />
             ) : (
               <button
                 type="button"
-                className="h-8 w-full rounded-full border border-black/[.12] bg-white px-3 text-xs font-extrabold opacity-60 dark:border-white/[.16] dark:bg-transparent"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  router.push("/login");
+                onClick={() => {
+                  setRateErr(null);
+                  setShowRate(true);
                 }}
+                className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
               >
-                Add to list
+                Add a rating
               </button>
             )}
-          </div>
-        ) : null}
-      </div>
-    );
 
-  return (
-    <div
-      onClick={goToSet}
-      className="flex min-h-[300px] w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-black/[.06] bg-white shadow-sm hover:shadow-md dark:border-white/[.10] dark:bg-zinc-950"
-    >
-      <SmartThumb src={set.image_url} alt={name || setNum} aspect="16 / 10" />
-
-      <div className="flex flex-1 flex-col px-3 pb-3 pt-2">
-        <div className="mb-2">
-          <div className="line-clamp-2 min-h-[2.44em] text-sm font-semibold leading-snug text-zinc-900 dark:text-zinc-50">
-            {name}
-          </div>
-
-          <div className="mt-1 text-xs text-zinc-500">
-            <span className="font-semibold">{setNum}</span>
-            {set.year ? ` • ${set.year}` : ""}
+            {rateErr ? <div className="text-xs text-red-600">{rateErr}</div> : null}
           </div>
         </div>
-
-        {(set.theme || piecesLabel) ? (
-          <div className="mb-2 text-xs text-zinc-500">
-            {set.theme ? <div className="truncate">{set.theme}</div> : null}
-            {piecesLabel ? <div>{piecesLabel}</div> : null}
-          </div>
-        ) : null}
-
-        {(avg !== null || count !== null) ? (
-          <div className="mb-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <span>⭐</span>
-            <span>{avg !== null ? avg.toFixed(1) : "—"}</span>
-            {count !== null ? <span className="text-zinc-400">({count})</span> : null}
-          </div>
-        ) : null}
-
-        {(hasSale || from !== null || retail !== null) ? (
-          <div className="mb-2 flex items-baseline justify-between gap-3">
-            <div className="text-xs font-extrabold text-zinc-500">Price</div>
-
-            {hasSale ? (
-              <div className="flex items-baseline gap-2">
-                <div className="text-sm font-black text-zinc-900 dark:text-zinc-50">{money(sale)}</div>
-                <div className="text-xs font-extrabold text-zinc-400 line-through">{money(retail)}</div>
-                <div className="rounded-full border border-black/[.08] bg-zinc-50 px-2 py-0.5 text-[11px] font-black text-zinc-900 dark:border-white/[.12] dark:bg-black dark:text-zinc-50">
-                  Save {money((retail as number) - (sale as number))}
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm font-black text-zinc-900 dark:text-zinc-50">
-                {from !== null ? (set.price_from != null ? `From ${money(from)}` : money(from)) : "—"}
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        <div className="flex-1" />
-
-        <div className="mt-2 border-t border-black/[.06] pt-2 dark:border-white/[.10]">
-          {defaultFooter}
-        </div>
-      </div>
+      ) : footer ? (
+        <div className="border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">{footer}</div>
+      ) : null}
     </div>
   );
 }

@@ -18,14 +18,16 @@ type Offer = {
   in_stock?: boolean;
 };
 
-type Review = {
-  id?: number | string;
-  username?: string;
-  user?: string;
-  rating?: number | null;
-  text?: string | null;
-  created_at?: string;
-  createdAt?: string;
+type ReviewItem = {
+  id: number;
+  set_num: string;
+  user: string;
+  rating: number | null;
+  text: string | null;
+  created_at: string;
+  updated_at: string | null;
+  likes_count: number;
+  liked_by: string[];
 };
 
 type RatingSummary = {
@@ -49,29 +51,41 @@ type SetDetail = {
 };
 
 type Props = {
-  setNum?: string; // optional: if you pass it from the server
-  initialData?: SetDetail | null; // optional: server can pass fetched set detail
+  setNum?: string;
+  initialData?: SetDetail | null;
 };
 
-function formatReviewDate(value: string | undefined) {
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function formatReviewDate(value?: string) {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(d);
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(d);
 }
 
 function toThemeSlug(themeName: unknown) {
   return encodeURIComponent(String(themeName || "").trim());
 }
 
+function computeStarsFromPointer(el: HTMLElement, clientX: number) {
+  const rect = el.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const relative = rect.width > 0 ? x / rect.width : 0;
+
+  let value = relative * 5;
+  value = Math.round(value * 2) / 2; // half-stars
+  if (value < 0.5) value = 0.5;
+  if (value > 5) value = 5;
+  return value;
+}
+
 export default function SetDetailClient(props: Props) {
   const router = useRouter();
 
-  // Prefer setNum prop (server-provided). Otherwise use route param.
+  // Prefer prop setNum (server-provided). Otherwise use route param.
   const params = useParams<{ setNum?: string }>();
   const routeSetNum = params?.setNum ? decodeURIComponent(String(params.setNum)) : "";
   const setNum = (props.setNum?.trim() || routeSetNum).trim();
@@ -82,52 +96,106 @@ export default function SetDetailClient(props: Props) {
   const PREVIEW_SIMILAR_LIMIT = 12;
 
   // -------------------------------
-  // Basic set + reviews state
+  // Basic set state
   // -------------------------------
   const [setDetail, setSetDetail] = useState<SetDetail | null>(props.initialData ?? null);
   const [loading, setLoading] = useState<boolean>(!props.initialData);
   const [error, setError] = useState<string | null>(null);
 
-  const [reviews, setReviews] = useState<Review[]>([]);
+  // -------------------------------
+  // Determine "current username"
+  // -------------------------------
+  const [meUsername, setMeUsername] = useState<string | null>(null);
+
+  // -------------------------------
+  // Reviews state
+  // -------------------------------
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
 
   // -------------------------------
-  // Rating state
+  // Rating summary
+  // -------------------------------
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [ratingCount, setRatingCount] = useState(0);
+  const [ratingSummaryLoading, setRatingSummaryLoading] = useState(false);
+  const [ratingSummaryError, setRatingSummaryError] = useState<string | null>(null);
+
+  // -------------------------------
+  // "Your rating" UI state
   // -------------------------------
   const [userRating, setUserRating] = useState<number | null>(null);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [savingRating, setSavingRating] = useState(false);
   const [ratingError, setRatingError] = useState<string | null>(null);
 
-  // Global rating summary
-  const [avgRating, setAvgRating] = useState<number | null>(null);
-  const [ratingCount, setRatingCount] = useState(0);
-  const [ratingSummaryLoading, setRatingSummaryLoading] = useState(false);
-  const [ratingSummaryError, setRatingSummaryError] = useState<string | null>(null);
-
-  // Reviews UI
+  // -------------------------------
+  // Review form UI
+  // -------------------------------
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewText, setReviewText] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState<string | null>(null);
 
+  // -------------------------------
   // Similar sets
+  // -------------------------------
   const [similarSets, setSimilarSets] = useState<SetLite[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState<string | null>(null);
   const similarRowRef = useRef<HTMLDivElement | null>(null);
 
+  // -------------------------------
   // Shop offers
+  // -------------------------------
   const [offers, setOffers] = useState<Offer[]>([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
   const shopRef = useRef<HTMLHeadingElement | null>(null);
 
   // -------------------------------
-  // Determine "current username" via /users/me
+  // Derived review subsets
   // -------------------------------
-  const [meUsername, setMeUsername] = useState<string | null>(null);
+  const myReview = useMemo(() => {
+    if (!isLoggedIn || !meUsername) return null;
+    return reviews.find((r) => r.user === meUsername) || null;
+  }, [reviews, isLoggedIn, meUsername]);
+
+  const visibleReviews = useMemo(() => {
+    return reviews.filter((r) => r.text && String(r.text).trim() !== "");
+  }, [reviews]);
+
+  // -------------------------------
+  // Optional Head fallback (server metadata is primary)
+  // -------------------------------
+  const headFallback = useMemo(() => {
+    const base = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/+$/, "");
+    const url = base ? `${base}/sets/${encodeURIComponent(setNum)}` : `/sets/${encodeURIComponent(setNum)}`;
+
+    const title =
+      setDetail?.name && setNum
+        ? `LEGO ${setNum} — ${setDetail.name} | YourSite`
+        : setNum
+        ? `LEGO ${setNum} — LEGO Set | YourSite`
+        : `LEGO Set | YourSite`;
+
+    const desc =
+      setDetail?.name && setDetail?.year && (setDetail?.pieces ?? setDetail?.num_parts)
+        ? `Details for LEGO set ${setNum}: ${setDetail.name}. ${setDetail.pieces ?? setDetail.num_parts} pieces · from ${setDetail.year}.`
+        : setDetail?.name
+        ? `Details for LEGO set ${setNum}: ${setDetail.name}.`
+        : setNum
+        ? `Details for LEGO set ${setNum}.`
+        : `LEGO set details.`;
+
+    const image = setDetail?.image_url || undefined;
+    return { url, title, desc, image };
+  }, [setNum, setDetail]);
+
+  // -------------------------------
+  // Load /users/me (only when logged in)
+  // -------------------------------
   useEffect(() => {
     let cancelled = false;
 
@@ -151,53 +219,6 @@ export default function SetDetailClient(props: Props) {
     };
   }, [token, hydrated]);
 
-  // Your existing review (if any)
-  const myReview = useMemo(() => {
-    if (!isLoggedIn) return null;
-    const arr = Array.isArray(reviews) ? reviews : [];
-    return arr.find((r) => (r.user || r.username) === meUsername) || null;
-  }, [reviews, isLoggedIn, meUsername]);
-
-  const textReviews = useMemo(() => {
-    const arr = Array.isArray(reviews) ? reviews : [];
-    return arr.filter((r) => typeof r.text === "string" && r.text.trim() !== "");
-  }, [reviews]);
-
-  const visibleReviews = useMemo(() => {
-    const arr = Array.isArray(textReviews) ? textReviews : [];
-    return arr.filter((r) => (r.username || r.user) && r.text && String(r.text).trim() !== "");
-  }, [textReviews]);
-
-  // -------------------------------
-  // Optional step: client-side head tags fallback
-  // (Your server metadata is the real one; this is just a safety net.)
-  // -------------------------------
-  const headFallback = useMemo(() => {
-    // If you have NEXT_PUBLIC_SITE_URL set, use it, otherwise keep it relative.
-    const base = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/+$/, "");
-    const url = base ? `${base}/sets/${encodeURIComponent(setNum)}` : `/sets/${encodeURIComponent(setNum)}`;
-
-    const title =
-      setDetail?.name && setNum
-        ? `LEGO ${setNum} — ${setDetail.name} | YourSite`
-        : setNum
-          ? `LEGO ${setNum} — LEGO Set | YourSite`
-          : `LEGO Set | YourSite`;
-
-    const desc =
-      setDetail?.name && setDetail?.year && (setDetail?.pieces ?? setDetail?.num_parts)
-        ? `Details for LEGO set ${setNum}: ${setDetail.name}. ${setDetail.pieces ?? setDetail.num_parts} pieces · from ${setDetail.year}.`
-        : setDetail?.name
-          ? `Details for LEGO set ${setNum}: ${setDetail.name}.`
-          : setNum
-            ? `Details for LEGO set ${setNum}.`
-            : `LEGO set details.`;
-
-    const image = setDetail?.image_url || undefined;
-
-    return { url, title, desc, image };
-  }, [setNum, setDetail?.name, setDetail?.year, setDetail?.pieces, setDetail?.num_parts, setDetail?.image_url]);
-
   // -------------------------------
   // Scroll to shop when hash is #shop
   // -------------------------------
@@ -215,16 +236,17 @@ export default function SetDetailClient(props: Props) {
   }, [loading]);
 
   // -------------------------------
-  // Helpers: fetch reviews (reusable)
+  // Helpers
   // -------------------------------
   async function fetchReviewsForSet(currentSetNum: string) {
     setReviewsLoading(true);
     setReviewsError(null);
 
     try {
-      const data = await apiFetch<Review[]>(`/sets/${encodeURIComponent(currentSetNum)}/reviews?limit=50`, {
-        cache: "no-store",
-      });
+      const data = await apiFetch<ReviewItem[]>(
+        `/sets/${encodeURIComponent(currentSetNum)}/reviews?limit=50`,
+        { token: token || undefined, cache: "no-store" }
+      );
       const arr = Array.isArray(data) ? data : [];
       setReviews(arr);
       return arr;
@@ -237,8 +259,26 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
+  async function fetchRatingSummary(currentSetNum: string) {
+    setRatingSummaryLoading(true);
+    setRatingSummaryError(null);
+
+    try {
+      const data = await apiFetch<RatingSummary>(`/sets/${encodeURIComponent(currentSetNum)}/rating`, {
+        cache: "no-store",
+      });
+
+      setAvgRating(typeof data?.average === "number" ? data.average : null);
+      setRatingCount(typeof data?.count === "number" ? data.count : 0);
+    } catch (e: any) {
+      setRatingSummaryError(e?.message || String(e));
+    } finally {
+      setRatingSummaryLoading(false);
+    }
+  }
+
   // -------------------------------
-  // Load set detail + reviews
+  // Load set detail + reviews + summary
   // -------------------------------
   useEffect(() => {
     if (!setNum) return;
@@ -248,29 +288,23 @@ export default function SetDetailClient(props: Props) {
     async function fetchData() {
       try {
         setError(null);
-
-        // If server already gave us data, don’t force a loading spinner.
         if (!props.initialData) setLoading(true);
 
-        const detail = await apiFetch<SetDetail>(`/sets/${encodeURIComponent(setNum)}`, {
-          cache: "no-store",
-        });
+        const detail = await apiFetch<SetDetail>(`/sets/${encodeURIComponent(setNum)}`, { cache: "no-store" });
         if (cancelled) return;
         setSetDetail(detail || null);
 
-        const reviewsData = await fetchReviewsForSet(setNum);
+        const [reviewsArr] = await Promise.all([fetchReviewsForSet(setNum), fetchRatingSummary(setNum)]);
         if (cancelled) return;
 
-        // If logged in, sync rating from your review (if present)
-        if (meUsername && Array.isArray(reviewsData)) {
-          const mine = reviewsData.find((r) => (r.user || r.username) === meUsername);
-          if (mine && typeof mine.rating === "number") setUserRating(mine.rating);
-          else setUserRating(null);
+        if (meUsername) {
+          const mine = (reviewsArr || []).find((r) => r.user === meUsername) || null;
+          setUserRating(typeof mine?.rating === "number" ? clamp(mine.rating, 0, 5) : null);
         } else {
           setUserRating(null);
         }
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || String(err));
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || String(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -296,13 +330,9 @@ export default function SetDetailClient(props: Props) {
         setOffersLoading(true);
         setOffersError(null);
 
-        const data = await apiFetch<Offer[]>(`/sets/${encodeURIComponent(setNum)}/offers`, {
-          cache: "no-store",
-        });
+        const data = await apiFetch<Offer[]>(`/sets/${encodeURIComponent(setNum)}/offers`, { cache: "no-store" });
 
         const list = Array.isArray(data) ? data : [];
-
-        // sort: in stock first, then lowest price
         list.sort((a, b) => {
           const aStock = a?.in_stock ? 0 : 1;
           const bStock = b?.in_stock ? 0 : 1;
@@ -313,48 +343,14 @@ export default function SetDetailClient(props: Props) {
         });
 
         if (!cancelled) setOffers(list);
-      } catch (err: any) {
-        if (!cancelled) setOffersError(err?.message || String(err));
+      } catch (e: any) {
+        if (!cancelled) setOffersError(e?.message || String(e));
       } finally {
         if (!cancelled) setOffersLoading(false);
       }
     }
 
     fetchOffers();
-    return () => {
-      cancelled = true;
-    };
-  }, [setNum]);
-
-  // -------------------------------
-  // Rating summary (avg + count)
-  // -------------------------------
-  useEffect(() => {
-    if (!setNum) return;
-
-    let cancelled = false;
-
-    async function fetchRatingSummary() {
-      try {
-        setRatingSummaryLoading(true);
-        setRatingSummaryError(null);
-
-        const data = await apiFetch<RatingSummary>(`/sets/${encodeURIComponent(setNum)}/rating`, {
-          cache: "no-store",
-        });
-
-        if (!cancelled) {
-          setAvgRating(typeof data?.average === "number" ? data.average : null);
-          setRatingCount(typeof data?.count === "number" ? data.count : 0);
-        }
-      } catch (err: any) {
-        if (!cancelled) setRatingSummaryError(err?.message || String(err));
-      } finally {
-        if (!cancelled) setRatingSummaryLoading(false);
-      }
-    }
-
-    fetchRatingSummary();
     return () => {
       cancelled = true;
     };
@@ -389,8 +385,8 @@ export default function SetDetailClient(props: Props) {
         items = items.filter((s) => String(s?.set_num) !== String(setNum));
 
         if (!cancelled) setSimilarSets(items.slice(0, PREVIEW_SIMILAR_LIMIT));
-      } catch (err: any) {
-        if (!cancelled) setSimilarError(err?.message || String(err));
+      } catch (e: any) {
+        if (!cancelled) setSimilarError(e?.message || String(e));
       } finally {
         if (!cancelled) setSimilarLoading(false);
       }
@@ -403,10 +399,52 @@ export default function SetDetailClient(props: Props) {
   }, [setDetail?.theme, setNum]);
 
   // -------------------------------
-  // Delete "my review" (and rating)
+  // Reviews: create/update
+  // -------------------------------
+  async function upsertMyReview(payload: { rating: number | null; text: string | null }) {
+    if (!token) {
+      router.push("/login");
+      throw new Error("Login required");
+    }
+
+    const created = await apiFetch<ReviewItem>(`/sets/${encodeURIComponent(setNum)}/reviews`, {
+      token,
+      method: "POST",
+      body: payload,
+    });
+
+    if (!created) throw new Error("No response from server");
+
+    setReviews((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      const others = meUsername ? arr.filter((r) => r.user !== meUsername) : arr;
+      return [created, ...others];
+    });
+
+    setUserRating(typeof created.rating === "number" ? created.rating : null);
+
+    // keep summary fresh
+    fetchRatingSummary(setNum).catch(() => {});
+
+    return created;
+  }
+
+  function startEditMyReview() {
+    if (!isLoggedIn) {
+      router.push("/login");
+      return;
+    }
+    setShowReviewForm(true);
+    setReviewText(myReview?.text || "");
+    setReviewSubmitError(null);
+    if (typeof myReview?.rating === "number") setUserRating(myReview.rating);
+  }
+
+  // -------------------------------
+  // Delete my review
   // -------------------------------
   async function deleteMyReview() {
-    if (!isLoggedIn) {
+    if (!token) {
       router.push("/login");
       return;
     }
@@ -424,33 +462,27 @@ export default function SetDetailClient(props: Props) {
         method: "DELETE",
       });
 
+      // optimistic UI
       setUserRating(null);
+      setHoverRating(null);
       setReviewText("");
       setShowReviewForm(false);
-      setReviews((prev) =>
-        Array.isArray(prev) ? prev.filter((r) => (r.user || r.username) !== meUsername) : prev
-      );
+      setReviews((prev) => (meUsername ? prev.filter((r) => r.user !== meUsername) : prev));
 
-      await fetchReviewsForSet(setNum);
-    } catch (err: any) {
-      setRatingError(err?.message || String(err));
+      // authoritative refresh
+      await Promise.all([fetchReviewsForSet(setNum), fetchRatingSummary(setNum)]);
+
+      // (optional) if you want a hard refresh of the route:
+      // router.refresh();
+    } catch (e: any) {
+      setRatingError(e?.message || String(e));
     } finally {
       setSavingRating(false);
     }
   }
 
-  function startEditMyReview() {
-    if (!isLoggedIn) {
-      router.push("/login");
-      return;
-    }
-    setShowReviewForm(true);
-    setReviewText(myReview?.text || "");
-    if (typeof myReview?.rating === "number") setUserRating(myReview.rating);
-  }
-
   // -------------------------------
-  // Save rating (POST review with text=null)
+  // Save rating-only (text null)
   // -------------------------------
   async function saveRating(newRating: number) {
     if (!isLoggedIn) {
@@ -461,32 +493,9 @@ export default function SetDetailClient(props: Props) {
     try {
       setSavingRating(true);
       setRatingError(null);
-
-      const payload = { rating: Number(newRating), text: null };
-
-      const created = await apiFetch<Review>(`/sets/${encodeURIComponent(setNum)}/reviews`, {
-        token,
-        method: "POST",
-        body: payload,
-      });
-
-      setReviews((prev) => {
-        const arr = Array.isArray(prev) ? prev : [];
-        const others = arr.filter((r) => (r.user || r.username) !== meUsername);
-        return [created, ...others];
-      });
-
-      setUserRating(Number(newRating));
-
-      // refresh summary
-      apiFetch(`/sets/${encodeURIComponent(setNum)}/rating`, { cache: "no-store" })
-        .then((data: any) => {
-          setAvgRating(typeof data?.average === "number" ? data.average : null);
-          setRatingCount(typeof data?.count === "number" ? data.count : 0);
-        })
-        .catch(() => {});
-    } catch (err: any) {
-      setRatingError(err?.message || String(err));
+      await upsertMyReview({ rating: Number(newRating), text: null });
+    } catch (e: any) {
+      setRatingError(e?.message || String(e));
     } finally {
       setSavingRating(false);
     }
@@ -499,7 +508,7 @@ export default function SetDetailClient(props: Props) {
     }
 
     if (userRating != null && Number(userRating) === Number(value)) {
-      await deleteMyReview(); // same behavior as before
+      await deleteMyReview();
       return;
     }
 
@@ -508,7 +517,7 @@ export default function SetDetailClient(props: Props) {
   }
 
   // -------------------------------
-  // Review submit (create/update)
+  // Review submit
   // -------------------------------
   async function handleReviewSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -523,42 +532,19 @@ export default function SetDetailClient(props: Props) {
       return;
     }
 
-    const payload = {
-      rating: userRating == null ? null : Number(userRating),
-      text: reviewText.trim() || null,
-    };
-
     try {
       setReviewSubmitting(true);
       setReviewSubmitError(null);
 
-      const created = await apiFetch<Review>(`/sets/${encodeURIComponent(setNum)}/reviews`, {
-        token,
-        method: "POST",
-        body: payload,
+      await upsertMyReview({
+        rating: userRating == null ? null : Number(userRating),
+        text: reviewText.trim() || null,
       });
-
-      setReviews((prev) => {
-        const arr = Array.isArray(prev) ? prev : [];
-        const others = arr.filter((r) => (r.user || r.username) !== meUsername);
-        return [created, ...others];
-      });
-
-      if (typeof created?.rating === "number") setUserRating(created.rating);
 
       setReviewText("");
       setShowReviewForm(false);
-
-      // refresh summary
-      try {
-        const sum = await apiFetch<RatingSummary>(`/sets/${encodeURIComponent(setNum)}/rating`, {
-          cache: "no-store",
-        });
-        setAvgRating(typeof sum?.average === "number" ? sum.average : null);
-        setRatingCount(typeof sum?.count === "number" ? sum.count : 0);
-      } catch {}
-    } catch (err: any) {
-      setReviewSubmitError(err?.message || String(err));
+    } catch (e: any) {
+      setReviewSubmitError(e?.message || String(e));
     } finally {
       setReviewSubmitting(false);
     }
@@ -570,8 +556,7 @@ export default function SetDetailClient(props: Props) {
   function scrollSimilar(direction: number) {
     const node = similarRowRef.current;
     if (!node) return;
-    const cardWidth = 240;
-    node.scrollBy({ left: direction * cardWidth, behavior: "smooth" });
+    node.scrollBy({ left: direction * 240, behavior: "smooth" });
   }
 
   // -------------------------------
@@ -624,22 +609,20 @@ export default function SetDetailClient(props: Props) {
   const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
 
-  const isRetired =
-    setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
+  const isRetired = setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
 
   // -------------------------------
   // Render
   // -------------------------------
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
-      {/* OPTIONAL STEP: Client-side metadata fallback (Head). */}
       <Head>
         <link rel="canonical" href={headFallback.url} />
         <meta property="og:url" content={headFallback.url} />
         <meta property="og:title" content={headFallback.title} />
         <meta property="og:description" content={headFallback.desc} />
         {headFallback.image ? <meta property="og:image" content={headFallback.image} /> : null}
-        <meta name="twitter:card" content={headFallback.image ? "summary_large_image" : "summary"} />
+        <meta name="twitter:card" content={headFallback.image ? "summary_large_image" : "summary" } />
         <meta name="twitter:title" content={headFallback.title} />
         <meta name="twitter:description" content={headFallback.desc} />
         {headFallback.image ? <meta name="twitter:image" content={headFallback.image} /> : null}
@@ -687,11 +670,8 @@ export default function SetDetailClient(props: Props) {
 
           {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? (
-            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
-          ) : null}
+          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
-          {/* rating summary */}
           {(ratingSummaryLoading || ratingSummaryError || ratingCount > 0) ? (
             <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
               ⭐{" "}
@@ -725,14 +705,7 @@ export default function SetDetailClient(props: Props) {
                 style={{ opacity: savingRating ? 0.7 : 1 }}
                 onMouseMove={(e) => {
                   if (!isLoggedIn || savingRating) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const relative = x / rect.width;
-                  let value = relative * 5;
-                  value = Math.round(value * 2) / 2;
-                  if (value < 0.5) value = 0.5;
-                  if (value > 5) value = 5;
-                  setHoverRating(value);
+                  setHoverRating(computeStarsFromPointer(e.currentTarget, e.clientX));
                 }}
                 onMouseLeave={() => setHoverRating(null)}
                 onClick={async (e) => {
@@ -740,13 +713,7 @@ export default function SetDetailClient(props: Props) {
                     router.push("/login");
                     return;
                   }
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const relative = x / rect.width;
-                  let value = relative * 5;
-                  value = Math.round(value * 2) / 2;
-                  if (value < 0.5) value = 0.5;
-                  if (value > 5) value = 5;
+                  const value = computeStarsFromPointer(e.currentTarget, e.clientX);
                   await handleStarClick(value);
                 }}
               >
@@ -896,6 +863,7 @@ export default function SetDetailClient(props: Props) {
               placeholder="What did you think of this set?"
               className="w-full rounded-xl border border-black/[.10] bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-zinc-950 dark:focus:ring-white/10"
               rows={4}
+              disabled={reviewSubmitting}
             />
 
             {reviewSubmitError ? <p className="mt-2 text-sm text-red-600">{reviewSubmitError}</p> : null}
@@ -933,22 +901,25 @@ export default function SetDetailClient(props: Props) {
         {!reviewsLoading && !reviewsError && visibleReviews.length > 0 ? (
           <ul className="mt-4 space-y-3">
             {visibleReviews.map((r) => {
-              const isMine = isLoggedIn && (r.user || r.username) === meUsername;
-              const when = formatReviewDate(r.created_at || r.createdAt);
+              const isMine = isLoggedIn && meUsername && r.user === meUsername;
+              const when = formatReviewDate(r.created_at);
+
               return (
                 <li
-                  key={String(r.id ?? `${r.username}-${r.created_at ?? r.createdAt ?? Math.random()}`)}
+                  key={String(r.id)}
                   className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">{r.username || r.user}</span>
+                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">{r.user}</span>
                       {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
                     </div>
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
-                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">{r.rating.toFixed(1)} ★</div>
+                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                          {r.rating.toFixed(1)} ★
+                        </div>
                       ) : null}
 
                       {isMine ? (

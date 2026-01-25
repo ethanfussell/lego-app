@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
-import AddToListMenu from "@/app/components/AddToListMenu";
 
 type ListSummary = {
   id: number | string;
@@ -36,16 +35,42 @@ function toSetNums(detail: ListDetail | null | undefined) {
 }
 
 async function fetchSetsBulk(setNums: string[], token: string) {
-  const nums = (Array.isArray(setNums) ? setNums : []).filter(Boolean);
+  const nums = (Array.isArray(setNums) ? setNums : [])
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
   if (nums.length === 0) return [];
 
+  // Backend expects: set_nums=21355-1,4000045-1
   const params = new URLSearchParams();
   params.set("set_nums", nums.join(","));
 
-  const data = await apiFetch<SetLite[]>(`/sets/bulk?${params.toString()}`, { token });
+  const data = await apiFetch<any>(`/sets/bulk?${params.toString()}`, {
+    token,
+    cache: "no-store",
+  });
+
   const arr = Array.isArray(data) ? data : [];
-  const byNum = new Map(arr.map((s) => [s.set_num, s]));
-  return nums.map((n) => byNum.get(n)).filter(Boolean) as SetLite[];
+  if (arr.length === 0) return [];
+
+  // Normalizers to handle "21355" vs "21355-1"
+  const toPlain = (n: string) => n.replace(/-\d+$/, "");
+  const toDash1 = (n: string) => (/-\d+$/.test(n) ? n : `${n}-1`);
+
+  // Build lookup map with multiple keys per set
+  const byKey = new Map<string, any>();
+  for (const s of arr) {
+    const sn = String(s?.set_num || "").trim();
+    if (!sn) continue;
+    byKey.set(sn, s);
+    byKey.set(toPlain(sn), s);
+    byKey.set(toDash1(sn), s);
+  }
+
+  // Return sets in the same order as the list items
+  return nums
+    .map((n) => byKey.get(n) || byKey.get(toPlain(n)) || byKey.get(toDash1(n)))
+    .filter(Boolean);
 }
 
 export default function CollectionOwnedClient() {
@@ -140,17 +165,7 @@ export default function CollectionOwnedClient() {
         <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 list-none p-0">
           {sets.map((s) => (
             <li key={s.set_num}>
-              <SetCard
-                set={s}
-                footer={
-                  <AddToListMenu
-                    token={token}
-                    setNum={s.set_num}
-                    initialOwnedSelected={ownedSetNums.has(String(s.set_num))}
-                    // wishlist initial is unknown here unless you load wishlist too; ok for now
-                  />
-                }
-              />
+              <SetCard set={s} variant="owned" token={token}/>
             </li>
           ))}
         </ul>

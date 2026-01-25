@@ -1,64 +1,103 @@
-import type { NextRequest } from "next/server";
+// frontend_next/app/api/[...path]/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_BASE = process.env.BACKEND_BASE_URL || "http://localhost:8000";
+export const dynamic = "force-dynamic";
 
-// Strip hop-by-hop headers that should not be forwarded
-function cleanRequestHeaders(headers: Headers) {
-  const h = new Headers(headers);
-  h.delete("host");
-  h.delete("connection");
-  h.delete("content-length");
-  h.delete("accept-encoding");
-  h.delete("sec-fetch-mode");
-  h.delete("sec-fetch-site");
-  h.delete("sec-fetch-dest"); // let node handle it
+function backendBase() {
+  return (
+    process.env.API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://127.0.0.1:8000"
+  );
+}
+
+function normalizePath(pathParam: unknown): string[] {
+  if (Array.isArray(pathParam)) return pathParam.map(String);
+  if (typeof pathParam === "string" && pathParam.length) return [pathParam];
+  return [];
+}
+
+function fallbackPathFromUrl(req: NextRequest): string {
+  // req.nextUrl.pathname is like: /api/sets/21355-1/reviews/me
+  const p = req.nextUrl.pathname || "";
+  const stripped = p.startsWith("/api/") ? p.slice("/api/".length) : p.replace(/^\/+/, "");
+  return stripped;
+}
+
+function copyRequestHeaders(req: NextRequest) {
+  const h = new Headers();
+  const auth = req.headers.get("authorization");
+  if (auth) h.set("authorization", auth);
+
+  const ct = req.headers.get("content-type");
+  if (ct) h.set("content-type", ct);
+
   return h;
 }
 
-// Strip hop-by-hop response headers too
-function cleanResponseHeaders(headers: Headers) {
-  const h = new Headers(headers);
-  h.delete("connection");
-  h.delete("content-encoding");
-  h.delete("transfer-encoding");
+function copyResponseHeaders(resp: Response, proxyUrl: string) {
+  const h = new Headers();
+
+  const ct = resp.headers.get("content-type");
+  if (ct) h.set("content-type", ct);
+
+  const xtc = resp.headers.get("x-total-count");
+  if (xtc) h.set("x-total-count", xtc);
+
+  h.set("x-proxy-url", proxyUrl);
+  h.set("x-hit", "api-[...path]");
+
   return h;
 }
 
-async function proxy(req: NextRequest) {
-  // Example: /api/sets -> /sets
-  const incomingUrl = req.nextUrl;
-  const pathAfterApi = incomingUrl.pathname.replace(/^\/api/, "") || "/";
-  const targetUrl = `${BACKEND_BASE}${pathAfterApi}${incomingUrl.search}`;
+async function proxy(req: NextRequest, ctx: any) {
+  const parts = normalizePath(ctx?.params?.path);
+
+  // ✅ if Next fails to populate params, use the URL as truth
+  const path = parts.length ? parts.join("/") : fallbackPathFromUrl(req);
+
+  const proxyUrl = `${backendBase()}/${path}${req.nextUrl.search || ""}`;
 
   const method = req.method.toUpperCase();
-
-  // Only include a body for methods that can have one
   const hasBody = !["GET", "HEAD"].includes(method);
-  const body = hasBody ? await req.arrayBuffer() : undefined;
+  const body = hasBody ? await req.text() : undefined;
 
-  const upstreamResp = await fetch(targetUrl, {
+  const resp = await fetch(proxyUrl, {
     method,
-    headers: cleanRequestHeaders(req.headers),
+    headers: copyRequestHeaders(req),
     body,
-    redirect: "manual",
+    cache: "no-store",
   });
 
-  const respHeaders = cleanResponseHeaders(upstreamResp.headers);
+  if (resp.status === 204) {
+    return new NextResponse(null, {
+      status: 204,
+      headers: copyResponseHeaders(resp, proxyUrl),
+    });
+  }
 
-  // IMPORTANT: keep X-Total-Count for pagination
-  // (it will already be present if backend returns it)
-  // Next will forward these back to the browser.
-
-  return new Response(upstreamResp.body, {
-    status: upstreamResp.status,
-    headers: respHeaders,
+  const text = await resp.text();
+  return new NextResponse(text, {
+    status: resp.status,
+    headers: copyResponseHeaders(resp, proxyUrl),
   });
 }
 
-
-export const GET = proxy;
-export const POST = proxy;
-export const PUT = proxy;
-export const PATCH = proxy;
-export const DELETE = proxy;
-export const OPTIONS = proxy;
+export function GET(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
+}
+export function POST(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
+}
+export function PUT(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
+}
+export function PATCH(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
+}
+export function DELETE(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
+}
+export function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}
