@@ -1,0 +1,18 @@
+# render.yaml (at repo root)
+services:
+  - type: web
+    name: lego-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lego-db
+          property: connectionString
+
+databases:
+  - name: lego-db
+    plan: starter

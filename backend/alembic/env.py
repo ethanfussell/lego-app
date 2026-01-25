@@ -7,8 +7,8 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
 from dotenv import load_dotenv
+from sqlalchemy import engine_from_config, pool
 
 # Alembic Config object (reads alembic.ini)
 config = context.config
@@ -38,8 +38,39 @@ DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set (env var or backend/.env).")
 
+
+def normalize_db_url(u: str) -> str:
+    """
+    Force SQLAlchemy to use psycopg v3 driver.
+
+    - Render sometimes provides `postgres://...`
+    - SQLAlchemy defaults `postgresql://...` to psycopg2 if installed / expected
+    - If a URL explicitly uses psycopg2, rewrite it to psycopg
+    """
+    url = u.strip()
+
+    # Render-style scheme
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+
+    # Explicit psycopg2 -> psycopg
+    if url.startswith("postgresql+psycopg2://"):
+        url = "postgresql+psycopg://" + url[len("postgresql+psycopg2://") :]
+
+    # No driver specified -> force psycopg v3
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+
+    return url
+
+
+NORMALIZED_URL = normalize_db_url(DATABASE_URL)
+
 # Override whatever is in alembic.ini (fixes placeholder issue)
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", NORMALIZED_URL)
+
+# Also force the process env so importing app.db won't see an un-normalized URL
+os.environ["DATABASE_URL"] = NORMALIZED_URL
 
 # Import your models so Base.metadata is populated
 from app.db import Base  # noqa: E402

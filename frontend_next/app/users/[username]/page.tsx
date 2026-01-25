@@ -25,20 +25,20 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
+// ✅ FIX: remove /api prefix and correct endpoint (this one should fetch the user)
 async function fetchUser(username: string): Promise<PublicUser | null> {
-  const res = await fetch(
-    `${apiBase()}/api/users/${encodeURIComponent(username)}`,
-    { cache: "no-store" }
-  );
+  const res = await fetch(`${apiBase()}/users/${encodeURIComponent(username)}`, {
+    cache: "no-store",
+  });
   if (!res.ok) return null;
   return (await res.json()) as PublicUser;
 }
 
+// ✅ FIX: remove /api prefix (lists endpoint)
 async function fetchUserLists(username: string): Promise<PublicList[]> {
-  const res = await fetch(
-    `${apiBase()}/api/users/${encodeURIComponent(username)}/lists`,
-    { cache: "no-store" }
-  );
+  const res = await fetch(`${apiBase()}/users/${encodeURIComponent(username)}/lists`, {
+    cache: "no-store",
+  });
   if (!res.ok) return [];
   return (await res.json()) as PublicList[];
 }
@@ -82,16 +82,13 @@ export default async function UserPage({
   const { username } = await params;
   const decoded = decodeURIComponent(username);
 
-  const [user, lists] = await Promise.all([
-    fetchUser(decoded),
-    fetchUserLists(decoded),
-  ]);
+  const [user, lists] = await Promise.all([fetchUser(decoded), fetchUserLists(decoded)]);
 
   if (!user) {
     return (
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-bold">User not found</h1>
-        <p className="mt-2 text-zinc-600">No public profile for @{decoded}.</p>
+        <p className="mt-2 text-zinc-600 dark:text-zinc-400">No public profile for @{decoded}.</p>
         <Link className="mt-4 inline-block underline" href="/">
           Go home
         </Link>
@@ -106,9 +103,7 @@ export default async function UserPage({
           {SITE_NAME}
         </div>
         <h1 className="mt-2 text-3xl font-bold">@{user.username}</h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          Public lists (newest first)
-        </p>
+        <p className="mt-2 text-zinc-600 dark:text-zinc-400">Public lists (newest first)</p>
       </div>
 
       {lists.length === 0 ? (
@@ -123,22 +118,18 @@ export default async function UserPage({
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <Link
-                    href={`/lists/${l.id}`}
+                    href={`/lists/${encodeURIComponent(String(l.id))}`}
                     className="text-lg font-semibold hover:underline"
                   >
                     {l.title}
                   </Link>
                   {l.description ? (
-                    <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                      {l.description}
-                    </p>
+                    <p className="mt-1 text-zinc-600 dark:text-zinc-400">{l.description}</p>
                   ) : null}
                 </div>
 
                 {typeof l.items_count === "number" ? (
-                  <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {l.items_count} items
-                  </div>
+                  <div className="text-sm text-zinc-600 dark:text-zinc-400">{l.items_count} items</div>
                 ) : null}
               </div>
             </li>

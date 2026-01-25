@@ -1,9 +1,9 @@
 // frontend_next/app/lists/[id]/ListDetailClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
@@ -36,17 +36,6 @@ type SetLite = {
   theme?: string;
 };
 
-function extractListId(params: any) {
-  // Next should give { id: "123" } for /lists/[id]
-  const v =
-    params?.id ??
-    params?.listId ??
-    params?.list_id ??
-    params?.["[id]"] ??
-    "";
-  return String(Array.isArray(v) ? v[0] : v).trim();
-}
-
 function toSetNums(detail: ListDetail | null | undefined): string[] {
   if (!detail) return [];
 
@@ -62,7 +51,9 @@ function toSetNums(detail: ListDetail | null | undefined): string[] {
 }
 
 async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite[]> {
-  const nums = Array.from(new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean)));
+  const nums = Array.from(
+    new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean))
+  );
   if (nums.length === 0) return [];
 
   const params = new URLSearchParams();
@@ -78,18 +69,11 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
   return nums.map((n) => byNum.get(n)).filter(Boolean) as SetLite[];
 }
 
-export default function ListDetailClient() {
-  const { token, me, hydrated } = useAuth();
-  const params = useParams();
+export default function ListDetailClient({ listId }: { listId: string }) {
   const router = useRouter();
+  const { token, me, hydrated } = useAuth();
 
-  // Debug: this will tell us the actual param key
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log("ListDetail useParams()", params);
-  }, [params]);
-
-  const listId = useMemo(() => extractListId(params), [params]);
+  const id = useMemo(() => String(listId || "").trim(), [listId]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -119,12 +103,12 @@ export default function ListDetailClient() {
   }, [token, me?.username, ownerName, isSystem]);
 
   const refresh = useCallback(async () => {
-    if (!listId) throw new Error("Missing list id (params are empty).");
+    if (!id) throw new Error("Missing list id.");
 
-    // Only send token after hydration (prevents weird “token flip” race on first paint)
+    // only send token after hydration
     const maybeToken = hydrated ? token : undefined;
 
-    const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(listId)}`, {
+    const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
       token: maybeToken,
       cache: "no-store",
     });
@@ -134,16 +118,15 @@ export default function ListDetailClient() {
     const nums = toSetNums(d || null);
     const bulk = await fetchSetsBulk(nums, maybeToken);
     setSets(bulk);
-  }, [listId, token, hydrated]);
+  }, [id, token, hydrated]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      // Always end loading if we can't even compute listId
-      if (!listId) {
+      if (!id) {
         if (!cancelled) {
-          setErr("Could not read list id from route params.");
+          setErr("Could not read list id from route.");
           setLoading(false);
         }
         return;
@@ -166,7 +149,7 @@ export default function ListDetailClient() {
     return () => {
       cancelled = true;
     };
-  }, [listId, refresh]);
+  }, [id, refresh]);
 
   async function togglePublic() {
     if (!detail || !canEdit || savingPrivacy) return;
@@ -179,7 +162,7 @@ export default function ListDetailClient() {
     setDetail((d) => (d ? { ...d, is_public: next } : d));
 
     try {
-      await apiFetch(`/lists/${encodeURIComponent(listId)}`, {
+      await apiFetch(`/lists/${encodeURIComponent(id)}`, {
         token,
         method: "PATCH",
         body: { is_public: next },
@@ -207,7 +190,7 @@ export default function ListDetailClient() {
     );
 
     try {
-      await apiFetch(`/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(sn)}`, {
+      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, {
         token,
         method: "DELETE",
       });
@@ -258,7 +241,7 @@ export default function ListDetailClient() {
       <div className="pt-10 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight truncate">
-            {detail?.title || (listId ? `List ${listId}` : "List")}
+            {detail?.title || (id ? `List ${id}` : "List")}
           </h1>
 
           {detail?.description ? (

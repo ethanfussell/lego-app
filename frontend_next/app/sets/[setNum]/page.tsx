@@ -2,6 +2,8 @@
 import type { Metadata } from "next";
 import { cache } from "react";
 import SetDetailClient from "./SetDetailClient";
+import { fetchOffersForSet } from "@/lib/offers";
+import OffersSection from "./OffersSection";
 
 const SITE_NAME = "YourSite";
 
@@ -147,7 +149,13 @@ export default async function Page({
   const { setNum } = await unwrapParams(params);
   const decoded = decodeURIComponent(setNum);
 
+  // Set detail (server)
   const data = await fetchSet(decoded);
+
+  // Offers (server) — offers are keyed by *plain* set number (no "-1")
+  const plainSetNum = decoded.replace(/-1$/, "");
+  const offersData = await fetchOffersForSet(plainSetNum);
+  const offers = offersData?.offers ?? [];
 
   return (
     <>
@@ -160,6 +168,9 @@ export default async function Page({
       ) : null}
 
       <SetDetailClient setNum={decoded} initialData={data} />
+
+      {/* Offers section */}
+      <OffersSection offers={offers} />
     </>
   );
 }

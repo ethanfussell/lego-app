@@ -1,6 +1,16 @@
 // frontend_next/app/discover/page.tsx
+
+import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
 import { apiFetch } from "@/lib/api";
+
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: "Discover | LEGO App",
+    description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+    alternates: { canonical: "/discover" },
+  };
+}
 
 type SetLite = {
   set_num: string;
@@ -62,20 +72,22 @@ async function fetchFeed(opts: { sort: string; order: string; page: number; limi
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
 }) {
+  const sp = await Promise.resolve(searchParams);
+
   // ✅ Ignore q entirely (even if someone manually adds it)
-  const sortRaw = searchParams?.sort;
-  const orderRaw = searchParams?.order;
+  const sortRaw = sp?.sort;
+  const orderRaw = sp?.order;
 
   const sort = normalizeSort(Array.isArray(sortRaw) ? sortRaw[0] : sortRaw);
   const order = normalizeOrder(Array.isArray(orderRaw) ? orderRaw[0] : orderRaw);
-  const page = toNum(searchParams?.page, 1);
+  const page = toNum(sp?.page, 1);
 
   const pageSize = 50;
 
   let initial: DiscoverInitial = {
-    q: "", // keep field if DiscoverClient expects it, but it's always empty here
+    q: "",
     sort,
     order,
     page,

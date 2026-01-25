@@ -1,9 +1,9 @@
-// app/themes/[themeSlug]/page.tsx
+// frontend_next/app/themes/[themeSlug]/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
-const SITE_NAME = "YourSite";
+const SITE_NAME = "LEGO App";
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -18,9 +18,20 @@ type SetLite = {
   image_url?: string | null;
 };
 
-function toInt(v: string | string[] | undefined, fallback: number) {
-  const s = Array.isArray(v) ? v[0] : v;
-  const n = Number(s);
+type SP = Record<string, string | string[] | undefined>;
+
+async function unwrapParams<T extends object>(p: T | Promise<T>): Promise<T> {
+  return typeof (p as any)?.then === "function" ? await (p as any) : (p as T);
+}
+
+function first(sp: SP, key: string): string {
+  const raw = sp[key];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return (v || "").toString().trim();
+}
+
+function toInt(raw: string, fallback: number) {
+  const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
@@ -38,18 +49,23 @@ export async function generateMetadata({
   params,
   searchParams,
 }: {
-  params: Promise<{ themeSlug: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  params: { themeSlug: string } | Promise<{ themeSlug: string }>;
+  searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
-  const { themeSlug } = await params;
-  const sp = await searchParams;
+  const { themeSlug } = await unwrapParams(params);
+  const sp = await unwrapParams(searchParams || ({} as SP));
 
   const theme = decodeURIComponent(themeSlug);
-  const page = toInt(sp.page, 1);
-  const canonical = `/themes/${encodeURIComponent(theme)}${page > 1 ? `?page=${page}` : ""}`;
+  const page = toInt(first(sp, "page") || "1", 1);
+
+  const canonical =
+    `/themes/${encodeURIComponent(theme)}` + (page > 1 ? `?page=${page}` : "");
 
   const title = `${theme} sets | ${SITE_NAME}`;
-  const description = `Browse LEGO sets in the ${theme} theme. Page ${page}.`;
+  const description =
+    page > 1
+      ? `Browse LEGO sets in the ${theme} theme. Page ${page}.`
+      : `Browse LEGO sets in the ${theme} theme.`;
 
   return {
     title,
@@ -74,27 +90,26 @@ export default async function ThemeSetsPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ themeSlug: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  params: { themeSlug: string } | Promise<{ themeSlug: string }>;
+  searchParams?: SP | Promise<SP>;
 }) {
-  const { themeSlug } = await params;
-  const sp = await searchParams;
+  const { themeSlug } = await unwrapParams(params);
+  const sp = await unwrapParams(searchParams || ({} as SP));
 
   const theme = decodeURIComponent(themeSlug);
 
-  const page = toInt(sp.page, 1);
-  const limit = Math.min(toInt(sp.limit, 36), 100);
-  const sort = (Array.isArray(sp.sort) ? sp.sort[0] : sp.sort) || "relevance";
-  const orderRaw = Array.isArray(sp.order) ? sp.order[0] : sp.order;
+  const page = toInt(first(sp, "page") || "1", 1);
+  const limit = Math.min(toInt(first(sp, "limit") || "36", 36), 100);
+  const sort = first(sp, "sort") || "relevance";
+  const order = first(sp, "order") || "";
 
   const qs = buildQuery({
     page,
     limit,
     sort,
-    order: orderRaw || undefined,
+    order: order || undefined,
   });
 
-  // API: /themes/{theme}/sets?page=1&limit=36&sort=relevance&order=
   const path = `/themes/${encodeURIComponent(theme)}/sets${qs}`;
 
   let sets: SetLite[] = [];
@@ -102,11 +117,8 @@ export default async function ThemeSetsPage({
 
   try {
     const data = await apiFetch<any>(path, { cache: "no-store" });
-
-    // Handle either "array response" or "{ results: [...] }" response safely
     if (Array.isArray(data)) sets = data as SetLite[];
     else if (data && Array.isArray(data.results)) sets = data.results as SetLite[];
-    else sets = [];
   } catch (e: any) {
     error = e?.message || String(e);
   }
@@ -117,17 +129,16 @@ export default async function ThemeSetsPage({
           page: page - 1,
           limit,
           sort,
-          order: orderRaw || undefined,
+          order: order || undefined,
         })}`
       : null;
 
-  const nextHref =
-    `/themes/${encodeURIComponent(theme)}${buildQuery({
-      page: page + 1,
-      limit,
-      sort,
-      order: orderRaw || undefined,
-    })}`;
+  const nextHref = `/themes/${encodeURIComponent(theme)}${buildQuery({
+    page: page + 1,
+    limit,
+    sort,
+    order: order || undefined,
+  })}`;
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -138,6 +149,7 @@ export default async function ThemeSetsPage({
           </Link>{" "}
           / <span className="font-semibold text-zinc-800 dark:text-zinc-200">{theme}</span>
         </div>
+
         <h1 className="mt-2 text-3xl font-bold">{theme}</h1>
         <p className="mt-2 text-zinc-600 dark:text-zinc-400">
           Page {page} • {sets.length} set{sets.length === 1 ? "" : "s"} loaded
@@ -160,6 +172,7 @@ export default async function ThemeSetsPage({
               <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="hover:underline">
                 <div className="font-semibold">{s.name || s.set_num}</div>
               </Link>
+
               <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 <div>{s.set_num}</div>
                 {typeof s.year === "number" ? <div>Year: {s.year}</div> : null}

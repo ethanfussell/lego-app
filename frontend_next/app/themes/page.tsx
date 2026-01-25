@@ -1,8 +1,8 @@
-// app/themes/page.tsx
+// frontend_next/app/themes/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
 
-const SITE_NAME = "YourSite";
+const SITE_NAME = "LEGO App";
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -65,9 +65,7 @@ export default function ThemesIndexPage() {
               className="rounded-xl border border-black/[.08] bg-white p-4 hover:bg-zinc-50 dark:border-white/[.145] dark:bg-black dark:hover:bg-zinc-900"
             >
               <div className="font-semibold">{t}</div>
-              <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                View sets →
-              </div>
+              <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View sets →</div>
             </Link>
           );
         })}
