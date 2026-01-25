@@ -18,23 +18,27 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # -----------------------------------------------------------------------------
-# Make sure we can import "app.*" when running `alembic` from backend/
+# Ensure we can import "app.*" when running `alembic` from backend/
 # backend/
 #   alembic/
 #   app/
-#   .env
+#   .env (local only)
 # -----------------------------------------------------------------------------
 BACKEND_DIR = Path(__file__).resolve().parents[1]  # .../backend
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Load backend/.env and set sqlalchemy.url from DATABASE_URL
-load_dotenv(BACKEND_DIR / ".env")
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set. Add it to backend/.env")
+# Load backend/.env if it exists (LOCAL DEV), but don't require it (Render/prod)
+env_path = BACKEND_DIR / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
-# Override whatever is in alembic.ini (fixes 'driver://...' placeholder issue)
+# Prefer environment variable DATABASE_URL (Render), fallback to .env (local)
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set (env var or backend/.env).")
+
+# Override whatever is in alembic.ini (fixes placeholder issue)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # Import your models so Base.metadata is populated
@@ -52,7 +56,7 @@ def run_migrations_offline() -> None:
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        compare_type=True,         # detects column type changes
+        compare_type=True,
         compare_server_default=True,
         dialect_opts={"paramstyle": "named"},
     )

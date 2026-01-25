@@ -2,16 +2,14 @@ from typing import Dict, List, TypedDict
 
 
 class StoreOffer(TypedDict):
-    store: str       # "LEGO", "Amazon", "Target", etc.
-    price: float     # 399.99
-    currency: str    # "USD"
-    url: str         # your affiliate link
-    in_stock: bool   # True/False
+    store: str
+    price: float
+    currency: str
+    url: str
+    in_stock: bool
 
 
-# Keyed by *plain* set number, e.g. "10305"
 OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
-    # Example; you can fill this out manually for now
     "10305": [
         {
             "store": "LEGO",
@@ -28,10 +26,8 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "in_stock": True,
         },
     ],
-    # "21330": [...],
 }
 
 
 def get_offers_for_set(plain_set_num: str) -> List[StoreOffer]:
-    """Return all offers for a given plain set number like '10305'."""
     return OFFERS_BY_SET.get(plain_set_num, [])

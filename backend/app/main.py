@@ -2,9 +2,10 @@
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 from urllib.parse import quote
+from app.routers.offers import router as offers_router
 import os
 
 from .api import themes
@@ -19,6 +20,7 @@ from .routers import sets as sets_router
 from .routers import users as users_router
 from .routers import review_stats as review_stats_router
 from .routers import ratings
+
 
 app = FastAPI(title="LEGO API")
 
@@ -132,6 +134,8 @@ app.include_router(lists_router.router)  # lists router already has prefix="/lis
 app.include_router(review_stats_router.router)
 app.include_router(ratings.router)
 
+app.include_router(offers_router)
+
 # ---- debug ----
 @app.get("/db/ping", tags=["debug"])
 def db_ping(db: Session = Depends(get_db)):
@@ -140,3 +144,4 @@ def db_ping(db: Session = Depends(get_db)):
         .mappings()
         .one()
     )
+
