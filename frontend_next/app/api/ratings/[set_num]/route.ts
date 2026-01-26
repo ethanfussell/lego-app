@@ -12,13 +12,11 @@ function backendBase() {
 
 function passthroughHeaders(req: NextRequest) {
   const h = new Headers();
-
   const auth = req.headers.get("authorization");
   if (auth) h.set("authorization", auth);
 
   // Always send JSON to backend for rating PUT
   h.set("content-type", "application/json");
-
   return h;
 }
 
@@ -29,54 +27,58 @@ function responseHeaders(contentType?: string | null) {
   };
 }
 
-export async function PUT(req: NextRequest, ctx: { params: Record<string, string | undefined> }) {
-    try {
-      // accept multiple param key names (depends on folder name)
-      let setNum =
-        String(ctx?.params?.set_num || "").trim() ||
-        String(ctx?.params?.setNum || "").trim() ||
-        String(ctx?.params?.id || "").trim() ||
-        String(ctx?.params?.set_id || "").trim();
-  
-      // fallback: grab last path segment from /api/ratings/<set_num>
-      if (!setNum) {
-        const parts = req.nextUrl.pathname.split("/").filter(Boolean);
-        setNum = String(parts[parts.length - 1] || "").trim();
-      }
-  
-      if (!setNum) {
-        return new NextResponse(JSON.stringify({ detail: "Missing set_num" }), {
-          status: 400,
-          headers: responseHeaders(),
-        });
-      }
-  
-      const raw = await req.text();
-      const body = raw && raw.trim().length ? raw : "{}";
-  
-      const url = `${backendBase()}/ratings/${encodeURIComponent(setNum)}`;
-  
-      const resp = await fetch(url, {
-        method: "PUT",
-        headers: passthroughHeaders(req),
-        body,
-        cache: "no-store",
-      });
-  
-      const text = await resp.text();
-      return new NextResponse(text, {
-        status: resp.status,
-        headers: responseHeaders(resp.headers.get("content-type")),
-      });
-    } catch (e: any) {
-      return new NextResponse(
-        JSON.stringify({ detail: "ratings proxy crashed", error: e?.message || String(e) }),
-        { status: 500, headers: responseHeaders() }
-      );
-    }
-  }
+// Next 16+: params can be Promise-wrapped during build
+type RouteCtx = {
+  params: Promise<{ set_num?: string }>;
+};
 
-// Optional, but harmless
+export async function PUT(req: NextRequest, ctx: RouteCtx) {
+  try {
+    const params = await ctx.params;
+
+    let setNum = String(params?.set_num || "").trim();
+
+    // fallback: grab last path segment from /api/ratings/<set_num>
+    if (!setNum) {
+      const parts = req.nextUrl.pathname.split("/").filter(Boolean);
+      setNum = String(parts[parts.length - 1] || "").trim();
+    }
+
+    if (!setNum) {
+      return new NextResponse(JSON.stringify({ detail: "Missing set_num" }), {
+        status: 400,
+        headers: responseHeaders(),
+      });
+    }
+
+    const raw = await req.text();
+    const body = raw && raw.trim().length ? raw : "{}";
+
+    const url = `${backendBase()}/ratings/${encodeURIComponent(setNum)}`;
+
+    const resp = await fetch(url, {
+      method: "PUT",
+      headers: passthroughHeaders(req),
+      body,
+      cache: "no-store",
+    });
+
+    const text = await resp.text();
+    return new NextResponse(text, {
+      status: resp.status,
+      headers: responseHeaders(resp.headers.get("content-type")),
+    });
+  } catch (e: any) {
+    return new NextResponse(
+      JSON.stringify({
+        detail: "ratings proxy crashed",
+        error: e?.message || String(e),
+      }),
+      { status: 500, headers: responseHeaders() }
+    );
+  }
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
