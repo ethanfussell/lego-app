@@ -51,6 +51,7 @@ def create_access_token(username: str) -> str:
 
     secret, alg, exp_min, allow_fake, debug, kid = _settings()
 
+    # Dev-only escape hatch (only if explicitly enabled AND secret missing)
     if allow_fake and not secret:
         return f"fake-token-for-{username}"
 
@@ -64,7 +65,7 @@ def create_access_token(username: str) -> str:
     tok = jwt.encode(payload, secret, algorithm=alg)
 
     if debug:
-        print(f"[auth] minted token sub={username} alg={alg} kid={kid} iat={now_ts} exp={exp_ts}")
+        print(f"[auth] minted sub={username} alg={alg} kid={kid} iat={now_ts} exp={exp_ts}")
 
     return tok
 
@@ -87,12 +88,11 @@ def _username_from_token(token: str) -> Optional[str]:
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
     except JWTError as e:
-        # 👇 keep it silent normally, but allow introspection in staging
+        # Only expose details when AUTH_DEBUG is enabled
         if debug:
-            # IMPORTANT: don't leak secrets; we only leak the error message
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid token (kid={kid}, alg={alg}): {repr(e)}",
+                detail=f"Invalid token (kid={kid}, alg={alg}): {e.__class__.__name__}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return None
@@ -101,23 +101,11 @@ def _username_from_token(token: str) -> Optional[str]:
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
     username = _username_from_token(token)
     if not username:
-        raise _unauth("Invalid token")
+        raise _unauth("Invalid token (decode failed)")
 
     user = db.query(User).filter(User.username == username).first()
     if not user:
-        raise _unauth("Invalid token")
-
-    return user
-
-
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
-    username = _username_from_token(token)
-    if not username:
-        raise _unauth("Invalid token")
-
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise _unauth("Invalid token")
+        raise _unauth(f"Invalid token (user not found: {username})")
 
     return user
 
