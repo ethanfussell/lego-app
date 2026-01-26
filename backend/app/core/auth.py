@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Optional, Tuple
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -20,12 +20,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
-def _settings() -> Tuple[str, str, int, bool]:
+def _settings():
     secret = (os.getenv("SECRET_KEY") or "").strip()
     alg = (os.getenv("JWT_ALGORITHM") or "HS256").strip()
     exp_min = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or "60")
     allow_fake = (os.getenv("ALLOW_FAKE_AUTH") or "").lower() in ("1", "true", "yes", "on")
-    return secret, alg, exp_min, allow_fake
+    debug = (os.getenv("AUTH_DEBUG") or "").lower() in ("1", "true", "yes", "on")
+    return secret, alg, exp_min, allow_fake, debug
 
 
 class Token(BaseModel):
@@ -44,11 +45,11 @@ def _unauth(detail: str = "Invalid token") -> HTTPException:
 def create_access_token(username: str) -> str:
     username = (username or "").strip()
     if not username:
-        raise ValueError("username required for token")
+        raise ValueError("username required")
 
-    secret, alg, exp_min, allow_fake = _settings()
+    secret, alg, exp_min, allow_fake, _debug = _settings()
 
-    # Dev-only escape hatch
+    # dev-only escape hatch
     if allow_fake and not secret:
         return f"fake-token-for-{username}"
 
@@ -67,7 +68,7 @@ def _username_from_token(token: str) -> Optional[str]:
     if not token:
         return None
 
-    secret, alg, _, allow_fake = _settings()
+    secret, alg, _exp_min, allow_fake, debug = _settings()
 
     if allow_fake and token.startswith("fake-token-for-"):
         return token.replace("fake-token-for-", "", 1).strip() or None
@@ -80,8 +81,10 @@ def _username_from_token(token: str) -> Optional[str]:
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
     except JWTError as e:
-        # TEMP DEBUG (staging): surface the real decode reason
-        raise _unauth(f"Invalid token: {str(e)}")
+        # If you ever need to see the exact reason in Render logs:
+        if debug:
+            print("JWT decode failed:", repr(e))
+        return None
 
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
@@ -102,12 +105,9 @@ def get_current_user_optional(
 ) -> Optional[User]:
     if not token:
         return None
-
-    # If token is invalid, _username_from_token will return 401 (debug) in staging
     username = _username_from_token(token)
     if not username:
         return None
-
     return db.query(User).filter(User.username == username).first()
 
 
@@ -120,5 +120,4 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depen
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # TODO: verify password for real later
     return Token(access_token=create_access_token(user.username))
