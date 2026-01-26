@@ -82,22 +82,32 @@ def _username_from_token(token: str) -> Optional[str]:
     if not secret:
         return None
 
-    if debug:
-        try:
-            hdr = jwt.get_unverified_header(token)
-            claims = jwt.get_unverified_claims(token)
-            print(f"[auth] verify token kid={kid} env_alg={alg} hdr_alg={hdr.get('alg')} sub={claims.get('sub')} iat={claims.get('iat')} exp={claims.get('exp')}")
-        except Exception as e:
-            print(f"[auth] could not parse token header/claims kid={kid} err={repr(e)}")
-
     try:
         payload = jwt.decode(token, secret, algorithms=[alg])
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
     except JWTError as e:
+        # 👇 keep it silent normally, but allow introspection in staging
         if debug:
-            print(f"[auth] JWT decode failed kid={kid} alg={alg} err={repr(e)}")
+            # IMPORTANT: don't leak secrets; we only leak the error message
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token (kid={kid}, alg={alg}): {repr(e)}",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return None
+
+
+def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+    username = _username_from_token(token)
+    if not username:
+        raise _unauth("Invalid token")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise _unauth("Invalid token")
+
+    return user
 
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
