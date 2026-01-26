@@ -1,6 +1,7 @@
 # backend/app/core/auth.py
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from typing import Optional
@@ -26,7 +27,8 @@ def _settings():
     exp_min = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or "60")
     allow_fake = (os.getenv("ALLOW_FAKE_AUTH") or "").lower() in ("1", "true", "yes", "on")
     debug = (os.getenv("AUTH_DEBUG") or "").lower() in ("1", "true", "yes", "on")
-    return secret, alg, exp_min, allow_fake, debug
+    kid = hashlib.sha256(secret.encode("utf-8")).hexdigest()[:8] if secret else "none"
+    return secret, alg, exp_min, allow_fake, debug, kid
 
 
 class Token(BaseModel):
@@ -45,11 +47,10 @@ def _unauth(detail: str = "Invalid token") -> HTTPException:
 def create_access_token(username: str) -> str:
     username = (username or "").strip()
     if not username:
-        raise ValueError("username required")
+        raise ValueError("username required for token")
 
-    secret, alg, exp_min, allow_fake, _debug = _settings()
+    secret, alg, exp_min, allow_fake, debug, kid = _settings()
 
-    # dev-only escape hatch
     if allow_fake and not secret:
         return f"fake-token-for-{username}"
 
@@ -60,7 +61,12 @@ def create_access_token(username: str) -> str:
     exp_ts = now_ts + exp_min * 60
 
     payload = {"sub": username, "iat": now_ts, "exp": exp_ts}
-    return jwt.encode(payload, secret, algorithm=alg)
+    tok = jwt.encode(payload, secret, algorithm=alg)
+
+    if debug:
+        print(f"[auth] minted token sub={username} alg={alg} kid={kid} iat={now_ts} exp={exp_ts}")
+
+    return tok
 
 
 def _username_from_token(token: str) -> Optional[str]:
@@ -68,7 +74,7 @@ def _username_from_token(token: str) -> Optional[str]:
     if not token:
         return None
 
-    secret, alg, _exp_min, allow_fake, debug = _settings()
+    secret, alg, _exp_min, allow_fake, debug, kid = _settings()
 
     if allow_fake and token.startswith("fake-token-for-"):
         return token.replace("fake-token-for-", "", 1).strip() or None
@@ -76,14 +82,21 @@ def _username_from_token(token: str) -> Optional[str]:
     if not secret:
         return None
 
+    if debug:
+        try:
+            hdr = jwt.get_unverified_header(token)
+            claims = jwt.get_unverified_claims(token)
+            print(f"[auth] verify token kid={kid} env_alg={alg} hdr_alg={hdr.get('alg')} sub={claims.get('sub')} iat={claims.get('iat')} exp={claims.get('exp')}")
+        except Exception as e:
+            print(f"[auth] could not parse token header/claims kid={kid} err={repr(e)}")
+
     try:
         payload = jwt.decode(token, secret, algorithms=[alg])
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
     except JWTError as e:
-        # If you ever need to see the exact reason in Render logs:
         if debug:
-            print("JWT decode failed:", repr(e))
+            print(f"[auth] JWT decode failed kid={kid} alg={alg} err={repr(e)}")
         return None
 
 
