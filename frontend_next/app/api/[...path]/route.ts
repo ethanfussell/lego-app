@@ -30,14 +30,21 @@ async function unwrapParams(ctx: any): Promise<any> {
   return p && typeof p.then === "function" ? await p : p;
 }
 
-function passthroughHeaders(req: NextRequest) {
-  const h = new Headers();
+function buildUpstreamHeaders(req: NextRequest) {
+  // ✅ Copy ALL incoming headers (including Authorization), then remove unsafe ones.
+  const h = new Headers(req.headers);
+
+  // These should not be forwarded
+  h.delete("host");
+  h.delete("connection");
+  h.delete("content-length");
+
+  // If you ever see weird gzip/body issues through proxy, uncomment:
+  // h.delete("accept-encoding");
+
+  // ✅ Ensure Authorization survives even if some env strips/normalizes it
   const auth = req.headers.get("authorization");
   if (auth) h.set("authorization", auth);
-
-  // forward content-type only if present (GETs won’t have one)
-  const ct = req.headers.get("content-type");
-  if (ct) h.set("content-type", ct);
 
   return h;
 }
@@ -46,17 +53,15 @@ async function proxy(req: NextRequest, ctx: any) {
   const params = await unwrapParams(ctx);
   const parts = normalizePath(params?.path);
 
-  // if Next doesn't populate params for some reason, use URL as truth
   const path = parts.length ? parts.join("/") : fallbackPathFromUrl(req).join("/");
 
-  const url = new URL(req.nextUrl.toString());
-  const qs = url.search ? url.search : "";
-
+  // Preserve query string
+  const qs = req.nextUrl.search || "";
   const upstream = `${backendBase()}/${path}${qs}`;
 
   const init: RequestInit = {
     method: req.method,
-    headers: passthroughHeaders(req),
+    headers: buildUpstreamHeaders(req),
     cache: "no-store",
   };
 
@@ -68,30 +73,23 @@ async function proxy(req: NextRequest, ctx: any) {
   const resp = await fetch(upstream, init);
   const body = await resp.text();
 
+  // Forward content-type; optionally also expose X-Total-Count if your backend uses it.
+  const outHeaders = new Headers();
+  outHeaders.set("content-type", resp.headers.get("content-type") || "application/json");
+  outHeaders.set("x-hit", "api-proxy");
+
+  const total = resp.headers.get("x-total-count");
+  if (total) outHeaders.set("x-total-count", total);
+
   return new NextResponse(body, {
     status: resp.status,
-    headers: {
-      "content-type": resp.headers.get("content-type") || "application/json",
-      "x-hit": "api-proxy",
-    },
+    headers: outHeaders,
   });
 }
 
-export async function GET(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export async function POST(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export async function PUT(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export async function PATCH(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export async function DELETE(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export async function OPTIONS(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const PATCH = proxy;
+export const DELETE = proxy;
+export const OPTIONS = proxy;
