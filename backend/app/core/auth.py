@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -20,7 +20,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
-def _settings():
+def _settings() -> Tuple[str, str, int, bool]:
     secret = (os.getenv("SECRET_KEY") or "").strip()
     alg = (os.getenv("JWT_ALGORITHM") or "HS256").strip()
     exp_min = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or "60")
@@ -79,8 +79,9 @@ def _username_from_token(token: str) -> Optional[str]:
         payload = jwt.decode(token, secret, algorithms=[alg])
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
-    except JWTError:
-        return None
+    except JWTError as e:
+        # TEMP DEBUG (staging): surface the real decode reason
+        raise _unauth(f"Invalid token: {str(e)}")
 
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
@@ -101,9 +102,12 @@ def get_current_user_optional(
 ) -> Optional[User]:
     if not token:
         return None
+
+    # If token is invalid, _username_from_token will return 401 (debug) in staging
     username = _username_from_token(token)
     if not username:
         return None
+
     return db.query(User).filter(User.username == username).first()
 
 
