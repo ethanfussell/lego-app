@@ -16,7 +16,10 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const next = useMemo(() => safeNextPath(searchParams.get("next"), "/collection"), [searchParams]);
+  const next = useMemo(() => {
+    const raw = searchParams.get("returnTo") || searchParams.get("next");
+    return safeNextPath(raw, "/collection");
+  }, [searchParams]);
 
   const [username, setUsername] = useState("ethan");
   const [password, setPassword] = useState("lego123");
@@ -34,12 +37,12 @@ export default function LoginPage() {
       body.set("username", username);
       body.set("password", password);
 
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-      const resp = await fetch(`${API_BASE}/auth/login`, {
+      // IMPORTANT: call the Next.js proxy (same-origin) to avoid CORS
+      const resp = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
+        cache: "no-store",
       });
 
       if (!resp.ok) {
@@ -52,6 +55,7 @@ export default function LoginPage() {
       if (!token) throw new Error("Login succeeded but no token was returned.");
 
       loginWithToken(token);
+
       router.replace(next);
       router.refresh();
     } catch (err: any) {
@@ -73,7 +77,11 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
+              style={{
+                padding: "0.55rem 0.65rem",
+                borderRadius: 10,
+                border: "1px solid #d1d5db",
+              }}
             />
           </label>
 
@@ -84,7 +92,11 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
+              style={{
+                padding: "0.55rem 0.65rem",
+                borderRadius: 10,
+                border: "1px solid #d1d5db",
+              }}
             />
           </label>
 

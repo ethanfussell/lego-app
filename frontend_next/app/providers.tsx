@@ -1,7 +1,7 @@
 // frontend_next/app/providers.tsx
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { getToken as loadToken, setToken as persistToken } from "@/lib/token";
 import { isStatus } from "@/lib/http";
@@ -23,57 +23,75 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function normalizeToken(t: unknown) {
+  const s = typeof t === "string" ? t.trim() : "";
+  return s;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // IMPORTANT: don't read localStorage during the initial render
+  // Keep token empty until after mount to avoid SSR/localStorage access warnings.
   const [token, setToken] = useState<string>("");
   const [hydrated, setHydrated] = useState(false);
 
   const [me, setMe] = useState<Me | null>(null);
   const [loadingMe, setLoadingMe] = useState(false);
 
-  // read token AFTER mount (client only)
+  // Prevent older /me responses from overwriting newer state
+  const meReqId = useRef(0);
+
+  // 1) Hydrate token from storage after mount
   useEffect(() => {
-    setToken(loadToken());
+    const t = normalizeToken(loadToken());
+    setToken(t);
     setHydrated(true);
   }, []);
 
-  // keep localStorage in sync (only after hydration)
+  // 2) Persist token changes after hydration
   useEffect(() => {
     if (!hydrated) return;
-    persistToken(token);
+    persistToken(token); // your lib/token should remove when empty
   }, [token, hydrated]);
 
-  // load /api/users/me whenever token changes (only after hydration)
+  // 3) Load /users/me when token changes (after hydration)
   useEffect(() => {
+    if (!hydrated) return;
+
+    // If no token, clear Me and stop
+    if (!token) {
+      setMe(null);
+      setLoadingMe(false);
+      return;
+    }
+
     let cancelled = false;
+    const reqId = ++meReqId.current;
 
     async function loadMe() {
-      if (!hydrated) return;
-
-      if (!token) {
-        if (!cancelled) {
-          setMe(null);
-          setLoadingMe(false);
-        }
-        return;
-      }
-
-      if (!cancelled) setLoadingMe(true);
-
+      setLoadingMe(true);
       try {
-        const data = await apiFetch<Me>("/users/me", {
-          token,
-          cache: "no-store",
-        });
-        if (!cancelled) setMe(data || null);
+        const data = await apiFetch<Me>("/users/me", { token, cache: "no-store" });
+
+        if (cancelled) return;
+        // Ignore stale responses
+        if (reqId !== meReqId.current) return;
+
+        setMe(data || null);
       } catch (e) {
+        if (cancelled) return;
+        if (reqId !== meReqId.current) return;
+
         const unauthorized = isStatus(e, 401) || isStatus(e, 403);
-        if (!cancelled) {
-          setMe(null);
-          if (unauthorized) setToken("");
-        }
+
+        // IMPORTANT: do NOT auto-clear the token on 401 right now.
+        // This avoids the “login for 1 second then logout” loop if the proxy/auth header
+        // forwarding is the real issue.
+        setMe(null);
+
+        // Optional: if you want to auto-logout later, uncomment this:
+        // if (unauthorized) setToken("");
+        void unauthorized;
       } finally {
-        if (!cancelled) setLoadingMe(false);
+        if (!cancelled && reqId === meReqId.current) setLoadingMe(false);
       }
     }
 
@@ -90,12 +108,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loadingMe,
       hydrated,
       isAuthed: hydrated && !!token,
+
       loginWithToken: (t) => {
+        const next = normalizeToken(t);
         setMe(null);
-        setToken(t || "");
+
+        // Persist immediately so it’s definitely written before any navigation
+        persistToken(next);
+        setToken(next);
       },
+
       logout: () => {
         setMe(null);
+
+        // Persist immediately
+        persistToken("");
         setToken("");
       },
     }),
