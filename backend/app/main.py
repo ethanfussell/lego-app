@@ -1,11 +1,13 @@
 # backend/app/main.py
 import os
+import hashlib
+import socket
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from .api import themes
@@ -22,14 +24,29 @@ from .routers import sets as sets_router
 from .routers import users as users_router
 from .routers.offers import router as offers_router
 
+
 app = FastAPI(title="LEGO API")
+
+# ---------------------------
+# Debug headers (safe)
+# ---------------------------
+# Helps confirm whether different instances are using different SECRET_KEY values.
+@app.middleware("http")
+async def add_debug_headers(request: Request, call_next):
+    resp = await call_next(request)
+
+    secret = (os.getenv("SECRET_KEY") or "").encode("utf-8")
+    kid = hashlib.sha256(secret).hexdigest()[:8] if secret else "none"
+
+    resp.headers["x-secret-kid"] = kid
+    resp.headers["x-host"] = socket.gethostname()
+
+    return resp
+
 
 # ---------------------------
 # CORS
 # ---------------------------
-# - allow localhost dev
-# - allow your main prod domain explicitly
-# - allow any Vercel preview domains via regex
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -83,7 +100,6 @@ def robots_txt(request: Request):
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request, db: Session = Depends(get_db)):
     base = _public_base_url(request)
-
     urls: list[str] = []
 
     # Home + primary discovery routes
@@ -102,7 +118,6 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
         .scalars()
         .all()
     )
-
     for t in theme_rows:
         urls.append(f"{base}/themes/{quote(str(t))}")
 
@@ -117,7 +132,6 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
         .scalars()
         .all()
     )
-
     for lid in list_rows:
         urls.append(f"{base}/lists/{int(lid)}")
 
@@ -131,11 +145,9 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
         .scalars()
         .all()
     )
-
     for sn in set_rows:
         urls.append(f"{base}/sets/{quote(str(sn))}")
 
-    # Render XML
     xml_lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
