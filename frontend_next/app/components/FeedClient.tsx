@@ -4,6 +4,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import SetCard from "@/app/components/SetCard";
 import { apiFetch } from "@/lib/api";
+import AddToListMenu from "@/app/components/AddToListMenu";
+import { useAuth } from "@/app/providers";
 
 type QueryParams = {
   page?: number;
@@ -19,19 +21,15 @@ export default function FeedClient({
   queryParams = {},
   ownedSetNums,
   wishlistSetNums,
-  onMarkOwned,
-  onAddWishlist,
-  variant = "default",
 }: {
   title: string;
   description?: string;
   queryParams?: QueryParams;
   ownedSetNums?: Set<string>;
   wishlistSetNums?: Set<string>;
-  onMarkOwned?: (setNum: string) => void;
-  onAddWishlist?: (setNum: string) => void;
-  variant?: string;
 }) {
+  const { token } = useAuth();
+
   const [sets, setSets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
@@ -81,25 +79,33 @@ export default function FeedClient({
       {loading ? <p className="mt-6 text-sm">Loading sets…</p> : null}
       {error ? <p className="mt-6 text-sm text-red-600">Error: {error}</p> : null}
 
-      {!loading && !error && !hasResults ? <p className="mt-6 text-sm text-zinc-500">No sets found for this feed.</p> : null}
+      {!loading && !error && !hasResults ? (
+        <p className="mt-6 text-sm text-zinc-500">No sets found for this feed.</p>
+      ) : null}
 
       {!loading && !error && hasResults ? (
         <ul className="mt-6 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-4 gap-y-7 p-0">
-          {sets.map((set) => (
-            <li key={set.set_num} className="w-full max-w-[260px]">
-              <SetCard
-                set={set}
-                isOwned={ownedSetNums?.has(set.set_num)}
-                isInWishlist={wishlistSetNums?.has(set.set_num)}
-                onMarkOwned={onMarkOwned}
-                onAddWishlist={onAddWishlist}
-                // If your SetCard TS props don’t include `variant`, either:
-                // (1) add it to SetCard props, or
-                // (2) delete this line.
-                variant={variant as any}
-              />
-            </li>
-          ))}
+          {sets.map((set) => {
+            const setNum = String(set?.set_num || "").trim();
+            const owned = !!ownedSetNums?.has(setNum);
+            const wished = !!wishlistSetNums?.has(setNum);
+
+            return (
+              <li key={setNum || Math.random()} className="w-full max-w-[260px]">
+                <SetCard
+                  set={set}
+                  variant={owned ? "owned" : wished ? "wishlist" : "feed"}
+                  footer={
+                    token && setNum ? (
+                      <div className="flex items-center justify-center">
+                        <AddToListMenu token={token} setNum={setNum} />
+                      </div>
+                    ) : null
+                  }
+                />
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
@@ -15,7 +15,6 @@ function clamp(n: number, min: number, max: number) {
 }
 
 function buildPageItems(page: number, totalPages: number) {
-  // Search-style: show first, last, current +/- 2, ellipses when needed
   const items = new Set<number | string>([
     1,
     totalPages,
@@ -42,9 +41,7 @@ function buildPageItems(page: number, totalPages: number) {
 
 function prettyFromSlug(themeSlug: string) {
   const raw = decodeURIComponent(themeSlug || "Theme");
-  // If the slug is already a human name (e.g. "BrickLink Designer Program"), keep it.
   if (raw.includes(" ")) return raw;
-  // Otherwise convert "lego-city" -> "Lego City"
   return raw.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
@@ -58,11 +55,9 @@ type LegoSet = {
   theme?: string;
   image_url?: string;
   average_rating?: number | null;
-  rating_avg?: number | null; // backend sometimes uses this
+  rating_avg?: number | null;
   rating_count?: number;
 };
-
-/* ---------------- sort (single dropdown like ListDetailPage) ---------------- */
 
 type SortKey =
   | "year_desc"
@@ -72,13 +67,24 @@ type SortKey =
   | "pieces_desc"
   | "pieces_asc";
 
-function sortKeyToBackend(sortKey: SortKey): { sort: "name" | "year" | "pieces"; order: "asc" | "desc" } {
-  if (sortKey === "name_asc") return { sort: "name", order: "asc" };
-  if (sortKey === "name_desc") return { sort: "name", order: "desc" };
-  if (sortKey === "pieces_asc") return { sort: "pieces", order: "asc" };
-  if (sortKey === "pieces_desc") return { sort: "pieces", order: "desc" };
-  if (sortKey === "year_asc") return { sort: "year", order: "asc" };
-  return { sort: "year", order: "desc" }; // default
+function sortKeyToBackend(
+  sortKey: SortKey
+): { sort: "name" | "year" | "pieces"; order: "asc" | "desc" } {
+  switch (sortKey) {
+    case "name_asc":
+      return { sort: "name", order: "asc" };
+    case "name_desc":
+      return { sort: "name", order: "desc" };
+    case "pieces_asc":
+      return { sort: "pieces", order: "asc" };
+    case "pieces_desc":
+      return { sort: "pieces", order: "desc" };
+    case "year_asc":
+      return { sort: "year", order: "asc" };
+    case "year_desc":
+    default:
+      return { sort: "year", order: "desc" };
+  }
 }
 
 /* ---------------- component ---------------- */
@@ -95,7 +101,6 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
     return Number.isFinite(raw) && raw > 0 ? raw : 1;
   }, [sp]);
 
-  // ✅ single dropdown key (same style as ListDetailPage)
   const sortKey = useMemo(() => {
     const raw = (sp.get("sortKey") || "year_desc").trim() as SortKey;
     const allowed: SortKey[] = [
@@ -106,43 +111,48 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
       "pieces_desc",
       "pieces_asc",
     ];
-    return (allowed.includes(raw) ? raw : "year_desc") as SortKey;
+    return allowed.includes(raw) ? raw : "year_desc";
   }, [sp]);
 
   const { sort, order } = useMemo(() => sortKeyToBackend(sortKey), [sortKey]);
 
   const [sets, setSets] = useState<LegoSet[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const totalPages = Math.max(1, Math.ceil((total || 0) / PAGE_SIZE));
   const safePage = clamp(page, 1, totalPages);
 
-  const hasResults = sets.length > 0;
   const pageItems = useMemo(() => buildPageItems(safePage, totalPages), [safePage, totalPages]);
 
-  function makeHref(next: Record<string, string | number | null | undefined>) {
-    const u = new URLSearchParams(sp.toString());
-    for (const [k, v] of Object.entries(next)) {
-      if (v == null || v === "") u.delete(k);
-      else u.set(k, String(v));
-    }
-    const qs = u.toString();
-    return qs ? `/themes/${encodeURIComponent(themeSlug)}?${qs}` : `/themes/${encodeURIComponent(themeSlug)}`;
-  }
+  const makeHref = useCallback(
+    (next: Record<string, string | number | null | undefined>) => {
+      const u = new URLSearchParams(sp.toString());
+      for (const [k, v] of Object.entries(next)) {
+        if (v == null || v === "") u.delete(k);
+        else u.set(k, String(v));
+      }
+      const qs = u.toString();
+      const base = `/themes/${encodeURIComponent(themeSlug)}`;
+      return qs ? `${base}?${qs}` : base;
+    },
+    [sp, themeSlug]
+  );
 
-  function push(href: string) {
-    router.push(href);
-  }
+  const push = useCallback(
+    (href: string) => {
+      router.push(href);
+    },
+    [router]
+  );
 
-  // If URL page is out of bounds once we know totalPages, snap it (like your CRA page did).
+  // Snap URL page once total known
   useEffect(() => {
     if (page !== safePage) {
       push(makeHref({ page: safePage }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [safePage, totalPages]);
+  }, [page, safePage, push, makeHref]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,27 +162,25 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
         setLoading(true);
         setError(null);
 
-        // backend endpoint is limit/offset (not page)
         const offset = (safePage - 1) * PAGE_SIZE;
 
         const params = new URLSearchParams();
         params.set("limit", String(PAGE_SIZE));
         params.set("offset", String(offset));
-        params.set("sort", sort);     // name|year|pieces
-        params.set("order", order);   // asc|desc
+        params.set("sort", sort);
+        params.set("order", order);
 
-        // IMPORTANT: this must match backend theme exactly ("City", "Technic", etc.)
+        // IMPORTANT: this is your Next API proxy (/app/api/[...path]/route.ts)
         const url = `/api/themes/${encodeURIComponent(themeName)}/sets?${params.toString()}`;
 
         const resp = await fetch(url, { cache: "no-store" });
-
         if (!resp.ok) {
           const text = await resp.text();
           throw new Error(`Theme sets failed (${resp.status}): ${text}`);
         }
 
         const data = await resp.json();
-        const items = Array.isArray(data) ? (data as LegoSet[]) : [];
+        const items: LegoSet[] = Array.isArray(data) ? data : [];
 
         const totalCount = parseInt(resp.headers.get("x-total-count") || "0", 10);
 
@@ -180,10 +188,9 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
           setSets(items);
           setTotal(Number.isFinite(totalCount) ? totalCount : 0);
         }
-      } catch (err: any) {
+      } catch (e: any) {
         if (!cancelled) {
-          console.error("Error loading theme sets:", err);
-          setError(err?.message || String(err));
+          setError(e?.message || String(e));
           setSets([]);
           setTotal(0);
         }
@@ -221,7 +228,6 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
           ← Back to themes
         </Link>
 
-        {/* ✅ Sort: single dropdown (implies direction) */}
         <label style={{ fontSize: 14, color: "#444", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "#6b7280" }}>Sort</span>
           <select
@@ -245,14 +251,14 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
         </label>
       </div>
 
-      {loading && <p>Loading sets…</p>}
-      {error && <p style={{ color: "red" }}>Error: {error}</p>}
+      {loading ? <p>Loading sets…</p> : null}
+      {error ? <p style={{ color: "red" }}>Error: {error}</p> : null}
 
-      {!loading && !error && !hasResults && (
+      {!loading && !error && sets.length === 0 ? (
         <p style={{ color: "#777" }}>No sets found for this theme.</p>
-      )}
+      ) : null}
 
-      {!loading && !error && hasResults && (
+      {!loading && !error && sets.length > 0 ? (
         <>
           <div
             style={{
@@ -271,8 +277,7 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
             ))}
           </div>
 
-          {/* Pagination (Search-style) */}
-          {totalPages > 1 && (
+          {totalPages > 1 ? (
             <div
               style={{
                 marginTop: "1.5rem",
@@ -342,7 +347,10 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
               >
                 Next
               </button>
-              </div>
-    )}
-  </>
-)}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}

@@ -373,7 +373,11 @@ export default function SetDetailClient(props: Props) {
         setSimilarError(null);
 
         const p = new URLSearchParams();
-        p.set("q", setDetail.theme);
+
+        const theme = setDetail?.theme ? String(setDetail.theme) : "";
+        if (!theme) return; // or just skip this whole “related by theme” fetch
+        
+        p.set("q", theme);
         p.set("sort", "rating");
         p.set("order", "desc");
         p.set("page", "1");

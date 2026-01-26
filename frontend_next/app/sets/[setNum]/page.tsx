@@ -155,7 +155,7 @@ export default async function Page({
   // Offers (server) — offers are keyed by *plain* set number (no "-1")
   const plainSetNum = decoded.replace(/-1$/, "");
   const offersData = await fetchOffersForSet(plainSetNum);
-  const offers = offersData?.offers ?? [];
+const offers = Array.isArray(offersData) ? offersData : [];
 
   return (
     <>

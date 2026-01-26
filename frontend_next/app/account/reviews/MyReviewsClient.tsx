@@ -135,7 +135,10 @@ export default function MyReviewsClient() {
   const { token, me, hydrated } = useAuth();
 
   const isLoggedIn = hydrated && !!token;
-  const username = useMemo(() => me?.username || me?.email || "Account", [me]);
+  const username = useMemo(() => {
+    const anyMe = me as any;
+    return (me?.username || anyMe?.email || "Account") as string;
+  }, [me]);
 
   const filterParam = String(sp.get("filter") || "").toLowerCase();
 

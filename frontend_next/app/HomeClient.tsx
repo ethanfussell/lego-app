@@ -83,8 +83,7 @@ export default function HomeClient() {
   const [loadingLists, setLoadingLists] = useState(false);
   const [listsErr, setListsErr] = useState<string>("");
 
-  function scrollRow(ref: React.RefObject<HTMLDivElement>, direction = 1) {
-    if (!ref.current) return;
+  function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {    if (!ref.current) return;
     const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction; // ~2 cards at a time
     ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
   }

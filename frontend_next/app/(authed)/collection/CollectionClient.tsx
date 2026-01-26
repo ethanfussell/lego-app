@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
@@ -21,7 +20,6 @@ type ListSummary = {
 
 type ListItemLike = {
   set_num?: string | null;
-  // some APIs might name it differently:
   setNum?: string | null;
 };
 
@@ -32,7 +30,6 @@ type ListDetail = {
   is_public?: boolean | null;
   items_count?: number | null;
 
-  // common shapes:
   items?: ListItemLike[] | null;
   set_nums?: string[] | null;
   setNums?: string[] | null;
@@ -54,13 +51,11 @@ function isSystemList(l: any): boolean {
 function toSetNums(detail: ListDetail | null): string[] {
   if (!detail) return [];
 
-  // 1) explicit array
-  const a = (detail.set_nums || detail.setNums) as unknown;
-  if (Array.isArray(a)) {
-    return a.map((x) => String(x || "").trim()).filter(Boolean);
+  const arr = (detail.set_nums || detail.setNums) as unknown;
+  if (Array.isArray(arr)) {
+    return arr.map((x) => String(x || "").trim()).filter(Boolean);
   }
 
-  // 2) items with set_num
   const items = detail.items as unknown;
   if (Array.isArray(items)) {
     return items
@@ -75,8 +70,10 @@ async function fetchSet(setNum: string, token?: string): Promise<SetLite | null>
   const s = String(setNum || "").trim();
   if (!s) return null;
   try {
-    // assumes your API supports GET /sets/{set_num}
-    return await apiFetch<SetLite>(`/sets/${encodeURIComponent(s)}`, { token, cache: "no-store" });
+    return await apiFetch<SetLite>(`/sets/${encodeURIComponent(s)}`, {
+      token,
+      cache: "no-store",
+    });
   } catch {
     return null;
   }
@@ -104,7 +101,7 @@ function Row({
   emptyText?: string;
   renderFooter?: (set: SetLite) => React.ReactNode;
 }) {
-  const hasItems = Array.isArray(sets) && sets.length > 0;
+  const hasItems = sets.length > 0;
 
   return (
     <div className="mt-8">
@@ -116,7 +113,7 @@ function Row({
 
               return (
                 <div key={setNum} className="w-[220px] shrink-0">
-                  <SetCard set={set} footer={renderFooter ? renderFooter(set) : null} />
+                  <SetCard set={set as any} footer={renderFooter ? renderFooter(set) : null} />
                 </div>
               );
             })
@@ -165,8 +162,12 @@ export default function CollectionClient() {
       const wish = mineArr.find((l) => String(l.system_key || "").toLowerCase() === "wishlist");
 
       const [ownedD, wishD] = await Promise.all([
-        owned ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, { token, cache: "no-store" }) : null,
-        wish ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, { token, cache: "no-store" }) : null,
+        owned
+          ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, { token, cache: "no-store" })
+          : Promise.resolve(null),
+        wish
+          ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, { token, cache: "no-store" })
+          : Promise.resolve(null),
       ]);
 
       setOwnedDetail(ownedD);
@@ -183,24 +184,26 @@ export default function CollectionClient() {
       setOwnedPreview(ownedSets);
       setWishlistPreview(wishSets);
 
-      // custom list previews
+      // ---- custom list previews (fixes readonly [] typing) ----
       const customOnly = mineArr.filter((l) => !isSystemList(l));
+
       const entries = await Promise.all(
-        customOnly.map(async (l) => {
+        customOnly.map(async (l): Promise<{ id: string; sets: SetLite[] }> => {
           const id = String(l.id);
+
           try {
             const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
             const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
             const sets = await fetchSetsBulk(nums, token);
-            return [id, sets] as const;
+            return { id, sets };
           } catch {
-            return [id, []] as const;
+            return { id, sets: [] }; // <- NOT "as const" / not readonly
           }
         })
       );
 
       const map: Record<string, SetLite[]> = {};
-      for (const [id, sets] of entries) map[id] = sets;
+      for (const e of entries) map[e.id] = e.sets;
       setCustomPreviewById(map);
     } catch (e: any) {
       setErr(e?.message || String(e) || "Failed to load collection");
@@ -209,10 +212,8 @@ export default function CollectionClient() {
     }
   }, [token]);
 
-  // load on login / token change
   useEffect(() => {
     if (!token) {
-      // reset on logout
       setLists([]);
       setOwnedDetail(null);
       setWishlistDetail(null);
