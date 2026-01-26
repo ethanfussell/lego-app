@@ -59,24 +59,21 @@ def create_access_token(username: str) -> str:
     if not username:
         raise ValueError("username required for token")
 
-    secret_key, algorithm, expire_minutes, allow_fake = _settings()
-
-    # Dev-only escape hatch
-    if allow_fake and not secret_key:
+    # Dev-only escape hatch:
+    if ALLOW_FAKE_AUTH and not SECRET_KEY:
         return f"fake-token-for-{username}"
 
     _require_secret_key()
 
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(minutes=expire_minutes)
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    exp_ts = now_ts + (ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
     payload = {
-        "sub": username,               # username string
-        "iat": int(now.timestamp()),
-        "exp": exp,                    # python-jose accepts datetime here
+        "sub": username,
+        "iat": now_ts,
+        "exp": exp_ts,  # ✅ MUST be int seconds
     }
-
-    return jwt.encode(payload, secret_key, algorithm=algorithm)
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def _username_from_token(token: str) -> Optional[str]:
@@ -84,25 +81,15 @@ def _username_from_token(token: str) -> Optional[str]:
     if not token:
         return None
 
-    secret_key, algorithm, _, allow_fake = _settings()
+    if ALLOW_FAKE_AUTH and token.startswith("fake-token-for-"):
+        return token.replace("fake-token-for-", "", 1).strip() or None
 
-    # Fake token support (only when explicitly enabled)
-    if allow_fake and token.startswith("fake-token-for-"):
-        u = token.replace("fake-token-for-", "", 1).strip()
-        return u or None
-
-    # Real JWT
     _require_secret_key()
 
     try:
-        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         sub = payload.get("sub")
-        if not sub:
-            return None
-        if not isinstance(sub, str):
-            # keep it strict; your tokens should store username as string
-            return None
-        return sub.strip() or None
+        return str(sub).strip() if sub else None
     except JWTError:
         return None
 
