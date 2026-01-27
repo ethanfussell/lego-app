@@ -10,16 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user
-from ..core.set_nums import base_set_num, resolve_set_num
+from ..core.set_nums import base_set_num
+from ..data.sets import get_set_by_num  # ✅ key fix
 from ..db import get_db
 from ..models import List as ListModel
 from ..models import ListItem as ListItemModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
 
-# NOTE:
-# This router is typically included with prefix="/collections" in app startup.
-# (That’s why your URLs are /collections/wishlist, /collections/me/owned, etc.)
 router = APIRouter()
 
 
@@ -27,7 +25,6 @@ class CollectionOrderUpdate(BaseModel):
     set_nums: TypingList[str] = Field(default_factory=list)
 
 
-# ---------- shared helpers ----------
 def _set_to_dict(s: SetModel) -> Dict[str, Any]:
     return {
         "set_num": s.set_num,
@@ -40,11 +37,53 @@ def _set_to_dict(s: SetModel) -> Dict[str, Any]:
     }
 
 
+def _canonicalize_and_ensure_set(db: Session, raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="missing_set_num")
+
+    s = get_set_by_num(raw)  # ✅ same resolver as /sets/{set_num}
+    if not s:
+        raise HTTPException(status_code=404, detail="set_not_found__COLLECTIONS_FIX_1")    
+    if not canonical:
+        raise HTTPException(status_code=404, detail="set_not_found")
+
+    # ✅ ensure SetModel row exists so collections joins work
+    row = db.execute(
+        select(SetModel).where(SetModel.set_num == canonical).limit(1)
+    ).scalar_one_or_none()
+
+    if not row:
+        row = SetModel(
+            set_num=canonical,
+            set_num_plain=str(s.get("set_num_plain") or base_set_num(canonical)),
+            name=str(s.get("name") or ""),
+            year=s.get("year"),
+            pieces=s.get("pieces"),
+            theme=str(s.get("theme") or ""),
+            image_url=str(s.get("image_url") or ""),
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+    else:
+        # light backfill if missing
+        changed = False
+        if not (row.name or "").strip() and s.get("name"):
+            row.name = str(s.get("name") or "")
+            changed = True
+        if not (row.image_url or "").strip() and s.get("image_url"):
+            row.image_url = str(s.get("image_url") or "")
+            changed = True
+        if changed:
+            db.commit()
+
+    return canonical
+
+
 def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel:
-    """
-    Owned/Wishlist are system lists stored in lists/list_items.
-    If missing, create them.
-    """
     key = (key or "").strip().lower()
     if key not in ("owned", "wishlist"):
         raise HTTPException(status_code=400, detail="invalid_collection_type")
@@ -101,10 +140,6 @@ def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel
 
 
 def _get_system_list_optional(db: Session, user_id: int, key: str) -> Optional[ListModel]:
-    """
-    Like _get_or_create_system_list, but DOES NOT create.
-    Useful for idempotent delete endpoints (don’t create lists on DELETE).
-    """
     key = (key or "").strip().lower()
     if key not in ("owned", "wishlist"):
         return None
@@ -130,7 +165,6 @@ def _already_in_list(db: Session, list_id: int, set_num: str) -> bool:
 
 
 def _append_item(db: Session, list_id: int, set_num: str) -> None:
-    """Append at end (max position + 1). Idempotent on duplicates."""
     max_pos = db.execute(
         select(func.coalesce(func.max(ListItemModel.position), -1))
         .where(ListItemModel.list_id == list_id)
@@ -141,7 +175,7 @@ def _append_item(db: Session, list_id: int, set_num: str) -> None:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return  # idempotent success
+        return
 
 
 def _compact_positions(db: Session, list_id: int) -> None:
@@ -162,29 +196,7 @@ def _compact_positions(db: Session, list_id: int) -> None:
     db.commit()
 
 
-def _remove_item_idempotent(db: Session, list_id: int, set_num: str) -> int:
-    """Idempotent delete of an EXACT set_num."""
-    deleted = (
-        db.query(ListItemModel)
-        .filter(ListItemModel.list_id == list_id, ListItemModel.set_num == set_num)
-        .delete(synchronize_session=False)
-    )
-    db.commit()
-
-    if int(deleted) > 0:
-        _compact_positions(db, list_id)
-
-    return int(deleted)
-
-
 def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str) -> int:
-    """
-    ✅ Make '-1' not an issue on DELETE.
-
-    - If raw includes a dash (e.g. "10305-2"): delete exactly that.
-    - If raw is base-only (e.g. "10305"): delete ANY "10305-*" variant in that list.
-    Never 404s.
-    """
     s = (raw or "").strip()
     if not s:
         return 0
@@ -221,11 +233,6 @@ def _system_list_sets_query(list_id: int):
 
 
 def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList[str]) -> None:
-    """
-    Exact reorder:
-    - payload set_nums must contain EXACTLY the current items (same set, same length)
-    - updates parent list updated_at (nice UX)
-    """
     items = db.execute(
         select(ListItemModel)
         .where(ListItemModel.list_id == list_id)
@@ -238,7 +245,7 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     if not set_nums and not current:
         return
 
-    canonical_order: TypingList[str] = [resolve_set_num(db, s) for s in (set_nums or [])]
+    canonical_order: TypingList[str] = [_canonicalize_and_ensure_set(db, s) for s in (set_nums or [])]
 
     if len(set(canonical_order)) != len(canonical_order):
         raise HTTPException(status_code=400, detail="set_nums_must_be_unique")
@@ -254,15 +261,13 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     db.commit()
 
 
-# ---------- owned ----------
 @router.post("/owned", status_code=status.HTTP_200_OK)
 def add_owned(
     payload: Dict[str, str],
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    raw = (payload.get("set_num") or "").strip()
-    canonical = resolve_set_num(db, raw)
+    canonical = _canonicalize_and_ensure_set(db, payload.get("set_num") or "")
 
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
@@ -270,105 +275,12 @@ def add_owned(
     if not _already_in_list(db, int(owned_list.id), canonical):
         _append_item(db, int(owned_list.id), canonical)
 
-    # nice UX: if you mark owned, remove from wishlist (idempotent)
-    # ✅ remove by BASE so 10305 removes 10305-1 or 10305-2 if present
     _remove_item_idempotent_by_base_or_exact(db, int(wishlist_list.id), base_set_num(canonical))
-
     return {"ok": True, "set_num": canonical, "type": "owned"}
 
 
-@router.put("/owned/order", status_code=status.HTTP_200_OK)
-def reorder_owned(
-    payload: CollectionOrderUpdate,
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
-    _reorder_list_items_exact(db, list_id=int(owned_list.id), set_nums=payload.set_nums or [])
-    return {"ok": True, "type": "owned", "list_id": int(owned_list.id)}
-
-
-@router.delete("/owned/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_owned(
-    set_num: str,
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> Response:
-    owned_list = _get_system_list_optional(db, int(current_user.id), "owned")
-    if not owned_list:
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    _remove_item_idempotent_by_base_or_exact(db, int(owned_list.id), set_num)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------- wishlist ----------
-@router.post("/wishlist", status_code=status.HTTP_200_OK)
-def add_wishlist(
-    payload: Dict[str, str],
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    raw = (payload.get("set_num") or "").strip()
-    canonical = resolve_set_num(db, raw)
-
-    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
-
-    if not _already_in_list(db, int(wishlist_list.id), canonical):
-        _append_item(db, int(wishlist_list.id), canonical)
-
-    return {"ok": True, "set_num": canonical, "type": "wishlist"}
-
-
-@router.put("/wishlist/order", status_code=status.HTTP_200_OK)
-def reorder_wishlist(
-    payload: CollectionOrderUpdate,
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
-    _reorder_list_items_exact(db, list_id=int(wishlist_list.id), set_nums=payload.set_nums or [])
-    return {"ok": True, "type": "wishlist", "list_id": int(wishlist_list.id)}
-
-
-@router.delete("/wishlist/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_wishlist(
-    set_num: str,
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> Response:
-    wishlist_list = _get_system_list_optional(db, int(current_user.id), "wishlist")
-    if not wishlist_list:
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    _remove_item_idempotent_by_base_or_exact(db, int(wishlist_list.id), set_num)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------- list my collections ----------
 @router.get("/me/owned")
-def list_my_owned(
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
-):
+def list_my_owned(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     rows = db.execute(_system_list_sets_query(int(owned_list.id))).all()
     return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
-
-
-@router.get("/me/wishlist")
-def list_my_wishlist(
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
-):
-    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
-    rows = db.execute(_system_list_sets_query(int(wishlist_list.id))).all()
-    return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
-
-
-@router.get("/users/{username}/owned")
-def list_owned_for_user(username: str, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501,
-        detail="Public user collections not wired yet (we can add next).",
-    )

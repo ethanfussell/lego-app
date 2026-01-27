@@ -16,7 +16,7 @@ from ..models import User as UserModel
 from ..models import Set as SetModel
 from ..schemas.review import Review, ReviewCreate, MyReviewItem
 
-router = APIRouter()
+router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
 def _review_to_dict(r: ReviewModel, username: str, image_url: Optional[str]) -> Dict[str, Any]:
@@ -40,7 +40,7 @@ def _get_set_image_url(db: Session, canonical_set_num: str) -> Optional[str]:
     ).scalar_one_or_none()
 
 
-@router.get("/{set_num}/reviews", response_model=List[Review])
+@router.get("/sets/{set_num}", response_model=List[Review])
 def list_reviews_for_set(
     set_num: str,
     limit: int = 50,
@@ -60,7 +60,7 @@ def list_reviews_for_set(
     return [_review_to_dict(r, username, image_url) for (r, username, image_url) in rows]
 
 
-@router.post("/{set_num}/reviews", response_model=Review)
+@router.post("/sets/{set_num}", response_model=Review)
 def create_or_update_review(
     set_num: str,
     payload: ReviewCreate,
@@ -78,7 +78,6 @@ def create_or_update_review(
     ).scalar_one_or_none()
 
     if existing is not None:
-        # update only provided fields
         if payload.rating is not None:
             existing.rating = payload.rating
         if payload.text is not None:
@@ -103,7 +102,7 @@ def create_or_update_review(
     return _review_to_dict(new_row, current_user.username, image_url)
 
 
-@router.delete("/{set_num}/reviews/me", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/sets/{set_num}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_my_review(
     set_num: str,
     current_user: UserModel = Depends(get_current_user),
@@ -131,11 +130,10 @@ def delete_my_review(
         .delete(synchronize_session=False)
     )
     db.commit()
-
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/reviews/me", response_model=List[MyReviewItem])
+@router.get("/me", response_model=List[MyReviewItem])
 def list_my_reviews(
     limit: int = 200,
     offset: int = 0,
@@ -143,7 +141,7 @@ def list_my_reviews(
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     rows = db.execute(
-        select(ReviewModel, SetModel.name)
+        select(ReviewModel, SetModel.name, SetModel.image_url)
         .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
         .where(ReviewModel.user_id == current_user.id)
         .order_by(ReviewModel.created_at.desc())
@@ -152,11 +150,12 @@ def list_my_reviews(
     ).all()
 
     out: List[Dict[str, Any]] = []
-    for (r, set_name) in rows:
+    for (r, set_name, image_url) in rows:
         out.append(
             {
                 "set_num": r.set_num,
                 "set_name": set_name,
+                "image_url": image_url,
                 "rating": float(r.rating) if r.rating is not None else None,
                 "text": r.text,
                 "created_at": r.created_at,

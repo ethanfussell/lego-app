@@ -1,190 +1,166 @@
-# backend/app/main.py
-import os
-import hashlib
-import socket
-from urllib.parse import quote
+# backend/app/routers/reviews.py
+from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
-from sqlalchemy import select, text
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from .api import themes
-from .core import auth as auth_router
-from .db import get_db
-from .models import List as ListModel
-from .models import Set as SetModel
-from .routers import collections as collections_router
-from .routers import lists as lists_router
-from .routers import ratings
-from .routers import review_stats as review_stats_router
-from .routers import reviews as reviews_router
-from .routers import sets as sets_router
-from .routers import users as users_router
-from .routers.offers import router as offers_router
+from ..core.auth import get_current_user
+from ..core.set_nums import resolve_set_num
+from ..db import get_db
+from ..models import Review as ReviewModel
+from ..models import User as UserModel
+from ..models import Set as SetModel
+from ..schemas.review import Review, ReviewCreate, MyReviewItem
+
+router = APIRouter(tags=["reviews"])
 
 
-app = FastAPI(title="LEGO API")
-
-# ---------------------------
-# Debug headers (safe)
-# ---------------------------
-# Helps confirm whether different instances are using different SECRET_KEY values.
-@app.middleware("http")
-async def add_debug_headers(request: Request, call_next):
-    resp = await call_next(request)
-
-    secret = (os.getenv("SECRET_KEY") or "").encode("utf-8")
-    kid = hashlib.sha256(secret).hexdigest()[:8] if secret else "none"
-
-    resp.headers["x-secret-kid"] = kid
-    resp.headers["x-host"] = socket.gethostname()
-
-    return resp
+def _review_to_dict(r: ReviewModel, username: str, image_url: Optional[str]) -> Dict[str, Any]:
+    return {
+        "id": int(r.id),
+        "set_num": r.set_num,
+        "user": username,
+        "rating": float(r.rating) if r.rating is not None else None,
+        "text": r.text,
+        "image_url": image_url,
+        "created_at": r.created_at,
+        "updated_at": getattr(r, "updated_at", None),
+        "likes_count": 0,
+        "liked_by": [],
+    }
 
 
-# ---------------------------
-# CORS
-# ---------------------------
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://lego-app-gules.vercel.app",
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Total-Count"],
-)
-
-# ---------------------------
-# Basic routes
-# ---------------------------
-@app.get("/", tags=["meta"])
-def root():
-    return {"status": "ok", "message": "LEGO API is running"}
+def _get_set_image_url(db: Session, canonical_set_num: str) -> Optional[str]:
+    return db.execute(
+        select(SetModel.image_url).where(SetModel.set_num == canonical_set_num)
+    ).scalar_one_or_none()
 
 
-@app.get("/health", tags=["meta"])
-def health():
-    return {"ok": True}
+# ✅ Because this router is mounted with prefix="/sets",
+# this becomes: GET /sets/{set_num}/reviews
+@router.get("/{set_num}/reviews", response_model=List[Review])
+def list_reviews_for_set(
+    set_num: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    canonical = resolve_set_num(db, set_num)
+
+    rows = db.execute(
+        select(ReviewModel, UserModel.username, SetModel.image_url)
+        .join(UserModel, UserModel.id == ReviewModel.user_id)
+        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .where(ReviewModel.set_num == canonical)
+        .order_by(func.coalesce(getattr(ReviewModel, "updated_at", None), ReviewModel.created_at).desc())
+        .limit(int(limit))
+    ).all()
+
+    return [_review_to_dict(r, username, image_url) for (r, username, image_url) in rows]
 
 
-# ---------------------------
-# SEO basics
-# ---------------------------
-def _public_base_url(request: Request) -> str:
-    """
-    Prefer PUBLIC_BASE_URL (prod), fall back to request base URL (dev/tests).
-    Example: https://yourdomain.com
-    """
-    env = (os.getenv("PUBLIC_BASE_URL") or "").strip()
-    if env:
-        return env.rstrip("/")
-    return str(request.base_url).rstrip("/")
+# POST /sets/{set_num}/reviews
+@router.post("/{set_num}/reviews", response_model=Review)
+def create_or_update_review(
+    set_num: str,
+    payload: ReviewCreate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    canonical = resolve_set_num(db, set_num)
+    image_url = _get_set_image_url(db, canonical)
 
-
-@app.get("/robots.txt", include_in_schema=False)
-def robots_txt(request: Request):
-    base = _public_base_url(request)
-    body = f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n"
-    return PlainTextResponse(content=body, media_type="text/plain")
-
-
-@app.get("/sitemap.xml", include_in_schema=False)
-def sitemap_xml(request: Request, db: Session = Depends(get_db)):
-    base = _public_base_url(request)
-    urls: list[str] = []
-
-    # Home + primary discovery routes
-    urls.append(f"{base}/")
-    urls.append(f"{base}/lists/public")
-
-    # Themes (derived from sets.theme)
-    theme_rows = (
-        db.execute(
-            select(SetModel.theme)
-            .where(SetModel.theme.isnot(None), SetModel.theme != "")
-            .group_by(SetModel.theme)
-            .order_by(SetModel.theme.asc())
-            .limit(5000)
+    existing = db.execute(
+        select(ReviewModel).where(
+            ReviewModel.user_id == current_user.id,
+            ReviewModel.set_num == canonical,
         )
-        .scalars()
-        .all()
-    )
-    for t in theme_rows:
-        urls.append(f"{base}/themes/{quote(str(t))}")
+    ).scalar_one_or_none()
 
-    # Public lists
-    list_rows = (
-        db.execute(
-            select(ListModel.id)
-            .where(ListModel.is_public.is_(True))
-            .order_by(ListModel.created_at.desc())
-            .limit(5000)
+    if existing is not None:
+        if payload.rating is not None:
+            existing.rating = payload.rating
+        if payload.text is not None:
+            existing.text = payload.text
+
+        if hasattr(existing, "updated_at"):
+            setattr(existing, "updated_at", datetime.utcnow())
+
+        db.commit()
+        db.refresh(existing)
+        return _review_to_dict(existing, current_user.username, image_url)
+
+    new_row = ReviewModel(
+        user_id=current_user.id,
+        set_num=canonical,
+        rating=payload.rating,
+        text=payload.text,
+    )
+    db.add(new_row)
+    db.commit()
+    db.refresh(new_row)
+    return _review_to_dict(new_row, current_user.username, image_url)
+
+
+# DELETE /sets/{set_num}/reviews/me
+@router.delete("/{set_num}/reviews/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_review(
+    set_num: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        canonical = resolve_set_num(db, set_num)
+    except HTTPException as e:
+        if e.status_code == 404 and e.detail == "set_not_found":
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise
+
+    (
+        db.query(ReviewModel)
+        .filter(
+            ReviewModel.user_id == current_user.id,
+            ReviewModel.set_num == canonical,
         )
-        .scalars()
-        .all()
+        .delete(synchronize_session=False)
     )
-    for lid in list_rows:
-        urls.append(f"{base}/lists/{int(lid)}")
+    db.commit()
 
-    # Sets (cap to keep sitemap reasonable)
-    set_rows = (
-        db.execute(
-            select(SetModel.set_num)
-            .order_by(SetModel.set_num.asc())
-            .limit(5000)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ✅ Put "me" behind a fixed prefix so it never collides with {set_num}
+# GET /sets/reviews/me
+@router.get("/reviews/me", response_model=List[MyReviewItem])
+def list_my_reviews(
+    limit: int = 200,
+    offset: int = 0,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    rows = db.execute(
+        select(ReviewModel, SetModel.name, SetModel.image_url)
+        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .where(ReviewModel.user_id == current_user.id)
+        .order_by(func.coalesce(getattr(ReviewModel, "updated_at", None), ReviewModel.created_at).desc())
+        .offset(int(offset))
+        .limit(int(limit))
+    ).all()
+
+    out: List[Dict[str, Any]] = []
+    for (r, set_name, image_url) in rows:
+        out.append(
+            {
+                "set_num": r.set_num,
+                "set_name": set_name,
+                "image_url": image_url,
+                "rating": float(r.rating) if r.rating is not None else None,
+                "text": r.text,
+                "created_at": r.created_at,
+                "updated_at": getattr(r, "updated_at", None),
+            }
         )
-        .scalars()
-        .all()
-    )
-    for sn in set_rows:
-        urls.append(f"{base}/sets/{quote(str(sn))}")
-
-    xml_lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ]
-    for u in urls:
-        xml_lines.append("  <url>")
-        xml_lines.append(f"    <loc>{u}</loc>")
-        xml_lines.append("  </url>")
-    xml_lines.append("</urlset>")
-
-    return FastAPIResponse(content="\n".join(xml_lines), media_type="application/xml")
-
-
-# ---------------------------
-# Routers
-# ---------------------------
-app.include_router(auth_router.router, tags=["auth"])
-
-app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
-app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
-
-app.include_router(collections_router.router, prefix="/collections", tags=["collections"])
-app.include_router(users_router.router, tags=["users"])
-app.include_router(themes.router, tags=["themes"])
-
-# lists router already has prefix="/lists"
-app.include_router(lists_router.router)
-
-app.include_router(review_stats_router.router)
-app.include_router(ratings.router)
-
-app.include_router(offers_router)
-
-
-# ---------------------------
-# Debug
-# ---------------------------
-@app.get("/db/ping", tags=["debug"])
-def db_ping(db: Session = Depends(get_db)):
-    return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
+    return out

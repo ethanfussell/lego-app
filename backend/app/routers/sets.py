@@ -1,175 +1,157 @@
 # backend/app/routers/sets.py
 from __future__ import annotations
-import os
 
+import os
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
-from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
+
 from app.schemas.set import SetBulkOut
 
-from ..data.sets import load_cached_sets, get_set_by_num
+from ..core.auth import get_current_user, get_current_user_optional
 from ..data.offers import get_offers_for_set
+from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
 from ..db import get_db
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
+from ..models import User as UserModel
 from ..schemas.pricing import StoreOffer
 
 router = APIRouter()
 
-# ---------------- auth helper (same style as your lists router) ----------------
-
-def get_current_user(authorization: str = Header(default=None)):
-  """
-  Very simple auth:
-  - Expects Authorization header like "Bearer fake-token-for-ethan"
-  - Extracts username "ethan"
-  """
-  if not authorization:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-  parts = authorization.split()
-  token = parts[1] if (len(parts) == 2 and parts[0].lower() == "bearer") else authorization
-
-  prefix = "fake-token-for-"
-  username = token[len(prefix):] if token.startswith(prefix) else token
-
-  if not username:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-  return SimpleNamespace(username=username)
 
 # ---------------- helpers ----------------
 
 def _use_memory_reviews() -> bool:
     return os.getenv("PYTEST_CURRENT_TEST") is not None and hasattr(reviews_data, "REVIEWS")
 
+
 def _fuzzy_score_for_set(s: Dict[str, Any], q: str) -> float:
-  q = (q or "").strip().lower()
-  if not q:
-    return 0.0
+    q = (q or "").strip().lower()
+    if not q:
+        return 0.0
 
-  candidates = [
-    (s.get("name") or "").lower(),
-    (s.get("ip") or "").lower(),
-    (s.get("theme") or "").lower(),
-  ]
+    candidates = [
+        (s.get("name") or "").lower(),
+        (s.get("ip") or "").lower(),
+        (s.get("theme") or "").lower(),
+    ]
 
-  best = 0.0
-  for text in candidates:
-    if not text:
-      continue
-    best = max(best, SequenceMatcher(None, q, text).ratio())
-  return best
+    best = 0.0
+    for text in candidates:
+        if not text:
+            continue
+        best = max(best, SequenceMatcher(None, q, text).ratio())
+    return best
 
 
 def _matches_query(s: Dict[str, Any], q: str) -> bool:
-  q = (q or "").strip().lower()
-  if not q:
-    return True
+    q = (q or "").strip().lower()
+    if not q:
+        return True
 
-  name = (s.get("name") or "").lower()
-  theme = (s.get("theme") or "").lower()
-  set_num = (s.get("set_num") or "").lower()
-  plain = (s.get("set_num_plain") or "").lower()
+    name = (s.get("name") or "").lower()
+    theme = (s.get("theme") or "").lower()
+    set_num = (s.get("set_num") or "").lower()
+    plain = (s.get("set_num_plain") or "").lower()
 
-  return (q in name) or (q in theme) or (q in set_num) or (q == plain)
+    return (q in name) or (q in theme) or (q in set_num) or (q == plain)
 
 
 def _relevance_score(s: Dict[str, Any], q: str) -> int:
-  q = (q or "").strip().lower()
-  if not q:
-    return 0
+    q = (q or "").strip().lower()
+    if not q:
+        return 0
 
-  name = (s.get("name") or "").lower()
-  theme = (s.get("theme") or "").lower()
-  set_num = (s.get("set_num") or "").lower()
-  plain = (s.get("set_num_plain") or "").lower()
+    name = (s.get("name") or "").lower()
+    theme = (s.get("theme") or "").lower()
+    set_num = (s.get("set_num") or "").lower()
+    plain = (s.get("set_num_plain") or "").lower()
 
-  score = 0
-  if plain and plain == q:
-    score += 100
-  if set_num and set_num == q:
-    score += 90
-  if name.startswith(q):
-    score += 60
-  if q in name:
-    score += 40
-  if q in theme:
-    score += 20
-  return score
+    score = 0
+    if plain and plain == q:
+        score += 100
+    if set_num and set_num == q:
+        score += 90
+    if name.startswith(q):
+        score += 60
+    if q in name:
+        score += 40
+    if q in theme:
+        score += 20
+    return score
 
 
 def _sort_key(sort: str):
-  if sort == "name":
+    if sort == "name":
+        return lambda r: (r.get("name") or "").lower()
+    if sort == "year":
+        return lambda r: (r.get("year") or 0)
+    if sort == "pieces":
+        return lambda r: (r.get("pieces") or 0)
+    if sort == "rating":
+        return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
     return lambda r: (r.get("name") or "").lower()
-  if sort == "year":
-    return lambda r: (r.get("year") or 0)
-  if sort == "pieces":
-    return lambda r: (r.get("pieces") or 0)
-  if sort == "rating":
-    return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
-  return lambda r: (r.get("name") or "").lower()
 
 
 def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], int]:
-  if _use_memory_reviews():
-    vals = [
-      float(r["rating"])
-      for r in (reviews_data.REVIEWS or [])
-      if str(r.get("set_num")) == str(set_num) and r.get("rating") is not None
-    ]
-    if not vals:
-      return (None, 0)
-    return (round(sum(vals) / len(vals), 2), len(vals))
+    if _use_memory_reviews():
+        vals = [
+            float(r["rating"])
+            for r in (reviews_data.REVIEWS or [])
+            if str(r.get("set_num")) == str(set_num) and r.get("rating") is not None
+        ]
+        if not vals:
+            return (None, 0)
+        return (round(sum(vals) / len(vals), 2), len(vals))
 
-  row = db.execute(
-    select(func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
-    .where(ReviewModel.set_num == set_num, ReviewModel.rating.is_not(None))
-  ).one()
+    row = db.execute(
+        select(func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
+        .where(ReviewModel.set_num == set_num, ReviewModel.rating.is_not(None))
+    ).one()
 
-  avg, cnt = row
-  cnt_i = int(cnt or 0)
-  if cnt_i <= 0 or avg is None:
-    return (None, 0)
-  return (round(float(avg), 2), cnt_i)
+    avg, cnt = row
+    cnt_i = int(cnt or 0)
+    if cnt_i <= 0 or avg is None:
+        return (None, 0)
+    return (round(float(avg), 2), cnt_i)
 
 
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
-  if _use_memory_reviews():
-    buckets: Dict[str, List[float]] = {}
-    for r in (reviews_data.REVIEWS or []):
-      rating = r.get("rating")
-      if rating is None:
-        continue
-      key = str(r.get("set_num"))
-      buckets.setdefault(key, []).append(float(rating))
+    if _use_memory_reviews():
+        buckets: Dict[str, List[float]] = {}
+        for r in (reviews_data.REVIEWS or []):
+            rating = r.get("rating")
+            if rating is None:
+                continue
+            key = str(r.get("set_num"))
+            buckets.setdefault(key, []).append(float(rating))
+
+        out: Dict[str, Tuple[Optional[float], int]] = {}
+        for set_num, vals in buckets.items():
+            if not vals:
+                out[set_num] = (None, 0)
+            else:
+                out[set_num] = (round(sum(vals) / len(vals), 2), len(vals))
+        return out
+
+    rows = db.execute(
+        select(ReviewModel.set_num, func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
+        .where(ReviewModel.rating.is_not(None))
+        .group_by(ReviewModel.set_num)
+    ).all()
 
     out: Dict[str, Tuple[Optional[float], int]] = {}
-    for set_num, vals in buckets.items():
-      if not vals:
-        out[set_num] = (None, 0)
-      else:
-        out[set_num] = (round(sum(vals) / len(vals), 2), len(vals))
+    for set_num, avg, cnt in rows:
+        cnt_i = int(cnt or 0)
+        avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
+        out[str(set_num)] = (avg_f, cnt_i)
     return out
-
-  rows = db.execute(
-    select(ReviewModel.set_num, func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
-    .where(ReviewModel.rating.is_not(None))
-    .group_by(ReviewModel.set_num)
-  ).all()
-
-  out: Dict[str, Tuple[Optional[float], int]] = {}
-  for set_num, avg, cnt in rows:
-    cnt_i = int(cnt or 0)
-    avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
-    out[str(set_num)] = (avg_f, cnt_i)
-  return out
 
 
 def _user_rating_for_set(
@@ -185,34 +167,26 @@ def _user_rating_for_set(
       - a string column (e.g. Review.user == "ethan"), OR
       - a relationship (e.g. Review.user.has(username="ethan"))
     """
-
-    # 1) find the "user" attribute on ReviewModel
     user_attr = getattr(ReviewModel, "user", None) or getattr(ReviewModel, "username", None)
     if user_attr is None:
         raise RuntimeError("ReviewModel is missing a user field (expected .user or .username)")
 
-    # 2) build the correct filter depending on whether it's a relationship or column
     prop = getattr(user_attr, "property", None)
     if isinstance(prop, RelationshipProperty):
-        # Relationship: ReviewModel.user -> UserModel
-        UserModel = prop.mapper.class_
-
-        # Try common username fields on the User model
-        if hasattr(UserModel, "username"):
+        UserRel = prop.mapper.class_
+        if hasattr(UserRel, "username"):
             user_filter = user_attr.has(username=username)
-        elif hasattr(UserModel, "user"):
+        elif hasattr(UserRel, "user"):
             user_filter = user_attr.has(user=username)
-        elif hasattr(UserModel, "name"):
+        elif hasattr(UserRel, "name"):
             user_filter = user_attr.has(name=username)
         else:
             raise RuntimeError(
                 "ReviewModel.user is a relationship, but User model has no username/user/name field to filter on."
             )
     else:
-        # Plain string column
         user_filter = (user_attr == username)
 
-    # order column (best effort)
     order_col = getattr(ReviewModel, "created_at", None) or getattr(ReviewModel, "id", None)
 
     def query_for(target_set_num: str):
@@ -240,329 +214,308 @@ def _user_rating_for_set(
 
     return None
 
+
 # ---------------- endpoints ----------------
 
 @router.get("")
 def list_sets(
-  response: Response,
-  q: Optional[str] = Query(None),
-  page: int = Query(1, ge=1),
-  limit: int = Query(20, ge=1, le=100),
-  sort: str = Query("relevance"),
-  order: Optional[str] = Query(None),
-  db: Session = Depends(get_db),
+    response: Response,
+    q: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    sort: str = Query("relevance"),
+    order: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ):
-  all_sets = load_cached_sets()
-  sets = all_sets
+    all_sets = load_cached_sets()
+    sets = all_sets
 
-  if q:
-    sets = [s for s in sets if _matches_query(s, q)]
-    if not sets:
-      scored: List[Tuple[float, Dict[str, Any]]] = []
-      for s in all_sets:
-        score = _fuzzy_score_for_set(s, q)
-        if score >= 0.55:
-          scored.append((score, s))
-      scored.sort(key=lambda t: t[0], reverse=True)
-      sets = [s for _, s in scored[:100]]
-
-  ratings = _ratings_map(db)
-
-  enriched: List[Dict[str, Any]] = []
-  for s in sets:
-    canonical = s.get("set_num") or ""
-    avg, cnt = ratings.get(canonical, (None, 0))
-    s2 = dict(s)
-    s2["_avg_rating"] = avg
-    s2["_rating_count"] = cnt
-    enriched.append(s2)
-
-  allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
-  if sort not in allowed_sorts:
-    raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
-
-  if order is None:
-    order = "desc" if sort in {"relevance", "rating"} else "asc"
-  reverse = (order == "desc")
-
-  if sort == "relevance":
     if q:
-      for r in enriched:
-        r["_relevance"] = _relevance_score(r, q)
-      enriched.sort(
-        key=lambda r: (
-          r.get("_relevance") or 0,
-          r.get("_rating_count") or 0,
-          (r.get("_avg_rating") or 0.0),
-        ),
-        reverse=True,
-      )
+        sets = [s for s in sets if _matches_query(s, q)]
+        if not sets:
+            scored: List[Tuple[float, Dict[str, Any]]] = []
+            for s in all_sets:
+                score = _fuzzy_score_for_set(s, q)
+                if score >= 0.55:
+                    scored.append((score, s))
+            scored.sort(key=lambda t: t[0], reverse=True)
+            sets = [s for _, s in scored[:100]]
+
+    ratings = _ratings_map(db)
+
+    enriched: List[Dict[str, Any]] = []
+    for s in sets:
+        canonical = s.get("set_num") or ""
+        avg, cnt = ratings.get(canonical, (None, 0))
+        s2 = dict(s)
+        s2["_avg_rating"] = avg
+        s2["_rating_count"] = cnt
+        enriched.append(s2)
+
+    allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
+    if sort not in allowed_sorts:
+        raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
+
+    if order is None:
+        order = "desc" if sort in {"relevance", "rating"} else "asc"
+    reverse = (order == "desc")
+
+    if sort == "relevance":
+        if q:
+            for r in enriched:
+                r["_relevance"] = _relevance_score(r, q)
+            enriched.sort(
+                key=lambda r: (
+                    r.get("_relevance") or 0,
+                    r.get("_rating_count") or 0,
+                    (r.get("_avg_rating") or 0.0),
+                ),
+                reverse=True,
+            )
+        else:
+            enriched.sort(key=_sort_key("name"), reverse=False)
     else:
-      enriched.sort(key=_sort_key("name"), reverse=False)
-  else:
-    enriched.sort(key=_sort_key(sort), reverse=reverse)
+        enriched.sort(key=_sort_key(sort), reverse=reverse)
 
-  total = len(enriched)
-  start = (page - 1) * limit
-  end = start + limit
-  page_rows = enriched[start:end]
+    total = len(enriched)
+    start = (page - 1) * limit
+    end = start + limit
+    page_rows = enriched[start:end]
 
-  # return both keys for compatibility: average_rating + rating_avg
-  for r in page_rows:
-    avg = r.pop("_avg_rating", None)
-    cnt = r.pop("_rating_count", 0)
-    r.pop("_relevance", None)
+    for r in page_rows:
+        avg = r.pop("_avg_rating", None)
+        cnt = r.pop("_rating_count", 0)
+        r.pop("_relevance", None)
 
-    r["average_rating"] = avg
-    r["rating_avg"] = avg
-    r["rating_count"] = cnt
+        r["average_rating"] = avg
+        r["rating_avg"] = avg
+        r["rating_count"] = cnt
 
-  response.headers["X-Total-Count"] = str(total)
-  return page_rows
+    response.headers["X-Total-Count"] = str(total)
+    return page_rows
 
 
 @router.get("/suggest")
 def suggest_sets(
-  q: str = Query(..., min_length=1),
-  limit: int = Query(6, ge=1, le=20),
-  db: Session = Depends(get_db),
+    q: str = Query(..., min_length=1),
+    limit: int = Query(6, ge=1, le=20),
+    db: Session = Depends(get_db),
 ):
-  q_clean = (q or "").strip().lower()
-  if not q_clean:
-    return []
+    q_clean = (q or "").strip().lower()
+    if not q_clean:
+        return []
 
-  all_sets = load_cached_sets()
-  ratings = _ratings_map(db)
+    all_sets = load_cached_sets()
+    ratings = _ratings_map(db)
 
-  candidates: List[Tuple[float, int, int, Dict[str, Any]]] = []
-  for s in all_sets:
-    name = (s.get("name") or "").lower()
-    theme = (s.get("theme") or "").lower()
-    set_num = (s.get("set_num") or "").lower()
-    plain = (s.get("set_num_plain") or "").lower()
+    candidates: List[Tuple[float, int, int, Dict[str, Any]]] = []
+    for s in all_sets:
+        name = (s.get("name") or "").lower()
+        theme = (s.get("theme") or "").lower()
+        set_num = (s.get("set_num") or "").lower()
+        plain = (s.get("set_num_plain") or "").lower()
 
-    base_score = 0.0
-    direct = False
+        base_score = 0.0
+        direct = False
 
-    if plain and plain == q_clean:
-      base_score += 120
-      direct = True
-    if set_num and set_num == q_clean:
-      base_score += 110
-      direct = True
-    if name.startswith(q_clean):
-      base_score += 80
-      direct = True
-    if q_clean in name:
-      base_score += 60
-      direct = True
-    if q_clean in theme:
-      base_score += 30
-      direct = True
+        if plain and plain == q_clean:
+            base_score += 120
+            direct = True
+        if set_num and set_num == q_clean:
+            base_score += 110
+            direct = True
+        if name.startswith(q_clean):
+            base_score += 80
+            direct = True
+        if q_clean in name:
+            base_score += 60
+            direct = True
+        if q_clean in theme:
+            base_score += 30
+            direct = True
 
-    if not direct:
-      fuzzy = _fuzzy_score_for_set(s, q_clean)
-      if fuzzy < 0.5:
-        continue
-      base_score += fuzzy * 50.0
+        if not direct:
+            fuzzy = _fuzzy_score_for_set(s, q_clean)
+            if fuzzy < 0.5:
+                continue
+            base_score += fuzzy * 50.0
 
-    canonical = s.get("set_num") or ""
-    _, cnt = ratings.get(canonical, (None, 0))
-    pop_score = min(cnt, 50)
+        canonical = s.get("set_num") or ""
+        _, cnt = ratings.get(canonical, (None, 0))
+        pop_score = min(cnt, 50)
 
-    total_score = base_score + pop_score
-    year = int(s.get("year") or 0)
-    candidates.append((total_score, int(cnt), year, s))
+        total_score = base_score + pop_score
+        year = int(s.get("year") or 0)
+        candidates.append((total_score, int(cnt), year, s))
 
-  candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
-  top = [s for _, _, _, s in candidates[:limit]]
+    candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
+    top = [s for _, _, _, s in candidates[:limit]]
 
-  return [
-    {"set_num": s.get("set_num"), "name": s.get("name"), "ip": s.get("ip") or s.get("theme"), "year": s.get("year")}
-    for s in top
-  ]
+    return [
+        {"set_num": s.get("set_num"), "name": s.get("name"), "ip": s.get("ip") or s.get("theme"), "year": s.get("year")}
+        for s in top
+    ]
 
 
 @router.get("/{set_num}/rating")
 def get_set_rating_summary(set_num: str, db: Session = Depends(get_db)):
-  s = get_set_by_num(set_num)
-  if not s:
-    raise HTTPException(status_code=404, detail="Set not found")
+    s = get_set_by_num(set_num)
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
 
-  canonical = s.get("set_num") or set_num
-  avg, cnt = _rating_stats_for_set(db, canonical)
-
-  return {"set_num": canonical, "average": avg, "count": cnt}
+    canonical = s.get("set_num") or set_num
+    avg, cnt = _rating_stats_for_set(db, canonical)
+    return {"set_num": canonical, "average": avg, "count": cnt}
 
 
 @router.get("/{set_num}/offers", response_model=List[StoreOffer])
 def get_set_offers(set_num: str):
-  s = get_set_by_num(set_num)
-  if not s:
-    raise HTTPException(status_code=404, detail="Set not found")
+    s = get_set_by_num(set_num)
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
 
-  plain = (s.get("set_num_plain") or "").strip() or s.get("set_num") or ""
-  plain = plain.split("-")[0]
-  return get_offers_for_set(plain)
+    plain = (s.get("set_num_plain") or "").strip() or s.get("set_num") or ""
+    plain = plain.split("-")[0]
+    return get_offers_for_set(plain)
+
 
 @router.get(
-  "/bulk",
-  response_model=List[SetBulkOut],
-  summary="Bulk fetch sets",
-  description=(
-    "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
-    "(average_rating, rating_count). If Authorization is provided, includes user_rating "
-    "for that user."
-  ),
+    "/bulk",
+    response_model=List[SetBulkOut],
+    summary="Bulk fetch sets",
+    description=(
+        "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
+        "(average_rating, rating_count). If authenticated, includes user_rating."
+    ),
 )
 def bulk_get_sets(
-  set_nums: str = Query(
-    ...,
-    description="Comma-separated set numbers like 10305-1,21357-1",
-    example="10305-1,21357-1",
-  ),
-  db: Session = Depends(get_db),
-  authorization: Optional[str] = Header(
-    default=None,
-    alias="Authorization",
-    description='Optional. Use "Bearer fake-token-for-ethan" to include user_rating.',
-  ),
+    set_nums: str = Query(..., description="Comma-separated set numbers like 10305-1,21357-1", example="10305-1,21357-1"),
+    db: Session = Depends(get_db),
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
 ):
-  
-  raw = (set_nums or "").strip()
-  if not raw:
-    raise HTTPException(status_code=422, detail="set_nums_required")
+    raw = (set_nums or "").strip()
+    if not raw:
+        raise HTTPException(status_code=422, detail="set_nums_required")
 
-  requested: List[str] = [s.strip() for s in raw.split(",") if s.strip()]
-  if not requested:
-    raise HTTPException(status_code=422, detail="set_nums_required")
+    requested: List[str] = [s.strip() for s in raw.split(",") if s.strip()]
+    if not requested:
+        raise HTTPException(status_code=422, detail="set_nums_required")
 
-  # Resolve using your cached sets helper (same behavior as /sets/{set_num})
-  found: List[Dict[str, Any]] = []
-  canonicals: List[str] = []
-  plain_map: Dict[str, Optional[str]] = {}
+    found: List[Dict[str, Any]] = []
+    canonicals: List[str] = []
+    plain_map: Dict[str, Optional[str]] = {}
 
-  for x in requested:
-    s = get_set_by_num(x)
-    if not s:
-      continue
-    canonical = s.get("set_num") or x
-    canonicals.append(canonical)
-    plain_map[canonical] = s.get("set_num_plain")
-    found.append(s)
+    for x in requested:
+        s = get_set_by_num(x)
+        if not s:
+            continue
+        canonical = s.get("set_num") or x
+        canonicals.append(canonical)
+        plain_map[canonical] = s.get("set_num_plain")
+        found.append(s)
 
-  if not canonicals:
-    return []
+    if not canonicals:
+        return []
 
-  # Ratings for just these sets (fast)
-  rows = db.execute(
-    select(
-      ReviewModel.set_num,
-      func.avg(ReviewModel.rating),
-      func.count(ReviewModel.rating),
-    )
-    .where(
-      ReviewModel.rating.is_not(None),
-      ReviewModel.set_num.in_(canonicals),
-    )
-    .group_by(ReviewModel.set_num)
-  ).all()
+    rows = db.execute(
+        select(
+            ReviewModel.set_num,
+            func.avg(ReviewModel.rating),
+            func.count(ReviewModel.rating),
+        )
+        .where(
+            ReviewModel.rating.is_not(None),
+            ReviewModel.set_num.in_(canonicals),
+        )
+        .group_by(ReviewModel.set_num)
+    ).all()
 
-  ratings: Dict[str, Tuple[Optional[float], int]] = {}
-  for set_num, avg, cnt in rows:
-    cnt_i = int(cnt or 0)
-    avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
-    ratings[str(set_num)] = (avg_f, cnt_i)
+    ratings: Dict[str, Tuple[Optional[float], int]] = {}
+    for set_num, avg, cnt in rows:
+        cnt_i = int(cnt or 0)
+        avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
+        ratings[str(set_num)] = (avg_f, cnt_i)
 
-  # Optional user_rating (only if auth header present)
-  username: Optional[str] = None
-  if authorization:
-    username = get_current_user(authorization).username
+    username: Optional[str] = current_user.username if current_user else None
 
-  out: List[Dict[str, Any]] = []
-  for s in found:
-    canonical = s.get("set_num") or ""
-    avg, cnt = ratings.get(canonical, (None, 0))
+    out: List[Dict[str, Any]] = []
+    for s in found:
+        canonical = s.get("set_num") or ""
+        avg, cnt = ratings.get(canonical, (None, 0))
 
-    user_rating = None
-    if username:
-      user_rating = _user_rating_for_set(db, username, canonical, plain_map.get(canonical))
+        user_rating = None
+        if username:
+            user_rating = _user_rating_for_set(db, username, canonical, plain_map.get(canonical))
 
-    r = dict(s)
-    r["average_rating"] = avg
-    r["rating_avg"] = avg
-    r["rating_count"] = cnt
-    r["user_rating"] = user_rating
-    out.append(r)
+        r = dict(s)
+        r["average_rating"] = avg
+        r["rating_avg"] = avg
+        r["rating_count"] = cnt
+        r["user_rating"] = user_rating
+        out.append(r)
 
-  return out
+    return out
+
 
 @router.get("/reviews/me")
 def list_my_reviews(
-  limit: int = Query(200, ge=1, le=500),
-  db: Session = Depends(get_db),
-  authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-  # auth -> username (matches your existing helper)
-  if not authorization:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    username = current_user.username
 
-  username = get_current_user(authorization).username
+    rows = db.execute(
+        select(ReviewModel, SetModel)
+        .join(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .where(ReviewModel.user.has(username=username))
+        .order_by(func.coalesce(ReviewModel.updated_at, ReviewModel.created_at).desc())
+        .limit(int(limit))
+    ).all()
 
-  rows = db.execute(
-    select(ReviewModel, SetModel)
-    .join(SetModel, SetModel.set_num == ReviewModel.set_num)
-    .where(ReviewModel.user.has(username=username))
-    .order_by(func.coalesce(ReviewModel.updated_at, ReviewModel.created_at).desc())
-    .limit(int(limit))
-  ).all()
+    out: List[Dict[str, Any]] = []
+    for (rev, s) in rows:
+        img = s.image_url
+        if not img:
+            cached = get_set_by_num(rev.set_num)
+            img = (cached or {}).get("image_url")
 
-  out: List[Dict[str, Any]] = []
-  for (rev, s) in rows:
-    # robust fallback (optional): if DB image_url is null, try cache
-    img = s.image_url
-    if not img:
-      cached = get_set_by_num(rev.set_num)
-      img = (cached or {}).get("image_url")
+        out.append(
+            {
+                "set_num": rev.set_num,
+                "set_name": s.name,
+                "image_url": img,
+                "rating": float(rev.rating) if rev.rating is not None else None,
+                "text": rev.text,
+                "created_at": rev.created_at,
+                "updated_at": getattr(rev, "updated_at", None),
+            }
+        )
+    return out
 
-    out.append(
-      {
-        "set_num": rev.set_num,
-        "set_name": s.name,
-        "image_url": img,  # ✅ IMPORTANT
-        "rating": float(rev.rating) if rev.rating is not None else None,
-        "text": rev.text,
-        "created_at": rev.created_at,
-        "updated_at": getattr(rev, "updated_at", None),
-      }
-    )
-
-  return out
 
 @router.get("/{set_num}")
 def get_set(
-  set_num: str,
-  db: Session = Depends(get_db),
-  authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    set_num: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
 ):
-  s = get_set_by_num(set_num)
-  if not s:
-    raise HTTPException(status_code=404, detail="Set not found")
+    s = get_set_by_num(set_num)
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
 
-  canonical = s.get("set_num") or set_num
-  plain = s.get("set_num_plain")
+    canonical = s.get("set_num") or set_num
+    plain = s.get("set_num_plain")
 
-  avg, cnt = _rating_stats_for_set(db, canonical)
+    avg, cnt = _rating_stats_for_set(db, canonical)
 
-  user_rating = None
-  if authorization:
-    username = get_current_user(authorization).username
-    user_rating = _user_rating_for_set(db, username, canonical, plain)
+    user_rating = None
+    if current_user:
+        user_rating = _user_rating_for_set(db, current_user.username, canonical, plain)
 
-  out = dict(s)
-  out["average_rating"] = avg
-  out["rating_avg"] = avg
-  out["rating_count"] = cnt
-  out["user_rating"] = user_rating
-  return out
-
+    out = dict(s)
+    out["average_rating"] = avg
+    out["rating_avg"] = avg
+    out["rating_count"] = cnt
+    out["user_rating"] = user_rating
+    return out
