@@ -1,18 +1,19 @@
 # backend/app/routers/users.py
 from __future__ import annotations
 
-from typing import Any, Dict, List as TypingList, Optional, Annotated
+from typing import Any, Dict, List as TypingList
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
-from ..db import get_db
-from ..models import User as UserModel
-from ..models import List as ListModel
-from ..models import ListItem as ListItemModel
+from app.core.auth import get_current_user
+from app.db import get_db
+from app.models import User as UserModel
+from app.models import List as ListModel
+from app.models import ListItem as ListItemModel
 
 router = APIRouter(prefix="/users", tags=["users"])
+
 
 def _items_count_expr():
     return (
@@ -24,21 +25,8 @@ def _items_count_expr():
 
 
 @router.get("/me")
-def me(authorization: Annotated[Optional[str], Header()] = None):
-    """
-    Return the current user from the fake bearer token.
-    Expected token format: "fake-token-for-<username>"
-    """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing token")
-
-    token = authorization.split(" ", 1)[1]
-    prefix = "fake-token-for-"
-    if not token.startswith(prefix):
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    username = token[len(prefix) :]
-    return {"username": username}
+def me(user: UserModel = Depends(get_current_user)):
+    return {"id": int(user.id), "username": user.username}
 
 
 @router.get("")
