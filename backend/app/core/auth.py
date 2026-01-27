@@ -83,16 +83,30 @@ def _username_from_token(token: str) -> Optional[str]:
     if not secret:
         return None
 
+    # Helpful: show if the token is malformed BEFORE verify
+    if debug:
+        try:
+            hdr = jwt.get_unverified_header(token)
+            claims = jwt.get_unverified_claims(token)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Bad token format (kid={kid}, alg={alg}): {e!r}",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    else:
+        hdr = None
+        claims = None
+
     try:
         payload = jwt.decode(token, secret, algorithms=[alg])
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
-    except JWTError as e:
-        # Only expose details when AUTH_DEBUG is enabled
+    except Exception as e:
         if debug:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid token (kid={kid}, alg={alg}): {e.__class__.__name__}",
+                detail=f"JWT decode failed (kid={kid}, alg={alg}, hdr={hdr}, claims={claims}): {e!r}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return None
