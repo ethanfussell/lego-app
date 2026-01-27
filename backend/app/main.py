@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user
@@ -40,8 +40,47 @@ def _get_set_image_url(db: Session, canonical_set_num: str) -> Optional[str]:
     ).scalar_one_or_none()
 
 
-# ✅ Because this router is mounted with prefix="/sets",
-# this becomes: GET /sets/{set_num}/reviews
+def _review_order_col():
+    return ReviewModel.updated_at if hasattr(ReviewModel, "updated_at") else ReviewModel.created_at
+
+
+# ✅ Put fixed route first to avoid any chance of collision
+# GET /sets/reviews/me
+@router.get("/reviews/me", response_model=List[MyReviewItem])
+def list_my_reviews(
+    limit: int = 200,
+    offset: int = 0,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    order_col = _review_order_col()
+
+    rows = db.execute(
+        select(ReviewModel, SetModel.name, SetModel.image_url)
+        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
+        .where(ReviewModel.user_id == current_user.id)
+        .order_by(order_col.desc())
+        .offset(int(offset))
+        .limit(int(limit))
+    ).all()
+
+    out: List[Dict[str, Any]] = []
+    for (r, set_name, image_url) in rows:
+        out.append(
+            {
+                "set_num": r.set_num,
+                "set_name": set_name,
+                "image_url": image_url,
+                "rating": float(r.rating) if r.rating is not None else None,
+                "text": r.text,
+                "created_at": r.created_at,
+                "updated_at": getattr(r, "updated_at", None),
+            }
+        )
+    return out
+
+
+# GET /sets/{set_num}/reviews
 @router.get("/{set_num}/reviews", response_model=List[Review])
 def list_reviews_for_set(
     set_num: str,
@@ -49,13 +88,14 @@ def list_reviews_for_set(
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     canonical = resolve_set_num(db, set_num)
+    order_col = _review_order_col()
 
     rows = db.execute(
         select(ReviewModel, UserModel.username, SetModel.image_url)
         .join(UserModel, UserModel.id == ReviewModel.user_id)
         .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
         .where(ReviewModel.set_num == canonical)
-        .order_by(func.coalesce(getattr(ReviewModel, "updated_at", None), ReviewModel.created_at).desc())
+        .order_by(order_col.desc())
         .limit(int(limit))
     ).all()
 
@@ -130,37 +170,3 @@ def delete_my_review(
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ✅ Put "me" behind a fixed prefix so it never collides with {set_num}
-# GET /sets/reviews/me
-@router.get("/reviews/me", response_model=List[MyReviewItem])
-def list_my_reviews(
-    limit: int = 200,
-    offset: int = 0,
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> List[Dict[str, Any]]:
-    rows = db.execute(
-        select(ReviewModel, SetModel.name, SetModel.image_url)
-        .outerjoin(SetModel, SetModel.set_num == ReviewModel.set_num)
-        .where(ReviewModel.user_id == current_user.id)
-        .order_by(func.coalesce(getattr(ReviewModel, "updated_at", None), ReviewModel.created_at).desc())
-        .offset(int(offset))
-        .limit(int(limit))
-    ).all()
-
-    out: List[Dict[str, Any]] = []
-    for (r, set_name, image_url) in rows:
-        out.append(
-            {
-                "set_num": r.set_num,
-                "set_name": set_name,
-                "image_url": image_url,
-                "rating": float(r.rating) if r.rating is not None else None,
-                "text": r.text,
-                "created_at": r.created_at,
-                "updated_at": getattr(r, "updated_at", None),
-            }
-        )
-    return out
