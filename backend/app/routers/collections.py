@@ -3,27 +3,29 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..core.auth import get_current_user
-from ..core.set_nums import base_set_num
-from ..data.sets import get_set_by_num  # ✅ key fix
-from ..db import get_db
-from ..models import List as ListModel
-from ..models import ListItem as ListItemModel
-from ..models import Set as SetModel
-from ..models import User as UserModel
+from app.core.auth import get_current_user
+from app.core.set_nums import base_set_num
+from app.data.sets import get_set_by_num
+from app.db import get_db
+from app.models import List as ListModel
+from app.models import ListItem as ListItemModel
+from app.models import Set as SetModel
+from app.models import User as UserModel
 
-router = APIRouter()
+router = APIRouter(tags=["collections"])
 
 
 class CollectionOrderUpdate(BaseModel):
     set_nums: TypingList[str] = Field(default_factory=list)
 
+
+# ---------------- helpers ----------------
 
 def _set_to_dict(s: SetModel) -> Dict[str, Any]:
     return {
@@ -38,17 +40,23 @@ def _set_to_dict(s: SetModel) -> Dict[str, Any]:
 
 
 def _canonicalize_and_ensure_set(db: Session, raw: str) -> str:
+    """
+    - Canonicalize using cached sets (same behavior as /sets/{set_num})
+    - Ensure a SetModel row exists so joins work
+    """
     raw = (raw or "").strip()
     if not raw:
         raise HTTPException(status_code=400, detail="missing_set_num")
 
-    s = get_set_by_num(raw)  # ✅ same resolver as /sets/{set_num}
+    s = get_set_by_num(raw)
     if not s:
-        raise HTTPException(status_code=404, detail="set_not_found__COLLECTIONS_FIX_1")    
+        raise HTTPException(status_code=404, detail="set_not_found")
+
+    canonical = str(s.get("set_num") or "").strip()
     if not canonical:
         raise HTTPException(status_code=404, detail="set_not_found")
 
-    # ✅ ensure SetModel row exists so collections joins work
+    # ensure SetModel row exists
     row = db.execute(
         select(SetModel).where(SetModel.set_num == canonical).limit(1)
     ).scalar_one_or_none()
@@ -56,7 +64,6 @@ def _canonicalize_and_ensure_set(db: Session, raw: str) -> str:
     if not row:
         row = SetModel(
             set_num=canonical,
-            set_num_plain=str(s.get("set_num_plain") or base_set_num(canonical)),
             name=str(s.get("name") or ""),
             year=s.get("year"),
             pieces=s.get("pieces"),
@@ -139,22 +146,6 @@ def _get_or_create_system_list(db: Session, user_id: int, key: str) -> ListModel
     return lst
 
 
-def _get_system_list_optional(db: Session, user_id: int, key: str) -> Optional[ListModel]:
-    key = (key or "").strip().lower()
-    if key not in ("owned", "wishlist"):
-        return None
-
-    return db.execute(
-        select(ListModel)
-        .where(
-            ListModel.owner_id == user_id,
-            ListModel.is_system.is_(True),
-            ListModel.system_key == key,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-
 def _already_in_list(db: Session, list_id: int, set_num: str) -> bool:
     row = db.execute(
         select(ListItemModel)
@@ -203,6 +194,7 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
 
     q = db.query(ListItemModel).filter(ListItemModel.list_id == list_id)
 
+    # exact: "10305-1"
     if "-" in s:
         deleted = q.filter(func.lower(ListItemModel.set_num) == s.lower()).delete(synchronize_session=False)
         db.commit()
@@ -210,6 +202,7 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
             _compact_positions(db, list_id)
         return int(deleted)
 
+    # base: "10305"
     base_lower = base_set_num(s).lower()
     plain_expr = func.split_part(ListItemModel.set_num, "-", 1)
     deleted = q.filter(func.lower(plain_expr) == base_lower).delete(synchronize_session=False)
@@ -261,6 +254,8 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     db.commit()
 
 
+# ---------------- endpoints ----------------
+
 @router.post("/owned", status_code=status.HTTP_200_OK)
 def add_owned(
     payload: Dict[str, str],
@@ -280,7 +275,10 @@ def add_owned(
 
 
 @router.get("/me/owned")
-def list_my_owned(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+def list_my_owned(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     rows = db.execute(_system_list_sets_query(int(owned_list.id))).all()
     return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
