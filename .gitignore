@@ -38,3 +38,4 @@ logs/
 .vercel
 .env*.local
 *.save
+backend/scripts/dev_seed_user.py
