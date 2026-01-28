@@ -37,3 +37,4 @@ logs/
 .idea/
 .vercel
 .env*.local
+*.save
