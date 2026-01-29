@@ -38,15 +38,12 @@ type SetLite = {
 
 function toSetNums(detail: ListDetail | null | undefined): string[] {
   if (!detail) return [];
-
   if (Array.isArray(detail.set_nums)) {
     return detail.set_nums.map((x) => String(x || "").trim()).filter(Boolean);
   }
-
   if (Array.isArray(detail.items)) {
     return detail.items.map((it) => String(it?.set_num || "").trim()).filter(Boolean);
   }
-
   return [];
 }
 
@@ -130,19 +127,17 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     setNotFound(false);
     setForbidden(false);
 
-    // only send token after hydration (prevents “server thought no token” flashes)
-    const maybeToken = hydrated ? token : undefined;
-
+    // ✅ IMPORTANT: always use the real token (after hydration gate below)
     try {
       const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
-        token: maybeToken,
+        token,
         cache: "no-store",
       });
 
       setDetail(d || null);
 
       const nums = toSetNums(d || null);
-      const bulk = await fetchSetsBulk(nums, maybeToken);
+      const bulk = await fetchSetsBulk(nums, token);
       setSets(bulk);
     } catch (e: any) {
       if (e instanceof APIError) {
@@ -161,7 +156,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       }
       throw e;
     }
-  }, [id, token, hydrated]);
+  }, [id, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +169,9 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         }
         return;
       }
+
+      // ✅ IMPORTANT: wait for auth to hydrate (localStorage token loaded)
+      if (!hydrated) return;
 
       try {
         if (!cancelled) {
@@ -192,7 +190,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, refresh]);
+  }, [id, refresh, hydrated]);
 
   async function togglePublic() {
     if (!detail || !canEdit || savingPrivacy) return;
@@ -228,7 +226,9 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
     // optimistic UI
     setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
-    setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
+    setDetail((d) =>
+      d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d
+    );
 
     try {
       await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, {
@@ -275,13 +275,19 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             <span className="text-zinc-600 dark:text-zinc-400">{headerSubtitle}</span>
 
             {visibility ? (
-              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(visibility === "Public" ? "good" : "warn")}`}>
+              <span
+                className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(
+                  visibility === "Public" ? "good" : "warn"
+                )}`}
+              >
                 {visibility}
               </span>
             ) : null}
 
             {isSystem ? (
-              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass("neutral")}`}>System</span>
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass("neutral")}`}>
+                System
+              </span>
             ) : null}
           </div>
 
@@ -346,9 +352,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       {!loading && !err && forbidden ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is private</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
-            If you have access, log in and try again.
-          </div>
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">If you have access, log in and try again.</div>
           <div className="mt-4 flex gap-2">
             {!token ? (
               <button
