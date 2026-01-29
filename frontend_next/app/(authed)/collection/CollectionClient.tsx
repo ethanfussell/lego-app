@@ -7,6 +7,7 @@ import SetCard from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
+import CreateListButton from "./CreateListButton";
 
 const PREVIEW_COUNT = 10;
 
@@ -231,6 +232,20 @@ export default function CollectionClient() {
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <h1 className="text-2xl font-semibold tracking-tight">My Collection</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">My lists</h2>
+
+          {token ? (
+            <CreateListButton
+              token={token}
+              onCreated={async () => {
+                // whatever your existing “refresh lists” function is
+                // (or just re-run the same fetch you do on mount)
+                await refreshAll();
+              }}
+            />
+          ) : null}
+        </div>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Owned, Wishlist, and your custom lists.</p>
 
         <div className="mt-5 max-w-xl">

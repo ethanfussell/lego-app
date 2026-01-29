@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
@@ -51,9 +51,7 @@ function toSetNums(detail: ListDetail | null | undefined): string[] {
 }
 
 async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite[]> {
-  const nums = Array.from(
-    new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean))
-  );
+  const nums = Array.from(new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
 
   const params = new URLSearchParams();
@@ -67,6 +65,16 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
   const arr = Array.isArray(data) ? data : [];
   const byNum = new Map(arr.map((s) => [String(s.set_num), s]));
   return nums.map((n) => byNum.get(n)).filter(Boolean) as SetLite[];
+}
+
+function chipClass(variant: "neutral" | "good" | "warn") {
+  if (variant === "good") {
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+  if (variant === "warn") {
+    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  return "border-black/[.10] bg-black/[.04] text-zinc-700 dark:border-white/[.14] dark:bg-white/[.06] dark:text-zinc-200";
 }
 
 export default function ListDetailClient({ listId }: { listId: string }) {
@@ -83,6 +91,9 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
+
+  const [notFound, setNotFound] = useState(false);
+  const [forbidden, setForbidden] = useState(false);
 
   const setNums = useMemo(() => toSetNums(detail), [detail]);
   const setNumSet = useMemo(() => new Set(setNums.map(String)), [setNums]);
@@ -102,22 +113,54 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     return ownerName.toLowerCase() === me.username.toLowerCase();
   }, [token, me?.username, ownerName, isSystem]);
 
+  const count = useMemo(() => {
+    if (typeof detail?.items_count === "number") return detail.items_count;
+    if (Array.isArray(detail?.items)) return detail.items.length;
+    return sets.length;
+  }, [detail, sets.length]);
+
+  const visibility = useMemo(() => {
+    if (typeof detail?.is_public !== "boolean") return null;
+    return detail.is_public ? "Public" : "Private";
+  }, [detail?.is_public]);
+
   const refresh = useCallback(async () => {
     if (!id) throw new Error("Missing list id.");
 
-    // only send token after hydration
+    setNotFound(false);
+    setForbidden(false);
+
+    // only send token after hydration (prevents “server thought no token” flashes)
     const maybeToken = hydrated ? token : undefined;
 
-    const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
-      token: maybeToken,
-      cache: "no-store",
-    });
+    try {
+      const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
+        token: maybeToken,
+        cache: "no-store",
+      });
 
-    setDetail(d || null);
+      setDetail(d || null);
 
-    const nums = toSetNums(d || null);
-    const bulk = await fetchSetsBulk(nums, maybeToken);
-    setSets(bulk);
+      const nums = toSetNums(d || null);
+      const bulk = await fetchSetsBulk(nums, maybeToken);
+      setSets(bulk);
+    } catch (e: any) {
+      if (e instanceof APIError) {
+        if (e.status === 404) {
+          setNotFound(true);
+          setDetail(null);
+          setSets([]);
+          return;
+        }
+        if (e.status === 401 || e.status === 403) {
+          setForbidden(true);
+          setDetail(null);
+          setSets([]);
+          return;
+        }
+      }
+      throw e;
+    }
   }, [id, token, hydrated]);
 
   useEffect(() => {
@@ -185,9 +228,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
     // optimistic UI
     setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
-    setDetail((d) =>
-      d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d
-    );
+    setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
 
     try {
       await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, {
@@ -211,44 +252,42 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     }
   }
 
-  const subtitle = useMemo(() => {
-    const count =
-      typeof detail?.items_count === "number"
-        ? detail.items_count
-        : Array.isArray(detail?.items)
-        ? detail.items.length
-        : sets.length;
+  const title = detail?.title?.trim() || (id ? `List ${id}` : "List");
+  const description = detail?.description?.trim() || "";
 
-    const vis =
-      typeof detail?.is_public === "boolean"
-        ? detail.is_public
-          ? "Public"
-          : "Private"
-        : null;
-
+  const headerSubtitle = useMemo(() => {
     const bits: string[] = [];
-    if (Number.isFinite(count)) bits.push(`${count} set${count === 1 ? "" : "s"}`);
-    if (vis) bits.push(vis);
+    bits.push(`${count} set${count === 1 ? "" : "s"}`);
     if (ownerName) bits.push(`by ${ownerName}`);
+    return bits.join(" • ");
+  }, [count, ownerName]);
 
-    return bits.join(" • ") || "—";
-  }, [detail, sets.length, ownerName]);
-
-  const showEmpty = !loading && !err && sets.length === 0;
+  const showGrid = !loading && !err && !notFound && !forbidden && sets.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
+      {/* Header */}
       <div className="pt-10 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight truncate">
-            {detail?.title || (id ? `List ${id}` : "List")}
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight truncate">{title}</h1>
 
-          {detail?.description ? (
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{detail.description}</p>
-          ) : (
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-zinc-600 dark:text-zinc-400">{headerSubtitle}</span>
+
+            {visibility ? (
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(visibility === "Public" ? "good" : "warn")}`}>
+                {visibility}
+              </span>
+            ) : null}
+
+            {isSystem ? (
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass("neutral")}`}>System</span>
+            ) : null}
+          </div>
+
+          {description ? (
+            <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -283,18 +322,74 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         </div>
       </div>
 
-      {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
-      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
+      {/* States */}
+      {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
+      {err ? <p className="mt-8 text-sm text-red-600">Error: {err}</p> : null}
 
-      {showEmpty ? (
-        <div className="mt-8 rounded-2xl border border-black/[.08] bg-white p-6 text-sm text-zinc-600 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-400">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is empty</div>
-          <div className="mt-2">
-            Use <span className="font-semibold">Add to list</span> on any set card to add items here.
+      {!loading && !err && notFound ? (
+        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">List not found</div>
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
+            It may have been deleted, or the link is wrong.
+          </div>
+          <div className="mt-4">
+            <Link
+              href="/discover"
+              className="inline-flex rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Browse sets
+            </Link>
           </div>
         </div>
-      ) : (
-        <ul className="mt-6 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
+      ) : null}
+
+      {!loading && !err && forbidden ? (
+        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is private</div>
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
+            If you have access, log in and try again.
+          </div>
+          <div className="mt-4 flex gap-2">
+            {!token ? (
+              <button
+                type="button"
+                onClick={() => router.push("/login")}
+                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              >
+                Log in
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => refresh()}
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && !err && !notFound && !forbidden && sets.length === 0 ? (
+        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is empty</div>
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
+            Use <span className="font-semibold">Add to list</span> on any set card to add items here.
+          </div>
+          <div className="mt-4">
+            <Link
+              href="/discover"
+              className="inline-flex rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Browse sets
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Grid */}
+      {showGrid ? (
+        <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
             const sn = String(s.set_num);
             const inThisList = setNumSet.has(sn);
@@ -325,7 +420,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             );
           })}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }
