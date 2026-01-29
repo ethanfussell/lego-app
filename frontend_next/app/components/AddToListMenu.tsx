@@ -1,4 +1,4 @@
-// app/components/AddToListMenu.tsx
+// frontend_next/app/components/AddToListMenu.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -16,12 +16,9 @@ type ListDetail = ListSummary & {
   items?: Array<{ set_num: string }>;
 };
 
-function isSystemList(l: ListSummary | null | undefined) {
-  if (!l) return false;
-  if (l.is_system) return true;
-  const k = String(l.system_key || "").toLowerCase();
-  return k === "owned" || k === "wishlist";
-}
+type CollectionRow = {
+  set_num: string;
+};
 
 function hasSet(detail: ListDetail | null, setNum: string) {
   const items = Array.isArray(detail?.items) ? detail!.items! : [];
@@ -32,13 +29,9 @@ export default function AddToListMenu({
   token,
   setNum,
 
-  // Optional: pass these if the parent already knows membership
-  // so the button label doesn't start as "Add to list" briefly.
   initialOwnedSelected = false,
   initialWishlistSelected = false,
 
-  // Optional: during migration, you can disable custom lists UI
-  // (leave default true to keep it enabled)
   enableCustomLists = true,
 }: {
   token: string;
@@ -56,11 +49,9 @@ export default function AddToListMenu({
   const [lists, setLists] = useState<ListSummary[]>([]);
   const [detailById, setDetailById] = useState<Record<string, ListDetail | null>>({});
 
-  // local optimistic selection state
   const [ownedSelected, setOwnedSelected] = useState<boolean>(initialOwnedSelected);
   const [wishlistSelected, setWishlistSelected] = useState<boolean>(initialWishlistSelected);
 
-  // keep in sync if parent changes the initial values later
   useEffect(() => setOwnedSelected(initialOwnedSelected), [initialOwnedSelected]);
   useEffect(() => setWishlistSelected(initialWishlistSelected), [initialWishlistSelected]);
 
@@ -75,11 +66,13 @@ export default function AddToListMenu({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  const { ownedList, wishlistList, customLists } = useMemo(() => {
-    const owned = lists.find((l) => String(l.system_key).toLowerCase() === "owned") || null;
-    const wish = lists.find((l) => String(l.system_key).toLowerCase() === "wishlist") || null;
-    const custom = (lists || []).filter((l) => !isSystemList(l));
-    return { ownedList: owned, wishlistList: wish, customLists: custom };
+  const customLists = useMemo(() => {
+    // We now fetch custom lists only, but keep this safe.
+    return (lists || []).filter((l) => {
+      if (l.is_system) return false;
+      const k = String(l.system_key || "").toLowerCase();
+      return k !== "owned" && k !== "wishlist";
+    });
   }, [lists]);
 
   function customSelected(listId: string) {
@@ -87,7 +80,7 @@ export default function AddToListMenu({
     return hasSet(d, setNum);
   }
 
-  // Load lists + per-list details ONLY when menu opens
+  // Load system membership from /collections/*, and custom lists from /lists/*
   useEffect(() => {
     let cancelled = false;
 
@@ -99,15 +92,41 @@ export default function AddToListMenu({
         setLoading(true);
         setErr(null);
 
-        // 1) list summaries
-        const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
+        // 1) system membership (authoritative)
+        const [ownedRows, wishRows] = await Promise.all([
+          apiFetch<CollectionRow[]>("/collections/me/owned", { token, cache: "no-store" }),
+          apiFetch<CollectionRow[]>("/collections/me/wishlist", { token, cache: "no-store" }),
+        ]);
+
+        if (cancelled) return;
+
+        const ownedArr = Array.isArray(ownedRows) ? ownedRows : [];
+        const wishArr = Array.isArray(wishRows) ? wishRows : [];
+
+        const inOwned = ownedArr.some((r) => String(r?.set_num) === String(setNum));
+        const inWish = wishArr.some((r) => String(r?.set_num) === String(setNum));
+
+        // backend makes these mutually exclusive; enforce that in UI too
+        setOwnedSelected(inOwned);
+        setWishlistSelected(inOwned ? false : inWish);
+
+        // 2) custom lists (optional)
+        if (!enableCustomLists) {
+          setLists([]);
+          setDetailById({});
+          return;
+        }
+
+        const mine = await apiFetch<ListSummary[]>("/lists/me?include_system=false", {
+          token,
+          cache: "no-store",
+        });
         const arr = Array.isArray(mine) ? mine : [];
         if (cancelled) return;
+
         setLists(arr);
 
-        // 2) details (for checkmarks)
-        // For migration: you can later optimize with a backend "contains" endpoint.
-        // For now: fetch details for all lists when menu opens.
+        // 3) details for checkmarks (custom only)
         const entries = await Promise.all(
           arr.map(async (l) => {
             try {
@@ -127,13 +146,6 @@ export default function AddToListMenu({
         const map: Record<string, ListDetail | null> = {};
         for (const [id, d] of entries) map[id] = d;
         setDetailById(map);
-
-        // sync system toggles from details
-        const owned = arr.find((l) => String(l.system_key).toLowerCase() === "owned");
-        const wish = arr.find((l) => String(l.system_key).toLowerCase() === "wishlist");
-
-        if (owned) setOwnedSelected(hasSet(map[String(owned.id)] || null, setNum));
-        if (wish) setWishlistSelected(hasSet(map[String(wish.id)] || null, setNum));
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || String(e));
       } finally {
@@ -145,7 +157,7 @@ export default function AddToListMenu({
     return () => {
       cancelled = true;
     };
-  }, [open, token, setNum]);
+  }, [open, token, setNum, enableCustomLists]);
 
   // ---------- API actions ----------
   async function toggleOwned() {
@@ -154,16 +166,19 @@ export default function AddToListMenu({
     const next = !ownedSelected;
     setOwnedSelected(next);
 
+    // owned + wishlist are mutually exclusive in backend
+    if (next) setWishlistSelected(false);
+
     try {
       if (next) {
         await apiFetch("/collections/owned", { token, method: "POST", body: { set_num: setNum } });
-        // backend removes from wishlist when marking owned
-        setWishlistSelected(false);
       } else {
         await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
       }
     } catch (e) {
-      setOwnedSelected(!next); // rollback
+      setOwnedSelected(!next);
+      // best-effort restore previous wishlist state (we’ll re-sync on next open anyway)
+      if (next) setWishlistSelected(wishlistSelected);
       throw e;
     }
   }
@@ -174,6 +189,9 @@ export default function AddToListMenu({
     const next = !wishlistSelected;
     setWishlistSelected(next);
 
+    // wishlist + owned are mutually exclusive in backend
+    if (next) setOwnedSelected(false);
+
     try {
       if (next) {
         await apiFetch("/collections/wishlist", { token, method: "POST", body: { set_num: setNum } });
@@ -182,6 +200,7 @@ export default function AddToListMenu({
       }
     } catch (e) {
       setWishlistSelected(!next);
+      if (next) setOwnedSelected(ownedSelected);
       throw e;
     }
   }
@@ -220,19 +239,15 @@ export default function AddToListMenu({
         });
       }
     } catch (e) {
-      // soft rollback: close + show error; next open will re-fetch anyway
       throw e;
     }
   }
 
-  const label =
-    ownedSelected && wishlistSelected
-      ? "In Owned + Wishlist"
-      : ownedSelected
-      ? "In Owned"
-      : wishlistSelected
-      ? "In Wishlist"
-      : "Add to list";
+  const label = ownedSelected
+    ? "In Owned"
+    : wishlistSelected
+    ? "In Wishlist"
+    : "Add to list";
 
   const disableButtons = loading || !token;
 
@@ -258,10 +273,10 @@ export default function AddToListMenu({
             {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
           </div>
 
-          {/* system lists */}
+          {/* system collections (always available) */}
           <button
             type="button"
-            disabled={disableButtons || !ownedList}
+            disabled={disableButtons}
             onClick={async () => {
               try {
                 await toggleOwned();
@@ -278,7 +293,7 @@ export default function AddToListMenu({
 
           <button
             type="button"
-            disabled={disableButtons || !wishlistList}
+            disabled={disableButtons}
             onClick={async () => {
               try {
                 await toggleWishlist();
