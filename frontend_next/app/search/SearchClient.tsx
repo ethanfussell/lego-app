@@ -13,7 +13,16 @@ const RECENT_KEY = "recent_searches_v1";
 const MAX_RECENTS = 5;
 const PAGE_SIZE = 50;
 
-const POPULAR_TERMS = ["Star Wars", "Botanical", "Icons", "Technic", "Modular", "Castle", "Space", "Harry Potter"];
+const POPULAR_TERMS = [
+  "Star Wars",
+  "Botanical",
+  "Icons",
+  "Technic",
+  "Modular",
+  "Castle",
+  "Space",
+  "Harry Potter",
+];
 
 type SetLite = {
   set_num: string;
@@ -36,7 +45,7 @@ type SetsResponse =
       pages?: number;
     };
 
-function readRecents(): string[] {
+function readRecentsSafe(): string[] {
   try {
     const raw = localStorage.getItem(RECENT_KEY);
     const arr = JSON.parse(raw || "[]");
@@ -46,7 +55,7 @@ function readRecents(): string[] {
   }
 }
 
-function writeRecents(next: string[]) {
+function writeRecentsSafe(next: string[]) {
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(next));
   } catch {
@@ -54,18 +63,20 @@ function writeRecents(next: string[]) {
   }
 }
 
-function pushRecent(term: string) {
+function pushRecentSafe(term: string) {
   const t = String(term || "").trim();
-  if (!t) return readRecents();
+  if (!t) return readRecentsSafe();
 
-  const prev = readRecents();
+  const prev = readRecentsSafe();
   const deduped = [t, ...prev.filter((x) => x.toLowerCase() !== t.toLowerCase())];
   const sliced = deduped.slice(0, MAX_RECENTS);
-  writeRecents(sliced);
+  writeRecentsSafe(sliced);
   return sliced;
 }
 
-function normalizeSetsResponse(data: SetsResponse): { results: SetLite[]; total: number | null; totalPages: number } {
+function normalizeSetsResponse(
+  data: SetsResponse
+): { results: SetLite[]; total: number | null; totalPages: number } {
   if (Array.isArray(data)) {
     return { results: data, total: null, totalPages: 1 };
   }
@@ -105,9 +116,12 @@ export default function SearchClient({
   const sp = useSearchParams();
   const { token } = useAuth();
 
-  // URL is source of truth (lets back/forward work)
+  // URL is source of truth (back/forward works)
   const q = useMemo(() => (sp.get("q") || initialQ || "").trim(), [sp, initialQ]);
-  const sort = useMemo(() => (sp.get("sort") || initialSort || "relevance").trim(), [sp, initialSort]);
+  const sort = useMemo(
+    () => (sp.get("sort") || initialSort || "relevance").trim(),
+    [sp, initialSort]
+  );
   const page = useMemo(() => {
     const p = Number(sp.get("page") || initialPage || 1);
     return Number.isFinite(p) && p > 0 ? p : 1;
@@ -115,17 +129,20 @@ export default function SearchClient({
 
   // local input box state
   const [input, setInput] = useState(q);
+  useEffect(() => setInput(q), [q]);
 
+  // recents: start null so SSR + first client render match (prevents hydration mismatch)
+  const [recents, setRecents] = useState<string[] | null>(null);
+
+  // load recents after mount
   useEffect(() => {
-    setInput(q);
-  }, [q]);
+    setRecents(readRecentsSafe());
+  }, []);
 
-  // recents
-  const [recents, setRecents] = useState<string[]>(() => (typeof window === "undefined" ? [] : readRecents()));
-
+  // cross-tab updates (+ optional same-tab manual dispatch)
   useEffect(() => {
     function onStorage() {
-      setRecents(readRecents());
+      setRecents(readRecentsSafe());
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -148,14 +165,15 @@ export default function SearchClient({
     params.set("q", cleanQ);
     params.set("sort", nextSort || "relevance");
     params.set("page", String(nextPage));
-    // if your backend supports it, keep it explicit:
     params.set("limit", String(PAGE_SIZE));
 
     router.push(`/search?${params.toString()}`);
 
-    const nextRecents = pushRecent(cleanQ);
+    // update recents client-side only
+    const nextRecents = pushRecentSafe(cleanQ);
     setRecents(nextRecents);
-    // same-tab listeners
+
+    // same-tab listeners (optional, but keeps other parts in sync if you rely on "storage")
     window.dispatchEvent(new Event("storage"));
   }
 
@@ -185,7 +203,9 @@ export default function SearchClient({
         params.set("page", String(page));
         params.set("limit", String(PAGE_SIZE));
 
-        const data = await apiFetch<SetsResponse>(`/sets?${params.toString()}`, { cache: "no-store" });
+        const data = await apiFetch<SetsResponse>(`/sets?${params.toString()}`, {
+          cache: "no-store",
+        });
 
         if (cancelled) return;
         if (lastReqKeyRef.current !== reqKey) return;
@@ -208,7 +228,6 @@ export default function SearchClient({
   }, [q, sort, page]);
 
   const heading = q ? `Search: "${q}"` : "Search";
-
   const showEmptyPrompt = !loading && !err && !q;
   const showNoResults = !loading && !err && !!q && results.length === 0;
 
@@ -231,7 +250,7 @@ export default function SearchClient({
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Search sets (e.g. castle, space, technic)…"
+            placeholder='Search sets (e.g. castle, space, technic)…'
             className="h-12 w-full flex-1 rounded-2xl border border-black/[.10] bg-white px-4 text-sm outline-none dark:border-white/[.14] dark:bg-zinc-950"
           />
           <button
@@ -290,7 +309,10 @@ export default function SearchClient({
             <div className="mt-5">
               <div className="text-sm font-extrabold">Recent</div>
 
-              {recents.length === 0 ? (
+              {recents === null ? (
+                // IMPORTANT: consistent SSR/first render markup
+                <div className="mt-2 text-sm text-zinc-500">Loading…</div>
+              ) : recents.length === 0 ? (
                 <div className="mt-2 text-sm text-zinc-500">No recent searches yet.</div>
               ) : (
                 <div className="mt-2 grid gap-2">
@@ -325,10 +347,7 @@ export default function SearchClient({
           <div className="mt-4 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
             {results.map((set) => (
               <div key={set.set_num} className="w-[220px]">
-                <SetCard
-                  set={set}
-                  footer={token ? <AddToListMenu token={token} setNum={set.set_num} /> : null}
-                />
+                <SetCard set={set} footer={token ? <AddToListMenu token={token} setNum={set.set_num} /> : null} />
               </div>
             ))}
           </div>
