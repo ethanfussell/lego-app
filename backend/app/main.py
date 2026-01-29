@@ -40,6 +40,7 @@ async def add_debug_headers(request: Request, call_next):
 
     resp.headers["x-secret-kid"] = kid
     resp.headers["x-host"] = socket.gethostname()
+    resp.headers["x-git-sha"] = (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
     return resp
 
 

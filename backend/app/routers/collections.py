@@ -282,3 +282,61 @@ def list_my_owned(
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     rows = db.execute(_system_list_sets_query(int(owned_list.id))).all()
     return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+
+@router.post("/wishlist", status_code=status.HTTP_200_OK)
+def add_wishlist(
+    payload: Dict[str, str],
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    canonical = _canonicalize_and_ensure_set(db, payload.get("set_num") or "")
+
+    owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
+    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
+
+    if not _already_in_list(db, int(wishlist_list.id), canonical):
+        _append_item(db, int(wishlist_list.id), canonical)
+
+    # optional: if you want wishlist + owned to be mutually exclusive, remove from owned:
+    _remove_item_idempotent_by_base_or_exact(db, int(owned_list.id), base_set_num(canonical))
+
+    return {"ok": True, "set_num": canonical, "type": "wishlist"}
+
+
+@router.get("/me/wishlist")
+def list_my_wishlist(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
+    rows = db.execute(_system_list_sets_query(int(wishlist_list.id))).all()
+    return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+
+@router.post("/wishlist", status_code=status.HTTP_200_OK)
+def add_wishlist(
+    payload: Dict[str, str],
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    canonical = _canonicalize_and_ensure_set(db, payload.get("set_num") or "")
+
+    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
+    owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
+
+    if not _already_in_list(db, int(wishlist_list.id), canonical):
+        _append_item(db, int(wishlist_list.id), canonical)
+
+    # optional: enforce "either owned or wishlist"
+    _remove_item_idempotent_by_base_or_exact(db, int(owned_list.id), base_set_num(canonical))
+
+    return {"ok": True, "set_num": canonical, "type": "wishlist"}
+
+
+@router.get("/me/wishlist")
+def list_my_wishlist(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
+    rows = db.execute(_system_list_sets_query(int(wishlist_list.id))).all()
+    return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
