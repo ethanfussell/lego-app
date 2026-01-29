@@ -129,7 +129,7 @@ export default function CarouselRow({
           onMouseLeave={endDrag}
           onMouseMove={onMouseMove}
           onClickCapture={onClickCapture}
-          className="flex gap-3 overflow-x-auto overflow-y-hidden pb-2"
+          className="flex gap-3 overflow-x-auto overflow-y-visible pb-2"
           style={{ cursor: "grab", WebkitOverflowScrolling: "touch" }}
         >
           {children}

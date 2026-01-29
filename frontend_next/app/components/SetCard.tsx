@@ -65,11 +65,7 @@ function pickRatingCount(s: SetLite) {
 
 function pickPieces(s: SetLite) {
   const v =
-    typeof s.pieces === "number"
-      ? s.pieces
-      : typeof s.num_parts === "number"
-      ? s.num_parts
-      : null;
+    typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : null;
   return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
 }
 
@@ -91,7 +87,10 @@ function Stars({ value, className = "" }: { value: number; className?: string })
     <span className="relative inline-block h-4 w-4">
       <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300 dark:text-zinc-700" />
       {fillPct !== 0 ? (
-        <span className="absolute inset-0 overflow-hidden" style={{ width: fillPct === 100 ? "100%" : "50%" }}>
+        <span
+          className="absolute inset-0 overflow-hidden"
+          style={{ width: fillPct === 100 ? "100%" : "50%" }}
+        >
           <StarIcon className="h-4 w-4 text-zinc-900 dark:text-zinc-50" />
         </span>
       ) : null}
@@ -111,13 +110,7 @@ function Stars({ value, className = "" }: { value: number; className?: string })
   );
 }
 
-function StarPicker({
-  disabled,
-  onPick,
-}: {
-  disabled?: boolean;
-  onPick: (n: number) => void;
-}) {
+function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: number) => void }) {
   return (
     <div className="flex items-center justify-center gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
@@ -175,10 +168,6 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     return { original, sale };
   }, [set]);
 
-  // Per your plan:
-  // - owned: only user rating footer (or add rating)
-  // - wishlist: show price area (and parent can inject shop button via footer)
-  // - feed/default: show price area (sale/new/retiring soon)
   const showPrice = variant === "wishlist" || variant === "feed" || variant === "default";
   const isOwned = variant === "owned";
 
@@ -200,10 +189,6 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     setSavingRate(true);
 
     try {
-      // ⚠️ If your backend rating endpoint differs, change ONLY this call.
-      // Common options:
-      //  - PUT  /ratings/{set_num}   body { rating }
-      //  - POST /ratings             body { set_num, rating }
       await apiFetch(`/ratings/${encodeURIComponent(set.set_num)}`, {
         token,
         method: "PUT",
@@ -220,28 +205,33 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block">
-        <div className="aspect-[4/3] w-full bg-zinc-50 dark:bg-white/5">
+        {/* put overflow-hidden HERE instead */}
+        <div className="overflow-hidden aspect-[4/3] w-full bg-zinc-50 dark:bg-white/5">
           {set.image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={set.image_url} alt={title} className="h-full w-full object-contain p-4" loading="lazy" />
+            <img
+              src={set.image_url}
+              alt={title}
+              className="h-full w-full object-contain p-4"
+              loading="lazy"
+            />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>
+            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
+              No image
+            </div>
           )}
         </div>
 
         <div className="px-4 pb-4 pt-3">
           <div className="line-clamp-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
 
-          {/* line 1: set_num • year */}
           <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
             <span className="truncate">{set.set_num}</span>
             <span aria-hidden="true">•</span>
             <span className="shrink-0">{year}</span>
           </div>
 
-          {/* line 2: pieces • global rating compact */}
           <div className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
             <div className="truncate">{pieces != null ? `${pieces.toLocaleString()} pcs` : "—"}</div>
 
@@ -260,7 +250,6 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
             )}
           </div>
 
-          {/* price area */}
           {showPrice ? (
             <div className="mt-2 flex items-baseline gap-2 text-sm">
               {typeof price.sale === "number" &&
@@ -282,7 +271,6 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
         </div>
       </Link>
 
-      {/* footer */}
       {isOwned ? (
         <div className="border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">
           <div className="flex flex-col items-center gap-2">
@@ -307,7 +295,10 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
           </div>
         </div>
       ) : footer ? (
-        <div className="border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">{footer}</div>
+        // footer must be overflow-visible so menus can escape
+        <div className="border-t border-black/[.06] px-4 py-3 overflow-visible dark:border-white/[.10]">
+          {footer}
+        </div>
       ) : null}
     </div>
   );

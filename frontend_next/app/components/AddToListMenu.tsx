@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/api";
 
 type ListSummary = {
@@ -28,10 +29,8 @@ function hasSet(detail: ListDetail | null, setNum: string) {
 export default function AddToListMenu({
   token,
   setNum,
-
   initialOwnedSelected = false,
   initialWishlistSelected = false,
-
   enableCustomLists = true,
 }: {
   token: string;
@@ -41,7 +40,16 @@ export default function AddToListMenu({
   enableCustomLists?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // We render the dropdown in a portal, so we need separate refs:
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const MENU_W = 256; // tailwind w-64
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -55,19 +63,52 @@ export default function AddToListMenu({
   useEffect(() => setOwnedSelected(initialOwnedSelected), [initialOwnedSelected]);
   useEffect(() => setWishlistSelected(initialWishlistSelected), [initialWishlistSelected]);
 
-  // close on outside click
+  // Compute dropdown position (under the button) and keep it updated on scroll/resize
   useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      const el = rootRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) setOpen(false);
+    if (!open) return;
+
+    const compute = () => {
+      const b = btnRef.current;
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      const left = Math.max(8, Math.min(window.innerWidth - MENU_W - 8, r.right - MENU_W));
+      setPos({
+        top: r.bottom + 8 + window.scrollY,
+        left: left + window.scrollX,
+        width: MENU_W,
+      });
+    };
+
+    compute();
+    window.addEventListener("resize", compute);
+    window.addEventListener("scroll", compute, true);
+    return () => {
+      window.removeEventListener("resize", compute);
+      window.removeEventListener("scroll", compute, true);
+    };
+  }, [open]);
+
+  // Close on outside click (works with portal)
+  useEffect(() => {
+    if (!open) return;
+
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+
+      const b = btnRef.current;
+      if (b && b.contains(t)) return;
+
+      const m = menuRef.current;
+      if (m && m.contains(t)) return;
+
+      setOpen(false);
     }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
+
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
 
   const customLists = useMemo(() => {
-    // We now fetch custom lists only, but keep this safe.
     return (lists || []).filter((l) => {
       if (l.is_system) return false;
       const k = String(l.system_key || "").toLowerCase();
@@ -106,7 +147,6 @@ export default function AddToListMenu({
         const inOwned = ownedArr.some((r) => String(r?.set_num) === String(setNum));
         const inWish = wishArr.some((r) => String(r?.set_num) === String(setNum));
 
-        // backend makes these mutually exclusive; enforce that in UI too
         setOwnedSelected(inOwned);
         setWishlistSelected(inOwned ? false : inWish);
 
@@ -121,12 +161,13 @@ export default function AddToListMenu({
           token,
           cache: "no-store",
         });
+
         const arr = Array.isArray(mine) ? mine : [];
         if (cancelled) return;
 
         setLists(arr);
 
-        // 3) details for checkmarks (custom only)
+        // 3) details for checkmarks
         const entries = await Promise.all(
           arr.map(async (l) => {
             try {
@@ -163,10 +204,11 @@ export default function AddToListMenu({
   async function toggleOwned() {
     if (!token) return;
 
+    const prevOwned = ownedSelected;
+    const prevWish = wishlistSelected;
+
     const next = !ownedSelected;
     setOwnedSelected(next);
-
-    // owned + wishlist are mutually exclusive in backend
     if (next) setWishlistSelected(false);
 
     try {
@@ -176,9 +218,8 @@ export default function AddToListMenu({
         await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
       }
     } catch (e) {
-      setOwnedSelected(!next);
-      // best-effort restore previous wishlist state (we’ll re-sync on next open anyway)
-      if (next) setWishlistSelected(wishlistSelected);
+      setOwnedSelected(prevOwned);
+      setWishlistSelected(prevWish);
       throw e;
     }
   }
@@ -186,10 +227,11 @@ export default function AddToListMenu({
   async function toggleWishlist() {
     if (!token) return;
 
+    const prevOwned = ownedSelected;
+    const prevWish = wishlistSelected;
+
     const next = !wishlistSelected;
     setWishlistSelected(next);
-
-    // wishlist + owned are mutually exclusive in backend
     if (next) setOwnedSelected(false);
 
     try {
@@ -199,8 +241,8 @@ export default function AddToListMenu({
         await apiFetch(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
       }
     } catch (e) {
-      setWishlistSelected(!next);
-      if (next) setOwnedSelected(ownedSelected);
+      setOwnedSelected(prevOwned);
+      setWishlistSelected(prevWish);
       throw e;
     }
   }
@@ -225,35 +267,111 @@ export default function AddToListMenu({
       };
     });
 
-    try {
-      if (!selectedNow) {
-        await apiFetch(`/lists/${encodeURIComponent(id)}/items`, {
-          token,
-          method: "POST",
-          body: { set_num: setNum },
-        });
-      } else {
-        await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(setNum)}`, {
-          token,
-          method: "DELETE",
-        });
-      }
-    } catch (e) {
-      throw e;
+    if (!selectedNow) {
+      await apiFetch(`/lists/${encodeURIComponent(id)}/items`, {
+        token,
+        method: "POST",
+        body: { set_num: setNum },
+      });
+    } else {
+      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(setNum)}`, {
+        token,
+        method: "DELETE",
+      });
     }
   }
 
-  const label = ownedSelected
-    ? "In Owned"
-    : wishlistSelected
-    ? "In Wishlist"
-    : "Add to list";
-
+  const label = ownedSelected ? "In Owned" : wishlistSelected ? "In Wishlist" : "Add to list";
   const disableButtons = loading || !token;
 
-  return (
-    <div ref={rootRef} className="relative">
+  const menu = open && mounted && pos ? (
+    <div
+      ref={menuRef}
+      style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width }}
+      className="z-[9999] overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="px-4 py-2 text-xs font-semibold text-zinc-500">
+        {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
+      </div>
+
+      {/* system collections */}
       <button
+        type="button"
+        disabled={disableButtons}
+        onClick={async () => {
+          try {
+            await toggleOwned();
+            setOpen(false);
+          } catch (e: any) {
+            setErr(e?.message || String(e));
+          }
+        }}
+        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+      >
+        <span>Owned</span>
+        <span className="text-xs font-semibold text-zinc-500">{ownedSelected ? "✓" : ""}</span>
+      </button>
+
+      <button
+        type="button"
+        disabled={disableButtons}
+        onClick={async () => {
+          try {
+            await toggleWishlist();
+            setOpen(false);
+          } catch (e: any) {
+            setErr(e?.message || String(e));
+          }
+        }}
+        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+      >
+        <span>Wishlist</span>
+        <span className="text-xs font-semibold text-zinc-500">{wishlistSelected ? "✓" : ""}</span>
+      </button>
+
+      <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />
+
+      {!enableCustomLists ? (
+        <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">Custom lists coming soon.</div>
+      ) : customLists.length === 0 ? (
+        <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">No custom lists yet.</div>
+      ) : (
+        <div className="max-h-72 overflow-auto">
+          {customLists.map((l) => {
+            const id = String(l.id);
+            const selected = customSelected(id);
+
+            return (
+              <button
+                key={id}
+                type="button"
+                disabled={disableButtons}
+                onClick={async () => {
+                  try {
+                    await toggleCustom(l);
+                    setOpen(false);
+                  } catch (e: any) {
+                    setErr(e?.message || String(e));
+                  }
+                }}
+                className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+                title={l.title || `List ${id}`}
+              >
+                <span className="truncate">{l.title || `List ${id}`}</span>
+                <span className="text-xs font-semibold text-zinc-500">{selected ? "✓" : ""}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
         type="button"
         onClick={() => {
           setErr(null);
@@ -264,91 +382,8 @@ export default function AddToListMenu({
         {label}
       </button>
 
-      {open && (
-        <div
-          className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <div className="px-4 py-2 text-xs font-semibold text-zinc-500">
-            {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
-          </div>
-
-          {/* system collections (always available) */}
-          <button
-            type="button"
-            disabled={disableButtons}
-            onClick={async () => {
-              try {
-                await toggleOwned();
-                setOpen(false);
-              } catch (e: any) {
-                setErr(e?.message || String(e));
-              }
-            }}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
-          >
-            <span>Owned</span>
-            <span className="text-xs font-semibold text-zinc-500">{ownedSelected ? "✓" : ""}</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={disableButtons}
-            onClick={async () => {
-              try {
-                await toggleWishlist();
-                setOpen(false);
-              } catch (e: any) {
-                setErr(e?.message || String(e));
-              }
-            }}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
-          >
-            <span>Wishlist</span>
-            <span className="text-xs font-semibold text-zinc-500">{wishlistSelected ? "✓" : ""}</span>
-          </button>
-
-          {/* divider */}
-          <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />
-
-          {/* custom lists */}
-          {!enableCustomLists ? (
-            <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-              Custom lists coming soon.
-            </div>
-          ) : customLists.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">No custom lists yet.</div>
-          ) : (
-            <div className="max-h-72 overflow-auto">
-              {customLists.map((l) => {
-                const id = String(l.id);
-                const selected = customSelected(id);
-
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    disabled={disableButtons}
-                    onClick={async () => {
-                      try {
-                        await toggleCustom(l);
-                        setOpen(false);
-                      } catch (e: any) {
-                        setErr(e?.message || String(e));
-                      }
-                    }}
-                    className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
-                    title={l.title || `List ${id}`}
-                  >
-                    <span className="truncate">{l.title || `List ${id}`}</span>
-                    <span className="text-xs font-semibold text-zinc-500">{selected ? "✓" : ""}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Portal so the menu never gets clipped by cards/carousels */}
+      {mounted && menu ? createPortal(menu, document.body) : null}
     </div>
   );
 }
