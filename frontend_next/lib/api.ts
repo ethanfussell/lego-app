@@ -12,12 +12,15 @@ export class APIError extends Error {
 }
 
 function apiBase() {
-  // In the browser: use Next's same-origin proxy
+  // Browser: always go through Next proxy (same-origin)
   if (typeof window !== "undefined") return "/api";
 
-  // On the server (Route Handlers / Server Components): you can still use the proxy too,
-  // but if you *want* direct-to-backend SSR you can set API_BASE_URL.
-  return process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  // Server: you can still use the proxy; direct backend is optional via env
+  return (
+    process.env.API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://localhost:8000"
+  );
 }
 
 function buildUrl(path: string) {
@@ -25,15 +28,17 @@ function buildUrl(path: string) {
 
   const base = apiBase();
 
-  // If we're using the proxy, ensure it starts with /api
+  // Proxy mode
   if (base === "/api") {
-    // allow callers to pass "/api/..." or "/lists/me" etc.
-    const p = path.startsWith("/api") ? path : `/api${path.startsWith("/") ? "" : "/"}${path}`;
+    // allow callers to pass "/api/..." or "/foo"
+    const p = path.startsWith("/api")
+      ? path
+      : `/api${path.startsWith("/") ? "" : "/"}${path}`;
     return p;
   }
 
   // Direct backend mode
-  return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+  return `${base.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 type ApiFetchOptions = Omit<RequestInit, "body" | "headers" | "method"> & {
@@ -51,14 +56,21 @@ export async function apiFetch<T = unknown>(
 
   const { method = "GET", token, body, headers = {}, ...rest } = opts;
 
-  const finalHeaders: Record<string, string> = { ...headers };
+  const finalHeaders: Record<string, string> = {
+    Accept: "application/json",
+    ...headers,
+  };
+
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
-  if (body != null) finalHeaders["Content-Type"] = "application/json";
+
+  const hasBody = body != null && method !== "GET" && method !== "HEAD";
+
+  if (hasBody) finalHeaders["Content-Type"] = "application/json";
 
   const resp = await fetch(url, {
     method,
     headers: finalHeaders,
-    body: body != null ? JSON.stringify(body) : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
     ...rest,
   });
 
@@ -84,7 +96,6 @@ export async function apiFetch<T = unknown>(
   try {
     return JSON.parse(text) as T;
   } catch {
-    // Some endpoints might return plain text
     return text as unknown as T;
   }
 }
