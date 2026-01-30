@@ -127,7 +127,6 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     setNotFound(false);
     setForbidden(false);
 
-    // ✅ IMPORTANT: always use the real token (after hydration gate below)
     try {
       const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
         token,
@@ -141,6 +140,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       setSets(bulk);
     } catch (e: any) {
       if (e instanceof APIError) {
+        // NOTE: some backends return 404 for "private or not found" to avoid leaking existence.
         if (e.status === 404) {
           setNotFound(true);
           setDetail(null);
@@ -170,7 +170,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         return;
       }
 
-      // ✅ IMPORTANT: wait for auth to hydrate (localStorage token loaded)
+      // Wait for auth to hydrate (localStorage token loaded)
       if (!hydrated) return;
 
       try {
@@ -226,9 +226,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
     // optimistic UI
     setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
-    setDetail((d) =>
-      d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d
-    );
+    setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
 
     try {
       await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, {
@@ -252,7 +250,8 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     }
   }
 
-  const title = detail?.title?.trim() || (id ? `List ${id}` : "List");
+  // Optional polish: don't show "List {id}" when it might be private/not found
+  const title = detail?.title?.trim() || "Private";
   const description = detail?.description?.trim() || "";
 
   const headerSubtitle = useMemo(() => {
@@ -267,9 +266,9 @@ export default function ListDetailClient({ listId }: { listId: string }) {
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       {/* Header */}
-      <div className="pt-10 flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 pt-10">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight truncate">{title}</h1>
+          <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-zinc-600 dark:text-zinc-400">{headerSubtitle}</span>
@@ -291,9 +290,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             ) : null}
           </div>
 
-          {description ? (
-            <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
-          ) : null}
+          {description ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p> : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -332,19 +329,52 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
       {err ? <p className="mt-8 text-sm text-red-600">Error: {err}</p> : null}
 
+      {/* "Not found" (may include private when backend uses 404 for privacy) */}
       {!loading && !err && notFound ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">List not found</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
-            It may have been deleted, or the link is wrong.
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">
+            {token ? "List not found" : "This list may be private"}
           </div>
-          <div className="mt-4">
+
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
+            {token
+              ? "It may have been deleted, the link is wrong, or you don’t have access."
+              : "If someone shared this link with you, you may need to log in to view it. Otherwise it may have been deleted or the link is wrong."}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!token ? (
+              <button
+                type="button"
+                onClick={() => router.push("/login")}
+                className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+              >
+                Log in
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Back
+            </button>
+
             <Link
               href="/discover"
-              className="inline-flex rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
             >
               Browse sets
             </Link>
+
+            <button
+              type="button"
+              onClick={() => refresh()}
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Retry
+            </button>
           </div>
         </div>
       ) : null}
@@ -399,10 +429,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
             return (
               <li key={sn}>
-                <SetCard
-                  set={s as any}
-                  footer={token ? <SetCardActions token={token} setNum={sn} /> : null}
-                />
+                <SetCard set={s as any} footer={token ? <SetCardActions token={token} setNum={sn} /> : null} />
               </li>
             );
           })}
