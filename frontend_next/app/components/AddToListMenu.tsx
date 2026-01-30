@@ -36,12 +36,16 @@ export default function AddToListMenu({
   initialOwnedSelected = false,
   initialWishlistSelected = false,
   enableCustomLists = true,
+  fullWidth = false,
+  buttonClassName = "",
 }: {
   token: string;
   setNum: string;
   initialOwnedSelected?: boolean;
   initialWishlistSelected?: boolean;
   enableCustomLists?: boolean;
+  fullWidth?: boolean;
+  buttonClassName?: string;
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -100,7 +104,7 @@ export default function AddToListMenu({
     left = clamp(left, 8, vw - menuW - 8);
 
     // decide up vs down by available space
-    const approxMenuH = 360; // enough for header + options + scroll area
+    const approxMenuH = 360;
     const spaceBelow = vh - r.bottom;
     const spaceAbove = r.top;
 
@@ -122,7 +126,6 @@ export default function AddToListMenu({
     computePosition();
 
     const onResize = () => computePosition();
-    // capture scroll from any container
     const onScroll = () => computePosition();
 
     window.addEventListener("resize", onResize);
@@ -251,15 +254,10 @@ export default function AddToListMenu({
     setOwnedSelected(next);
     if (next) setWishlistSelected(false);
 
-    try {
-      if (next) {
-        await apiFetch("/collections/owned", { token, method: "POST", body: { set_num: setNum } });
-      } else {
-        await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
-      }
-    } catch (e) {
-      setOwnedSelected(!next);
-      throw e;
+    if (next) {
+      await apiFetch("/collections/owned", { token, method: "POST", body: { set_num: setNum } });
+    } else {
+      await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
     }
   }
 
@@ -270,15 +268,10 @@ export default function AddToListMenu({
     setWishlistSelected(next);
     if (next) setOwnedSelected(false);
 
-    try {
-      if (next) {
-        await apiFetch("/collections/wishlist", { token, method: "POST", body: { set_num: setNum } });
-      } else {
-        await apiFetch(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
-      }
-    } catch (e) {
-      setWishlistSelected(!next);
-      throw e;
+    if (next) {
+      await apiFetch("/collections/wishlist", { token, method: "POST", body: { set_num: setNum } });
+    } else {
+      await apiFetch(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
     }
   }
 
@@ -322,14 +315,12 @@ export default function AddToListMenu({
   const menu = open ? (
     <div
       ref={menuRef}
-      // keep clicks inside from bubbling into things like carousel drag
       onMouseDown={(e) => e.stopPropagation()}
       className="z-[9999] w-64 overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
       style={{
         position: "fixed",
         left: pos.left,
-        // if we placed "up", we anchored at button top (minus gap), so translateY(-100%)
-        top: pos.placement === "up" ? pos.top : pos.top,
+        top: pos.top,
         transform: pos.placement === "up" ? "translateY(-100%)" : undefined,
       }}
     >
@@ -337,7 +328,6 @@ export default function AddToListMenu({
         {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
       </div>
 
-      {/* system collections */}
       <button
         type="button"
         disabled={disableButtons}
@@ -374,7 +364,6 @@ export default function AddToListMenu({
 
       <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />
 
-      {/* custom lists */}
       {!enableCustomLists ? (
         <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">Custom lists coming soon.</div>
       ) : customLists.length === 0 ? (
@@ -413,19 +402,30 @@ export default function AddToListMenu({
 
   return (
     <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => {
-          setErr(null);
-          setOpen((v) => !v);
-        }}
-        className="w-full rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-      >
-        {label}
-      </button>
+      {/*
+        Small + consistent sizing, and lets the parent fully control layout.
+        - If fullWidth: fill available space (good for stacked layouts)
+        - Else: behave like a flex item (good for side-by-side buttons)
+      */}
+        <button
+          ref={btnRef}
+          type="button"
+          onClick={() => {
+            setErr(null);
+            setOpen((v) => !v);
+          }}
+          className={[
+            fullWidth ? "w-full" : "min-w-0",
+            "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border border-black/[.10] bg-white px-4 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
+            buttonClassName,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {label}
+        </button>
 
-      {mounted && open ? createPortal(menu, document.body) : null}
+        {mounted && open ? createPortal(menu, document.body) : null}
     </>
   );
 }

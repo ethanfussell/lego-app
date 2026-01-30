@@ -1,4 +1,4 @@
-// app/sets/[setNum]/OffersSection.tsx
+// frontend_next/app/sets/[setNum]/OffersSection.tsx
 import type { StoreOffer } from "@/lib/offers";
 
 function formatPrice(price: number, currency: string) {
@@ -13,7 +13,7 @@ export default function OffersSection({ offers }: { offers: StoreOffer[] }) {
   const sorted = [...offers].sort((a, b) => a.price - b.price);
 
   return (
-    <section className="mt-10">
+    <section id="shop" className="mt-10 scroll-mt-24">
       <h2 className="text-lg font-semibold">Shop &amp; price comparison</h2>
 
       {sorted.length === 0 ? (
@@ -25,9 +25,7 @@ export default function OffersSection({ offers }: { offers: StoreOffer[] }) {
               <li key={`${o.store}-${o.url}`} className="flex items-center justify-between gap-4 p-4">
                 <div className="min-w-0">
                   <div className="font-semibold">{o.store}</div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    {o.in_stock ? "In stock" : "Out of stock"}
-                  </div>
+                  <div className="mt-1 text-sm text-zinc-500">{o.in_stock ? "In stock" : "Out of stock"}</div>
                 </div>
 
                 <div className="flex items-center gap-3">

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Head from "next/head";
 
 import { apiFetch } from "@/lib/api";
@@ -84,6 +84,23 @@ function computeStarsFromPointer(el: HTMLElement, clientX: number) {
 
 export default function SetDetailClient(props: Props) {
   const router = useRouter();
+  const sp = useSearchParams();
+
+  useEffect(() => {
+    const focus = sp.get("focus");
+    if (focus !== "shop") return;
+
+    // start at top first
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    // then scroll to shop after layout settles
+    const t = window.setTimeout(() => {
+      const el = document.getElementById("shop");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+
+    return () => window.clearTimeout(t);
+  }, [sp]);
 
   // Prefer prop setNum (server-provided). Otherwise use route param.
   const params = useParams<{ setNum?: string }>();
@@ -219,21 +236,24 @@ export default function SetDetailClient(props: Props) {
     };
   }, [token, hydrated]);
 
-  // -------------------------------
-  // Scroll to shop when hash is #shop
-  // -------------------------------
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.location.hash !== "#shop") return;
-    if (loading) return;
+// ✅ Scroll to shop when URL has ?focus=shop (but START at top first)
+useEffect(() => {
+  if (loading) return;
 
-    const el = shopRef.current;
-    if (!el) return;
+  const focus = sp.get("focus");
+  if (focus !== "shop") return;
 
-    const NAV_OFFSET = 90;
-    const y = el.getBoundingClientRect().top + window.scrollY - NAV_OFFSET;
-    window.scrollTo({ top: y, behavior: "smooth" });
-  }, [loading]);
+  // start at top
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+  // then scroll once layout is settled
+  const t = window.setTimeout(() => {
+    const el = document.getElementById("shop");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 50);
+
+  return () => window.clearTimeout(t);
+}, [sp, loading]);
 
   // -------------------------------
   // Helpers

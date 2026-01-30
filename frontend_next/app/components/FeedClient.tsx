@@ -3,8 +3,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
-import AddToListMenu from "@/app/components/AddToListMenu";
 import { useAuth } from "@/app/providers";
 
 type QueryParams = {
@@ -15,19 +15,21 @@ type QueryParams = {
   order?: string;
 };
 
+type FeedClientProps = {
+  title: string;
+  description?: string;
+  queryParams?: QueryParams;
+  ownedSetNums?: Set<string>;
+  wishlistSetNums?: Set<string>;
+};
+
 export default function FeedClient({
   title,
   description,
   queryParams = {},
   ownedSetNums,
   wishlistSetNums,
-}: {
-  title: string;
-  description?: string;
-  queryParams?: QueryParams;
-  ownedSetNums?: Set<string>;
-  wishlistSetNums?: Set<string>;
-}) {
+}: FeedClientProps) {
   const { token } = useAuth();
 
   const [sets, setSets] = useState<any[]>([]);
@@ -52,7 +54,7 @@ export default function FeedClient({
         if (queryParams.order) params.set("order", queryParams.order);
 
         const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
-        const items = Array.isArray(data) ? data : data?.results || [];
+        const items = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
 
         if (!cancelled) setSets(items);
       } catch (e: any) {
@@ -66,8 +68,7 @@ export default function FeedClient({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qpKey]);
+  }, [qpKey, queryParams.page, queryParams.limit, queryParams.q, queryParams.sort, queryParams.order]);
 
   const hasResults = sets.length > 0;
 
@@ -85,23 +86,21 @@ export default function FeedClient({
 
       {!loading && !error && hasResults ? (
         <ul className="mt-6 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-4 gap-y-7 p-0">
-          {sets.map((set) => {
-            const setNum = String(set?.set_num || "").trim();
-            const owned = !!ownedSetNums?.has(setNum);
-            const wished = !!wishlistSetNums?.has(setNum);
+          {sets.map((s) => {
+            const sn = String(s?.set_num || "").trim();
+            if (!sn) return null;
+
+            // keep these in case you use them later for badges, etc.
+            const owned = !!ownedSetNums?.has(sn);
+            const wished = !!wishlistSetNums?.has(sn);
+            void owned;
+            void wished;
 
             return (
-              <li key={setNum || Math.random()} className="w-full max-w-[260px]">
+              <li key={sn} className="w-full max-w-[260px]">
                 <SetCard
-                  set={set}
-                  variant={owned ? "owned" : wished ? "wishlist" : "feed"}
-                  footer={
-                    token && setNum ? (
-                      <div className="flex items-center justify-center">
-                        <AddToListMenu token={token} setNum={setNum} />
-                      </div>
-                    ) : null
-                  }
+                  set={s as any}
+                  footer={token ? <SetCardActions token={token} setNum={sn} /> : null}
                 />
               </li>
             );

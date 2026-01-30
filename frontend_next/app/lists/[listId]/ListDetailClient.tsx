@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
-import AddToListMenu from "@/app/components/AddToListMenu";
+import SetCardActions from "@/app/components/SetCardActions";
 
 type ListDetail = {
   id: number | string;
@@ -396,29 +396,12 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
             const sn = String(s.set_num);
-            const inThisList = setNumSet.has(sn);
 
             return (
               <li key={sn}>
                 <SetCard
                   set={s as any}
-                  footer={
-                    token ? (
-                      <div className="space-y-2">
-                        <AddToListMenu token={token} setNum={sn} />
-                        {canEdit && inThisList ? (
-                          <button
-                            type="button"
-                            disabled={!!removing[sn]}
-                            onClick={() => removeFromThisList(sn)}
-                            className="w-full rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-                          >
-                            {removing[sn] ? "Removing…" : "Remove from this list"}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null
-                  }
+                  footer={token ? <SetCardActions token={token} setNum={sn} /> : null}
                 />
               </li>
             );

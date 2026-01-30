@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
 import Pagination from "@/app/components/Pagination";
-import AddToListMenu from "@/app/components/AddToListMenu";
+import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 
@@ -347,7 +347,10 @@ export default function SearchClient({
           <div className="mt-4 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
             {results.map((set) => (
               <div key={set.set_num} className="w-[220px]">
-                <SetCard set={set} footer={token ? <AddToListMenu token={token} setNum={set.set_num} /> : null} />
+                <SetCard
+                  set={set as any}
+                  footer={token ? <SetCardActions token={token} setNum={set.set_num} /> : null}
+                />
               </div>
             ))}
           </div>
