@@ -26,6 +26,10 @@ function hasSet(detail: ListDetail | null, setNum: string) {
   return items.some((x) => String(x?.set_num) === String(setNum));
 }
 
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 export default function AddToListMenu({
   token,
   setNum,
@@ -39,17 +43,11 @@ export default function AddToListMenu({
   initialWishlistSelected?: boolean;
   enableCustomLists?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-
-  // We render the dropdown in a portal, so we need separate refs:
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
-  const MENU_W = 256; // tailwind w-64
+  const [open, setOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -60,53 +58,17 @@ export default function AddToListMenu({
   const [ownedSelected, setOwnedSelected] = useState<boolean>(initialOwnedSelected);
   const [wishlistSelected, setWishlistSelected] = useState<boolean>(initialWishlistSelected);
 
+  // portal position
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; placement: "down" | "up" }>({
+    top: 0,
+    left: 0,
+    width: 256,
+    placement: "down",
+  });
+
+  useEffect(() => setMounted(true), []);
   useEffect(() => setOwnedSelected(initialOwnedSelected), [initialOwnedSelected]);
   useEffect(() => setWishlistSelected(initialWishlistSelected), [initialWishlistSelected]);
-
-  // Compute dropdown position (under the button) and keep it updated on scroll/resize
-  useEffect(() => {
-    if (!open) return;
-
-    const compute = () => {
-      const b = btnRef.current;
-      if (!b) return;
-      const r = b.getBoundingClientRect();
-      const left = Math.max(8, Math.min(window.innerWidth - MENU_W - 8, r.right - MENU_W));
-      setPos({
-        top: r.bottom + 8 + window.scrollY,
-        left: left + window.scrollX,
-        width: MENU_W,
-      });
-    };
-
-    compute();
-    window.addEventListener("resize", compute);
-    window.addEventListener("scroll", compute, true);
-    return () => {
-      window.removeEventListener("resize", compute);
-      window.removeEventListener("scroll", compute, true);
-    };
-  }, [open]);
-
-  // Close on outside click (works with portal)
-  useEffect(() => {
-    if (!open) return;
-
-    function onDown(e: MouseEvent) {
-      const t = e.target as Node;
-
-      const b = btnRef.current;
-      if (b && b.contains(t)) return;
-
-      const m = menuRef.current;
-      if (m && m.contains(t)) return;
-
-      setOpen(false);
-    }
-
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
 
   const customLists = useMemo(() => {
     return (lists || []).filter((l) => {
@@ -120,6 +82,87 @@ export default function AddToListMenu({
     const d = detailById[listId] || null;
     return hasSet(d, setNum);
   }
+
+  // --- Positioning: compute top/left in viewport and clamp / flip ---
+  function computePosition() {
+    const btn = btnRef.current;
+    if (!btn) return;
+
+    const r = btn.getBoundingClientRect();
+    const menuW = 256; // matches w-64
+    const gap = 8;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // horizontal clamp
+    let left = r.right - menuW;
+    left = clamp(left, 8, vw - menuW - 8);
+
+    // decide up vs down by available space
+    const approxMenuH = 360; // enough for header + options + scroll area
+    const spaceBelow = vh - r.bottom;
+    const spaceAbove = r.top;
+
+    const placeUp = spaceBelow < approxMenuH && spaceAbove > spaceBelow;
+
+    const top = placeUp ? Math.max(8, r.top - gap) : Math.min(vh - 8, r.bottom + gap);
+
+    setPos({
+      top,
+      left,
+      width: menuW,
+      placement: placeUp ? "up" : "down",
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    computePosition();
+
+    const onResize = () => computePosition();
+    // capture scroll from any container
+    const onScroll = () => computePosition();
+
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  // close on outside click + Esc (works with portal)
+  useEffect(() => {
+    if (!open) return;
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+
+    function onPointerDown(e: MouseEvent) {
+      const btn = btnRef.current;
+      const menu = menuRef.current;
+
+      const t = e.target as Node | null;
+      if (!t) return;
+
+      if (btn && btn.contains(t)) return;
+      if (menu && menu.contains(t)) return;
+
+      setOpen(false);
+    }
+
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointerDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
 
   // Load system membership from /collections/*, and custom lists from /lists/*
   useEffect(() => {
@@ -150,7 +193,7 @@ export default function AddToListMenu({
         setOwnedSelected(inOwned);
         setWishlistSelected(inOwned ? false : inWish);
 
-        // 2) custom lists (optional)
+        // 2) custom lists
         if (!enableCustomLists) {
           setLists([]);
           setDetailById({});
@@ -167,7 +210,7 @@ export default function AddToListMenu({
 
         setLists(arr);
 
-        // 3) details for checkmarks
+        // 3) details for checkmarks (custom only)
         const entries = await Promise.all(
           arr.map(async (l) => {
             try {
@@ -204,9 +247,6 @@ export default function AddToListMenu({
   async function toggleOwned() {
     if (!token) return;
 
-    const prevOwned = ownedSelected;
-    const prevWish = wishlistSelected;
-
     const next = !ownedSelected;
     setOwnedSelected(next);
     if (next) setWishlistSelected(false);
@@ -218,17 +258,13 @@ export default function AddToListMenu({
         await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
       }
     } catch (e) {
-      setOwnedSelected(prevOwned);
-      setWishlistSelected(prevWish);
+      setOwnedSelected(!next);
       throw e;
     }
   }
 
   async function toggleWishlist() {
     if (!token) return;
-
-    const prevOwned = ownedSelected;
-    const prevWish = wishlistSelected;
 
     const next = !wishlistSelected;
     setWishlistSelected(next);
@@ -241,8 +277,7 @@ export default function AddToListMenu({
         await apiFetch(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
       }
     } catch (e) {
-      setOwnedSelected(prevOwned);
-      setWishlistSelected(prevWish);
+      setWishlistSelected(!next);
       throw e;
     }
   }
@@ -253,7 +288,7 @@ export default function AddToListMenu({
     const id = String(list.id);
     const selectedNow = customSelected(id);
 
-    // optimistic: mutate local detailById
+    // optimistic
     setDetailById((prev) => {
       const cur = prev[id] || null;
       const items = Array.isArray(cur?.items) ? [...cur!.items!] : [];
@@ -284,12 +319,19 @@ export default function AddToListMenu({
   const label = ownedSelected ? "In Owned" : wishlistSelected ? "In Wishlist" : "Add to list";
   const disableButtons = loading || !token;
 
-  const menu = open && mounted && pos ? (
+  const menu = open ? (
     <div
       ref={menuRef}
-      style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width }}
-      className="z-[9999] overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
-      onMouseDown={(e) => e.preventDefault()}
+      // keep clicks inside from bubbling into things like carousel drag
+      onMouseDown={(e) => e.stopPropagation()}
+      className="z-[9999] w-64 overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
+      style={{
+        position: "fixed",
+        left: pos.left,
+        // if we placed "up", we anchored at button top (minus gap), so translateY(-100%)
+        top: pos.placement === "up" ? pos.top : pos.top,
+        transform: pos.placement === "up" ? "translateY(-100%)" : undefined,
+      }}
     >
       <div className="px-4 py-2 text-xs font-semibold text-zinc-500">
         {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
@@ -332,6 +374,7 @@ export default function AddToListMenu({
 
       <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />
 
+      {/* custom lists */}
       {!enableCustomLists ? (
         <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">Custom lists coming soon.</div>
       ) : customLists.length === 0 ? (
@@ -369,7 +412,7 @@ export default function AddToListMenu({
   ) : null;
 
   return (
-    <div className="relative">
+    <>
       <button
         ref={btnRef}
         type="button"
@@ -382,8 +425,7 @@ export default function AddToListMenu({
         {label}
       </button>
 
-      {/* Portal so the menu never gets clipped by cards/carousels */}
-      {mounted && menu ? createPortal(menu, document.body) : null}
-    </div>
+      {mounted && open ? createPortal(menu, document.body) : null}
+    </>
   );
 }
