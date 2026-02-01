@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/app/components/TopNav";
+import Footer from "@/app/components/Footer";
 import { AuthProvider } from "@/app/providers";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -26,6 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Keep main snug; handle anchor offset via scroll-padding-top in globals.css */}
             <main className="mx-auto w-full max-w-5xl px-6 pb-16">{children}</main>
+
+            <Footer />
           </div>
         </AuthProvider>
       </body>
