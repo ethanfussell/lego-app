@@ -55,16 +55,24 @@ function StatCard({
   sub,
   href,
   children,
+  className,
 }: {
   label: string;
   value?: React.ReactNode;
   sub?: React.ReactNode;
   href?: string;
   children?: React.ReactNode;
+  className?: string;
 }) {
   const base = (
-    <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950">
+    <div
+      className={[
+        "rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950",
+        className || "",
+      ].join(" ")}
+    >
       <div className="text-xs font-extrabold uppercase tracking-wide text-zinc-500">{label}</div>
+
       {children ? (
         <div className="mt-2">{children}</div>
       ) : (
@@ -72,6 +80,7 @@ function StatCard({
           {value}
         </div>
       )}
+
       {sub ? <div className="mt-1 text-sm text-zinc-500">{sub}</div> : null}
     </div>
   );
@@ -364,6 +373,10 @@ export default function AccountClient() {
 
   const recentToShow = recentEnriched.length ? recentEnriched : recentReviewsRaw;
 
+  // Make review-stat tiles match the top stat tiles, without changing the top tiles.
+  // Adjust once if needed (try 96 / 104 / 112).
+  const REVIEW_TILE_H = "h-[96px]";
+
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
       <div className="mt-10 flex flex-wrap items-start justify-between gap-4">
@@ -428,37 +441,10 @@ export default function AccountClient() {
           <section className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
             <StatCard label="Owned sets" value={ownedCount} href="/collection/owned" />
             <StatCard label="Wishlist" value={wishlistCount} href="/collection/wishlist" />
-
-            <StatCard
-              label="Pieces owned"
-              value={piecesOwned.toLocaleString()}
-              sub={ownedCount ? `≈ ${avgPieces.toLocaleString()} pieces / set` : ""}
-            />
-
-            <StatCard
-              label="Custom lists"
-              value={customLists.length}
-              sub={`${publicLists.length} public`}
-              href="/account/lists"
-            />
-
-            <StatCard label="Saved lists" value={savedCount} sub="Lists you bookmarked" href="/account/saved-lists" />
-
-            <StatCard
-              label="Reviews"
-              value={totalReviews == null ? "—" : totalReviews}
-              sub={
-                reviewStatsLoading
-                  ? "Loading…"
-                  : reviewStatsErr
-                  ? "Error loading"
-                  : `Rated: ${ratedReviews == null ? "—" : ratedReviews} · Avg: ${
-                      avgRating == null ? "—" : Number(avgRating).toFixed(2)
-                    }`
-              }
-              href="/account/reviews"
-            />
-
+            <StatCard label="Pieces owned" value={piecesOwned.toLocaleString()} />
+            <StatCard label="Custom lists" value={customLists.length} href="/account/lists" />
+            <StatCard label="Saved lists" value={savedCount} href="/account/saved-lists" />
+            <StatCard label="Reviews" value={totalReviews == null ? "—" : totalReviews} href="/account/reviews" />
             <StatCard label="Followers" value="0" sub="Coming soon" />
             <StatCard label="Following" value="0" sub="Coming soon" />
           </section>
@@ -485,21 +471,32 @@ export default function AccountClient() {
 
             {!reviewStatsLoading && !reviewStatsErr && reviewStats ? (
               <div className="mt-4 grid gap-3">
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+                {/* IMPORTANT:
+                    - no auto-rows-fr
+                    - no tall histogram height that forces the row taller
+                    - fixed height only for these review tiles */}
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3 items-start">
                   <StatCard
                     label="Total reviews"
                     value={totalReviews == null ? "—" : totalReviews}
                     href="/account/reviews"
-                    sub="Click to view all"
+                    className={REVIEW_TILE_H}
                   />
+
                   <StatCard
                     label="Rated reviews"
                     value={ratedReviews == null ? "—" : ratedReviews}
                     href="/account/reviews?filter=rated"
-                    sub="Click to view rated"
+                    className={REVIEW_TILE_H}
                   />
 
-                  <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+                  <div
+                    className={[
+                      REVIEW_TILE_H,
+                      "rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950",
+                      "flex flex-col",
+                    ].join(" ")}
+                  >
                     <div className="flex items-baseline justify-between gap-3">
                       <div className="text-xs font-extrabold uppercase tracking-wide text-zinc-500">
                         Ratings breakdown
@@ -509,14 +506,15 @@ export default function AccountClient() {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-end justify-center overflow-hidden">
+                    {/* Fill remaining space inside the fixed-height tile (won't grow the row) */}
+                    <div className="mt-2 flex flex-1 items-end justify-center overflow-hidden">
                       <RatingHistogram
                         histogram={reviewStats.rating_histogram}
-                        height={34}
-                        barWidth={14}
-                        gap={8}
+                        height={40} // keep within the fixed tile height
+                        barWidth={16}
+                        gap={10}
                         showLabels={false}
-                        maxWidth={320}
+                        maxWidth={420}
                         paddingY={0}
                         paddingX={0}
                       />
@@ -552,12 +550,7 @@ export default function AccountClient() {
             ) : (
               <div className="mt-3 grid max-w-xl gap-2">
                 {topThemes.map(([theme, count]) => (
-                  <ThemeRow
-                    key={theme}
-                    theme={theme}
-                    count={count}
-                    href={`/collection/owned?theme=${encodeURIComponent(theme)}`}
-                  />
+                  <ThemeRow key={theme} theme={theme} count={count} href={`/collection/owned?theme=${encodeURIComponent(theme)}`} />
                 ))}
               </div>
             )}
