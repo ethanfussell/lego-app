@@ -30,8 +30,6 @@ type SetLite = {
   pieces?: number;
   image_url?: string | null;
   theme?: string;
-
-  // optional if your API supports it
   rating_avg?: number | null;
   average_rating?: number | null;
   rating_count?: number | null;
@@ -78,9 +76,11 @@ function pushRecentSafe(term: string) {
   return sliced;
 }
 
-function normalizeSetsResponse(
-  data: SetsResponse
-): { results: SetLite[]; total: number | null; totalPages: number } {
+function normalizeSetsResponse(data: SetsResponse): {
+  results: SetLite[];
+  total: number | null;
+  totalPages: number;
+} {
   if (Array.isArray(data)) {
     return { results: data, total: null, totalPages: 1 };
   }
@@ -121,13 +121,11 @@ type SortValue =
 
 function parseSortValue(v: string): { sort: string; order?: "asc" | "desc" } {
   const raw = (v || "relevance").trim();
-
   if (raw === "relevance") return { sort: "relevance" };
 
   const [sort, order] = raw.split("_");
   if (!sort) return { sort: "relevance" };
   if (order === "asc" || order === "desc") return { sort, order };
-
   return { sort: raw };
 }
 
@@ -148,7 +146,7 @@ function toSortValue(sort: string, order?: string): SortValue {
     "name_desc",
   ];
 
-  return (allowed.includes(key as SortValue) ? key : "relevance") as SortValue;
+  return (allowed.includes(key as SortValue) ? (key as SortValue) : "relevance") as SortValue;
 }
 
 export default function SearchClient({
@@ -163,29 +161,28 @@ export default function SearchClient({
   const router = useRouter();
   const sp = useSearchParams();
 
-  const q = useMemo(() => (sp.get("q") || initialQ || "").trim(), [sp, initialQ]);
+  // --- URL as source of truth (fallback to initial* for hydration friendliness) ---
+  const q = useMemo(() => (sp.get("q") ?? initialQ ?? "").trim(), [sp, initialQ]);
 
-  // URL params: sort + order
-  const sortParam = useMemo(() => (sp.get("sort") || initialSort || "relevance").trim(), [sp, initialSort]);
-  const orderParam = useMemo(() => (sp.get("order") || "").trim(), [sp]);
-
-  // value used by the select
-  const sortValue = useMemo(() => toSortValue(sortParam, orderParam), [sortParam, orderParam]);
+  const sortParam = useMemo(
+    () => (sp.get("sort") ?? initialSort ?? "relevance").trim() || "relevance",
+    [sp, initialSort]
+  );
+  const orderParam = useMemo(() => (sp.get("order") ?? "").trim(), [sp]);
 
   const page = useMemo(() => {
-    const p = Number(sp.get("page") || initialPage || 1);
+    const raw = sp.get("page");
+    const p = Number(raw ?? initialPage ?? 1);
     return Number.isFinite(p) && p > 0 ? p : 1;
   }, [sp, initialPage]);
+
+  const sortValue = useMemo(() => toSortValue(sortParam, orderParam), [sortParam, orderParam]);
 
   const [input, setInput] = useState(q);
   useEffect(() => setInput(q), [q]);
 
   const [recents, setRecents] = useState<string[] | null>(null);
-
-  useEffect(() => {
-    setRecents(readRecentsSafe());
-  }, []);
-
+  useEffect(() => setRecents(readRecentsSafe()), []);
   useEffect(() => {
     function onStorage() {
       setRecents(readRecentsSafe());
@@ -202,27 +199,78 @@ export default function SearchClient({
 
   const lastReqKeyRef = useRef<string>("");
 
-  async function runSearch(nextQ: string, nextSortValue: SortValue = sortValue, nextPage = 1) {
-    const cleanQ = String(nextQ || "").trim();
-    if (!cleanQ) return;
+  // --- Helpers to write URL cleanly ---
+  function pushUrl(next: { q?: string; sort?: string; order?: string; page?: number }, opts?: { replace?: boolean }) {
+    const params = new URLSearchParams(sp?.toString?.() || "");
 
-    const { sort, order } = parseSortValue(nextSortValue);
+    // q
+    if (typeof next.q === "string") {
+      const cleanQ = next.q.trim();
+      if (cleanQ) params.set("q", cleanQ);
+      else params.delete("q");
+    }
 
-    const params = new URLSearchParams();
-    params.set("q", cleanQ);
-    params.set("sort", sort || "relevance");
-    if (order) params.set("order", order);
-    else params.delete("order");
-    params.set("page", String(nextPage));
-    params.set("limit", String(PAGE_SIZE));
+    // sort / order (keep URL clean for defaults)
+    if (typeof next.sort === "string") {
+      const s = next.sort.trim() || "relevance";
+      if (s === "relevance") params.delete("sort");
+      else params.set("sort", s);
+    }
 
-    router.push(`/search?${params.toString()}`);
+    if (typeof next.order === "string") {
+      const o = next.order.trim();
+      if (!o || (o !== "asc" && o !== "desc")) params.delete("order");
+      else params.set("order", o);
+    }
 
-    const nextRecents = pushRecentSafe(cleanQ);
-    setRecents(nextRecents);
-    window.dispatchEvent(new Event("storage"));
+    // page (don’t keep page=1)
+    if (typeof next.page === "number") {
+      const p = Number.isFinite(next.page) && next.page > 1 ? Math.floor(next.page) : 1;
+      if (p <= 1) params.delete("page");
+      else params.set("page", String(p));
+    }
+
+    // If q is gone, wipe sort/order/page too (keeps /search clean)
+    if (!params.get("q")) {
+      params.delete("sort");
+      params.delete("order");
+      params.delete("page");
+    }
+
+    const qs = params.toString();
+    const url = qs ? `/search?${qs}` : "/search";
+    const nav = opts?.replace ? router.replace : router.push;
+    nav(url, { scroll: false });
   }
 
+  // Public actions (submit/search chips/sort/pagination) — only mutate URL
+  async function submitSearch(term: string) {
+    const clean = String(term || "").trim();
+    if (!clean) {
+      pushUrl({ q: "" });
+      return;
+    }
+
+    // keep current sort/order (from URL), reset to page 1
+    pushUrl({ q: clean, page: 1 });
+
+    // recents are local-only
+    const nextRecents = pushRecentSafe(clean);
+    setRecents(nextRecents);
+  }
+
+  async function changeSort(nextSortValue: SortValue) {
+    if (!q) return;
+    const { sort, order } = parseSortValue(nextSortValue);
+    pushUrl({ sort, order: order || "", page: 1 });
+  }
+
+  async function changePage(nextPage: number) {
+    if (!q) return;
+    pushUrl({ page: nextPage });
+  }
+
+  // Fetch results whenever URL-derived state changes
   useEffect(() => {
     let cancelled = false;
 
@@ -245,16 +293,14 @@ export default function SearchClient({
         const params = new URLSearchParams();
         params.set("q", q);
 
-        // send sort + order to API
+        // Always send explicit sort to API (even if URL omits defaults)
         params.set("sort", sortParam || "relevance");
         if (orderParam) params.set("order", orderParam);
 
         params.set("page", String(page));
-        params.set("limit", String(PAGE_SIZE));
+        params.set("limit", String(PAGE_SIZE)); // API-only, not in URL
 
-        const data = await apiFetch<SetsResponse>(`/sets?${params.toString()}`, {
-          cache: "no-store",
-        });
+        const data = await apiFetch<SetsResponse>(`/sets?${params.toString()}`, { cache: "no-store" });
 
         if (cancelled) return;
         if (lastReqKeyRef.current !== reqKey) return;
@@ -263,6 +309,11 @@ export default function SearchClient({
         setResults(norm.results);
         setTotal(norm.total);
         setTotalPages(norm.totalPages);
+
+        // If user navigated to a page beyond last page, snap back (URL-correct)
+        if (page > norm.totalPages && norm.totalPages >= 1) {
+          pushUrl({ page: norm.totalPages }, { replace: true });
+        }
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || String(e) || "Search failed");
       } finally {
@@ -274,7 +325,7 @@ export default function SearchClient({
     return () => {
       cancelled = true;
     };
-  }, [q, sortParam, orderParam, page]);
+  }, [q, sortParam, orderParam, page]); // URL-derived
 
   const heading = q ? `Search: "${q}"` : "Search";
   const showEmptyPrompt = !loading && !err && !q;
@@ -289,9 +340,9 @@ export default function SearchClient({
         </div>
 
         <form
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            await runSearch(input, sortValue, 1);
+            submitSearch(input);
           }}
           className="mt-4 flex flex-wrap items-center gap-3"
         >
@@ -315,10 +366,7 @@ export default function SearchClient({
             <span className="text-zinc-500">Sort</span>
             <select
               value={sortValue}
-              onChange={async (e) => {
-                if (!q) return;
-                await runSearch(q, e.target.value as SortValue, 1);
-              }}
+              onChange={(e) => changeSort(e.target.value as SortValue)}
               disabled={!q || loading}
               className="h-10 rounded-2xl border border-black/[.10] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-zinc-950"
             >
@@ -350,7 +398,7 @@ export default function SearchClient({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => runSearch(t, sortValue, 1)}
+                  onClick={() => submitSearch(t)}
                   className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-extrabold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
                   title={`Search "${t}"`}
                 >
@@ -372,7 +420,7 @@ export default function SearchClient({
                     <button
                       key={t}
                       type="button"
-                      onClick={() => runSearch(t, sortValue, 1)}
+                      onClick={() => submitSearch(t)}
                       className="w-full rounded-2xl border border-black/[.06] bg-zinc-50 px-3 py-2 text-left text-sm font-extrabold text-zinc-900 hover:bg-zinc-100 dark:border-white/[.10] dark:bg-black dark:text-zinc-50 dark:hover:bg-white/[.06]"
                       title={`Search "${t}"`}
                     >
@@ -393,11 +441,8 @@ export default function SearchClient({
             <div className="text-sm text-zinc-500">Type a search above or click a Popular chip to explore sets.</div>
           ) : null}
 
-          {showNoResults ? (
-            <div className="text-sm text-zinc-500">No results found. Try a different search.</div>
-          ) : null}
+          {showNoResults ? <div className="text-sm text-zinc-500">No results found. Try a different search.</div> : null}
 
-          {/* ✅ 3 per row on desktop, no footer actions */}
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((set) => (
               <div key={set.set_num} className="h-full">
@@ -414,7 +459,7 @@ export default function SearchClient({
                 totalItems={total || 0}
                 pageSize={PAGE_SIZE}
                 disabled={loading}
-                onPageChange={(p: number) => runSearch(q, sortValue, p)}
+                onPageChange={(p: number) => changePage(p)}
               />
             </div>
           ) : null}

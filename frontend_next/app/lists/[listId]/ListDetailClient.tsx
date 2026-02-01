@@ -92,8 +92,12 @@ export default function ListDetailClient({ listId }: { listId: string }) {
   const [notFound, setNotFound] = useState(false);
   const [forbidden, setForbidden] = useState(false);
 
+  // Copy-link UX
+  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [copyErr, setCopyErr] = useState<string | null>(null);
+
   const setNums = useMemo(() => toSetNums(detail), [detail]);
-  const setNumSet = useMemo(() => new Set(setNums.map(String)), [setNums]);
+  const setNumSet = useMemo(() => new Set(setNums.map(String)), [setNums]); // kept if you use it elsewhere later
 
   const ownerName = useMemo(() => {
     const d: any = detail || {};
@@ -120,6 +124,8 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     if (typeof detail?.is_public !== "boolean") return null;
     return detail.is_public ? "Public" : "Private";
   }, [detail?.is_public]);
+
+  const isPublic = !!detail?.is_public;
 
   const refresh = useCallback(async () => {
     if (!id) throw new Error("Missing list id.");
@@ -250,6 +256,39 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     }
   }
 
+  async function copyLink() {
+    setCopyErr(null);
+
+    // only makes sense in browser
+    if (typeof window === "undefined") return;
+
+    const url = window.location.href;
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // fallback
+        const ok = window.prompt("Copy this link:", url);
+        if (ok === null) {
+          // user cancelled; don't treat as error
+          return;
+        }
+      }
+
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1200);
+    } catch (e: any) {
+      // last resort fallback
+      try {
+        window.prompt("Copy this link:", url);
+      } catch {
+        // ignore
+      }
+      setCopyErr(e?.message || "Could not copy link.");
+    }
+  }
+
   // Optional polish: don't show "List {id}" when it might be private/not found
   const title = detail?.title?.trim() || "Private";
   const description = detail?.description?.trim() || "";
@@ -301,6 +340,18 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             Back
           </Link>
 
+          {/* ✅ Copy link only for public lists */}
+          {isPublic ? (
+            <button
+              type="button"
+              onClick={copyLink}
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              title="Copy shareable link"
+            >
+              {copyState === "copied" ? "Copied!" : "Copy link"}
+            </button>
+          ) : null}
+
           {!token ? (
             <button
               type="button"
@@ -324,6 +375,8 @@ export default function ListDetailClient({ listId }: { listId: string }) {
           ) : null}
         </div>
       </div>
+
+      {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
 
       {/* States */}
       {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
@@ -426,7 +479,6 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
             const sn = String(s.set_num);
-
             return (
               <li key={sn}>
                 <SetCard set={s as any} footer={token ? <SetCardActions token={token} setNum={sn} /> : null} />
