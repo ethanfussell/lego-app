@@ -10,14 +10,6 @@ import { useAuth } from "@/app/providers";
 import SetCard, { SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 
-type Offer = {
-  store?: string;
-  url?: string;
-  price?: number;
-  currency?: string;
-  in_stock?: boolean;
-};
-
 type ReviewItem = {
   id: number;
   set_num: string;
@@ -86,22 +78,6 @@ export default function SetDetailClient(props: Props) {
   const router = useRouter();
   const sp = useSearchParams();
 
-  useEffect(() => {
-    const focus = sp.get("focus");
-    if (focus !== "shop") return;
-
-    // start at top first
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-
-    // then scroll to shop after layout settles
-    const t = window.setTimeout(() => {
-      const el = document.getElementById("shop");
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-
-    return () => window.clearTimeout(t);
-  }, [sp]);
-
   // Prefer prop setNum (server-provided). Otherwise use route param.
   const params = useParams<{ setNum?: string }>();
   const routeSetNum = params?.setNum ? decodeURIComponent(String(params.setNum)) : "";
@@ -164,14 +140,6 @@ export default function SetDetailClient(props: Props) {
   const similarRowRef = useRef<HTMLDivElement | null>(null);
 
   // -------------------------------
-  // Shop offers
-  // -------------------------------
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [offersLoading, setOffersLoading] = useState(false);
-  const [offersError, setOffersError] = useState<string | null>(null);
-  const shopRef = useRef<HTMLHeadingElement | null>(null);
-
-  // -------------------------------
   // Derived review subsets
   // -------------------------------
   const myReview = useMemo(() => {
@@ -199,7 +167,9 @@ export default function SetDetailClient(props: Props) {
 
     const desc =
       setDetail?.name && setDetail?.year && (setDetail?.pieces ?? setDetail?.num_parts)
-        ? `Details for LEGO set ${setNum}: ${setDetail.name}. ${setDetail.pieces ?? setDetail.num_parts} pieces · from ${setDetail.year}.`
+        ? `Details for LEGO set ${setNum}: ${setDetail.name}. ${
+            setDetail.pieces ?? setDetail.num_parts
+          } pieces · from ${setDetail.year}.`
         : setDetail?.name
         ? `Details for LEGO set ${setNum}: ${setDetail.name}.`
         : setNum
@@ -236,24 +206,24 @@ export default function SetDetailClient(props: Props) {
     };
   }, [token, hydrated]);
 
-// ✅ Scroll to shop when URL has ?focus=shop (but START at top first)
-useEffect(() => {
-  if (loading) return;
+  // ✅ Scroll to shop when URL has ?focus=shop (one copy only)
+  useEffect(() => {
+    if (loading) return;
 
-  const focus = sp.get("focus");
-  if (focus !== "shop") return;
+    const focus = sp.get("focus");
+    if (focus !== "shop") return;
 
-  // start at top
-  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    // start at top
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 
-  // then scroll once layout is settled
-  const t = window.setTimeout(() => {
-    const el = document.getElementById("shop");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 50);
+    // then scroll once layout is settled
+    const t = window.setTimeout(() => {
+      const el = document.getElementById("shop");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
 
-  return () => window.clearTimeout(t);
-}, [sp, loading]);
+    return () => window.clearTimeout(t);
+  }, [sp, loading]);
 
   // -------------------------------
   // Helpers
@@ -338,45 +308,6 @@ useEffect(() => {
   }, [setNum, meUsername]);
 
   // -------------------------------
-  // Fetch offers
-  // -------------------------------
-  useEffect(() => {
-    if (!setNum) return;
-
-    let cancelled = false;
-
-    async function fetchOffers() {
-      try {
-        setOffersLoading(true);
-        setOffersError(null);
-
-        const data = await apiFetch<Offer[]>(`/sets/${encodeURIComponent(setNum)}/offers`, { cache: "no-store" });
-
-        const list = Array.isArray(data) ? data : [];
-        list.sort((a, b) => {
-          const aStock = a?.in_stock ? 0 : 1;
-          const bStock = b?.in_stock ? 0 : 1;
-          if (aStock !== bStock) return aStock - bStock;
-          const ap = typeof a?.price === "number" ? a.price : Number.POSITIVE_INFINITY;
-          const bp = typeof b?.price === "number" ? b.price : Number.POSITIVE_INFINITY;
-          return ap - bp;
-        });
-
-        if (!cancelled) setOffers(list);
-      } catch (e: any) {
-        if (!cancelled) setOffersError(e?.message || String(e));
-      } finally {
-        if (!cancelled) setOffersLoading(false);
-      }
-    }
-
-    fetchOffers();
-    return () => {
-      cancelled = true;
-    };
-  }, [setNum]);
-
-  // -------------------------------
   // Similar sets (by theme)
   // -------------------------------
   useEffect(() => {
@@ -395,8 +326,8 @@ useEffect(() => {
         const p = new URLSearchParams();
 
         const theme = setDetail?.theme ? String(setDetail.theme) : "";
-        if (!theme) return; // or just skip this whole “related by theme” fetch
-        
+        if (!theme) return;
+
         p.set("q", theme);
         p.set("sort", "rating");
         p.set("order", "desc");
@@ -495,9 +426,6 @@ useEffect(() => {
 
       // authoritative refresh
       await Promise.all([fetchReviewsForSet(setNum), fetchRatingSummary(setNum)]);
-
-      // (optional) if you want a hard refresh of the route:
-      // router.refresh();
     } catch (e: any) {
       setRatingError(e?.message || String(e));
     } finally {
@@ -646,7 +574,7 @@ useEffect(() => {
         <meta property="og:title" content={headFallback.title} />
         <meta property="og:description" content={headFallback.desc} />
         {headFallback.image ? <meta property="og:image" content={headFallback.image} /> : null}
-        <meta name="twitter:card" content={headFallback.image ? "summary_large_image" : "summary" } />
+        <meta name="twitter:card" content={headFallback.image ? "summary_large_image" : "summary"} />
         <meta name="twitter:title" content={headFallback.title} />
         <meta name="twitter:description" content={headFallback.desc} />
         {headFallback.image ? <meta name="twitter:image" content={headFallback.image} /> : null}
@@ -692,11 +620,15 @@ useEffect(() => {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
+          {typeof parts === "number" ? (
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p>
+          ) : null}
 
-          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
+          {isRetired ? (
+            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
+          ) : null}
 
-          {(ratingSummaryLoading || ratingSummaryError || ratingCount > 0) ? (
+          {ratingSummaryLoading || ratingSummaryError || ratingCount > 0 ? (
             <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
               ⭐{" "}
               <span className="font-semibold">
@@ -750,7 +682,9 @@ useEffect(() => {
                 </div>
               </div>
 
-              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
+              {userRating != null ? (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
+              ) : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -811,66 +745,8 @@ useEffect(() => {
         </ul>
       </section>
 
-      {/* SHOP */}
-      <section id="shop" className="mt-10">
-        <h2 ref={shopRef} className="scroll-mt-24 text-lg font-semibold">
-          Shop & price comparison
-        </h2>
-
-        <div className="mt-3 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
-          {offersLoading ? <p className="text-sm">Loading offers…</p> : null}
-          {!offersLoading && offersError ? <p className="text-sm text-red-600">Error: {offersError}</p> : null}
-          {!offersLoading && !offersError && offers.length === 0 ? (
-            <p className="text-sm text-zinc-500">No offers yet. (We’ll add more stores soon.)</p>
-          ) : null}
-
-          {!offersLoading && !offersError && offers.length > 0 ? (
-            <ul className="m-0 grid list-none gap-2 p-0">
-              {offers.map((o, idx) => {
-                const price =
-                  typeof o?.price === "number"
-                    ? `${o.price.toFixed(2)}${o.currency ? ` ${o.currency}` : ""}`
-                    : "—";
-                const bestBadge = idx === 0 ? "Best price" : null;
-
-                return (
-                  <li
-                    key={`${o.store}-${o.url}-${idx}`}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-black/[.08] bg-white px-4 py-3 dark:border-white/[.14] dark:bg-zinc-950"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-semibold">{o.store || "Store"}</div>
-                        {bestBadge ? (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
-                            {bestBadge}
-                          </span>
-                        ) : null}
-                        {o?.in_stock === false ? (
-                          <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Out of stock</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 text-sm font-semibold text-zinc-700 dark:text-zinc-200">{price}</div>
-                    </div>
-
-                    {o.url ? (
-                      <a
-                        href={o.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
-                        style={{ opacity: o?.in_stock === false ? 0.65 : 1 }}
-                      >
-                        Shop →
-                      </a>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </div>
-      </section>
+      {/* NOTE: No SHOP section here anymore.
+          OffersSection.tsx is responsible for rendering #shop. */}
 
       {/* REVIEWS */}
       <section className="mt-12">
@@ -976,7 +852,7 @@ useEffect(() => {
       </section>
 
       {/* SIMILAR */}
-      {(similarLoading || similarError || similarSets.length > 0) ? (
+      {similarLoading || similarError || similarSets.length > 0 ? (
         <section className="mt-12">
           <h2 className="text-lg font-semibold">Similar sets you might like</h2>
 

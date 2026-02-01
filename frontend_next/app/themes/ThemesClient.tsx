@@ -1,6 +1,10 @@
+// frontend_next/app/themes/[themeSlug]/ThemesClient.tsx
 "use client";
 
 import Link from "next/link";
+import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
+import { useAuth } from "@/app/providers";
 
 type SetSummary = {
   set_num: string;
@@ -24,10 +28,13 @@ export default function ThemesClient({
   limit: number;
   sort: string;
 }) {
-  const prevHref =
-    page > 1 ? `/themes/${encodeURIComponent(theme)}?page=${page - 1}&limit=${limit}&sort=${encodeURIComponent(sort)}` : null;
+  const { token } = useAuth();
 
-  // If API returns fewer than limit, we assume “no next page”
+  const prevHref =
+    page > 1
+      ? `/themes/${encodeURIComponent(theme)}?page=${page - 1}&limit=${limit}&sort=${encodeURIComponent(sort)}`
+      : null;
+
   const hasNext = sets.length === limit;
   const nextHref = hasNext
     ? `/themes/${encodeURIComponent(theme)}?page=${page + 1}&limit=${limit}&sort=${encodeURIComponent(sort)}`
@@ -43,32 +50,30 @@ export default function ThemesClient({
           </p>
         </div>
 
-        <Link
-          href="/themes"
-          className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-        >
+        <Link href="/themes" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
           ← All themes
         </Link>
       </div>
 
-      <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sets.map((s) => (
-          <li
-            key={s.set_num}
-            className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.12] dark:bg-zinc-950"
-          >
-            <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="hover:underline">
-              <div className="text-base font-semibold">{s.name}</div>
-            </Link>
-
-            <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              <div>{s.set_num}</div>
-              {typeof s.year === "number" ? <div>Year: {s.year}</div> : null}
-              {typeof s.pieces === "number" ? <div>Pieces: {s.pieces}</div> : null}
-            </div>
-          </li>
+          <div key={s.set_num} className="h-full">
+            <SetCard
+              set={
+                {
+                  set_num: s.set_num,
+                  name: s.name,
+                  year: s.year,
+                  pieces: s.pieces ?? null,
+                  image_url: s.image_url ?? null,
+                  rating_count: s.rating_count ?? null,
+                } as any
+              }
+              footer={<SetCardActions token={token} setNum={s.set_num} />}
+            />
+          </div>
         ))}
-      </ul>
+      </div>
 
       <div className="mt-10 flex items-center justify-between">
         <div>

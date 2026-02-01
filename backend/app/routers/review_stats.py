@@ -14,9 +14,11 @@ from ..models import Set as SetModel
 from ..models import User as UserModel
 from ..schemas.review import ReviewStats
 
-router = APIRouter(prefix="/reviews", tags=["reviews"])
+# ✅ remove prefix here
+router = APIRouter(tags=["reviews"])
 
 
+# ✅ keep this as /me/stats
 @router.get("/me/stats", response_model=ReviewStats)
 def get_my_review_stats(
     current_user: UserModel = Depends(get_current_user),
@@ -25,9 +27,7 @@ def get_my_review_stats(
     user_id = int(current_user.id)
 
     total_reviews = db.execute(
-        select(func.count())
-        .select_from(ReviewModel)
-        .where(ReviewModel.user_id == user_id)
+        select(func.count()).select_from(ReviewModel).where(ReviewModel.user_id == user_id)
     ).scalar_one()
 
     rated_reviews = db.execute(
@@ -43,7 +43,6 @@ def get_my_review_stats(
 
     avg_rating_out = float(avg_rating) if avg_rating is not None else None
 
-    # Histogram: {"0.5": 2, "4.0": 7, ...}
     hist_rows = db.execute(
         select(ReviewModel.rating, func.count())
         .where(ReviewModel.user_id == user_id, ReviewModel.rating.isnot(None))
@@ -56,7 +55,6 @@ def get_my_review_stats(
         key = f"{float(rating_val):.1f}"
         histogram[key] = int(ct)
 
-    # Recent reviews (latest 10)
     recent_rows = db.execute(
         select(
             ReviewModel.set_num,

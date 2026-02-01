@@ -1,10 +1,9 @@
-// frontend_next/app/new/NewClient.tsx
+// frontend_next/app/new/NewSetsClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import SetCard from "@/app/components/SetCard";
-import AddToListMenu from "@/app/components/AddToListMenu";
+import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 
@@ -20,38 +19,9 @@ type SetLite = {
   rating_count?: number;
 };
 
-function extractSetNums(payload: any): string[] {
-  // supports:
-  // - ["1234-1", ...]
-  // - [{ set_num: "1234-1" }, ...]
-  // - { results: [...] }
-  const arr = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.results)
-    ? payload.results
-    : [];
-
-  return arr
-    .map((x: any) => (typeof x === "string" ? x : x?.set_num))
-    .filter((x: any) => typeof x === "string" && x.trim() !== "")
-    .map((s: string) => s.trim());
-}
-
-/**
- * Try a few common endpoints (so this works even if your backend paths differ).
- * When you confirm the correct ones, delete the extras and keep 1 per list.
- */
-async function fetchFirstWorkingList(opts: { token: string; paths: string[] }): Promise<string[]> {
-  for (const p of opts.paths) {
-    try {
-      const data = await apiFetch<any>(p, { token: opts.token, cache: "no-store" });
-      return extractSetNums(data);
-    } catch {
-      // try next
-    }
-  }
-  return [];
-}
+type CollectionRow = {
+  set_num: string;
+};
 
 function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | "wish" }) {
   const cls =
@@ -59,11 +29,13 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | 
       ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200"
       : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200";
 
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${cls}`}>
-      {children}
-    </span>
-  );
+  return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
+}
+
+async function fetchCollectionSetNums(token: string, path: "/collections/me/owned" | "/collections/me/wishlist") {
+  const rows = await apiFetch<CollectionRow[]>(path, { token, cache: "no-store" });
+  const arr = Array.isArray(rows) ? rows : [];
+  return new Set(arr.map((r) => String(r?.set_num || "").trim()).filter(Boolean));
 }
 
 function SetRow({
@@ -94,33 +66,27 @@ function SetRow({
 
       <div className="mt-4 overflow-x-auto pb-2">
         <ul className="m-0 flex list-none gap-3 p-0">
-          {sets.map((set) => {
-            const isOwned = owned.has(set.set_num);
-            const isWish = wish.has(set.set_num);
+          {sets.map((s) => {
+            const sn = String(s?.set_num || "").trim();
+            if (!sn) return null;
+
+            const isOwned = owned.has(sn);
+            const isWish = wish.has(sn);
+
+            const footer = (
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {isOwned ? <Badge tone="owned">Owned</Badge> : null}
+                  {isWish ? <Badge tone="wish">Wishlist</Badge> : null}
+                </div>
+
+                {token ? <SetCardActions token={token} setNum={sn} /> : null}
+              </div>
+            );
 
             return (
-              <li key={set.set_num} className="w-[220px] shrink-0">
-                <div className="rounded-2xl">
-                  <SetCard set={set as any} />
-
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {isOwned ? <Badge tone="owned">Owned</Badge> : null}
-                    {isWish ? <Badge tone="wish">Wishlist</Badge> : null}
-                  </div>
-
-                  {token ? (
-                    <div className="mt-2">
-                      <AddToListMenu token={token} setNum={set.set_num} />
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-zinc-500">
-                      <Link href="/login" className="font-semibold hover:underline">
-                        Log in
-                      </Link>{" "}
-                      to add to lists
-                    </div>
-                  )}
-                </div>
+              <li key={sn} className="w-[220px] shrink-0">
+                <SetCard set={s as any} footer={footer} />
               </li>
             );
           })}
@@ -159,34 +125,18 @@ export default function NewClient({
 
       setListsLoading(true);
       try {
-        // ✅ Replace these with your known-good endpoints once you confirm them.
-        // I included multiple candidates so this “just works” while migrating.
         const [owned, wish] = await Promise.all([
-          fetchFirstWorkingList({
-            token,
-            paths: [
-              "/collection/owned",
-              "/users/me/owned",
-              "/lists/owned/items",
-              "/lists/me/owned",
-            ],
-          }),
-          fetchFirstWorkingList({
-            token,
-            paths: [
-              "/collection/wishlist",
-              "/users/me/wishlist",
-              "/lists/wishlist/items",
-              "/lists/me/wishlist",
-            ],
-          }),
+          fetchCollectionSetNums(token, "/collections/me/owned"),
+          fetchCollectionSetNums(token, "/collections/me/wishlist"),
         ]);
 
         if (cancelled) return;
-        setOwnedSetNums(new Set(owned));
-        setWishlistSetNums(new Set(wish));
+        setOwnedSetNums(owned);
+        setWishlistSetNums(wish);
       } catch (e: any) {
         if (cancelled) return;
+        setOwnedSetNums(new Set());
+        setWishlistSetNums(new Set());
         setListsError(e?.message || String(e));
       } finally {
         if (!cancelled) setListsLoading(false);
@@ -211,10 +161,8 @@ export default function NewClient({
       <section className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">New LEGO sets</h1>
         <p className="mt-2 max-w-[560px] text-sm text-zinc-500">
-          See the latest LEGO releases first. Scroll through the newest sets, spotlighted picks,
-          and upcoming releases all in one place.
+          See the latest LEGO releases first. Scroll through the newest sets and spotlighted picks.
         </p>
-        <p className="mt-2 text-xs text-zinc-400">Placeholder feed · later this will sync with real release data.</p>
 
         {initialError ? <p className="mt-4 text-sm text-red-600">Error loading new sets: {initialError}</p> : null}
 
@@ -222,14 +170,12 @@ export default function NewClient({
         {hydrated && token ? (
           <div className="mt-4 text-sm text-zinc-500">
             {listsLoading ? "Loading your lists…" : null}
-            {listsError ? <span className="text-red-600">Error loading your lists: {listsError}</span> : null}
+            {listsError ? <span className="text-red-600"> Error loading your lists: {listsError}</span> : null}
           </div>
         ) : null}
       </section>
 
-      {!initialError && newSets.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">No new sets found yet.</p>
-      ) : null}
+      {!initialError && newSets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No new sets found yet.</p> : null}
 
       {/* Row 1 */}
       <SetRow
@@ -257,36 +203,32 @@ export default function NewClient({
           <h2 className="m-0 text-lg font-semibold">All recent releases</h2>
           <p className="mt-1 text-sm text-zinc-500">Explore even more of the latest sets.</p>
 
-          <ul className="mt-5 grid list-none gap-4 p-0 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-            {moreNewGrid.map((set) => {
-              const isOwned = ownedSetNums.has(set.set_num);
-              const isWish = wishlistSetNums.has(set.set_num);
+          <div className="mt-5 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+            {moreNewGrid.map((s) => {
+              const sn = String(s?.set_num || "").trim();
+              if (!sn) return null;
 
-              return (
-                <li key={set.set_num}>
-                  <SetCard set={set as any} />
+              const isOwned = ownedSetNums.has(sn);
+              const isWish = wishlistSetNums.has(sn);
 
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+              const footer = (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {isOwned ? <Badge tone="owned">Owned</Badge> : null}
                     {isWish ? <Badge tone="wish">Wishlist</Badge> : null}
                   </div>
 
-                  {token ? (
-                    <div className="mt-2">
-                      <AddToListMenu token={token} setNum={set.set_num} />
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-zinc-500">
-                      <Link href="/login" className="font-semibold hover:underline">
-                        Log in
-                      </Link>{" "}
-                      to add to lists
-                    </div>
-                  )}
-                </li>
+                  {token ? <SetCardActions token={token} setNum={sn} /> : null}
+                </div>
+              );
+
+              return (
+                <div key={sn} className="w-[220px]">
+                  <SetCard set={s as any} footer={footer} />
+                </div>
               );
             })}
-          </ul>
+          </div>
         </section>
       ) : null}
     </div>

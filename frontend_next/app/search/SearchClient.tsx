@@ -5,9 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
 import Pagination from "@/app/components/Pagination";
-import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/app/providers";
 
 const RECENT_KEY = "recent_searches_v1";
 const MAX_RECENTS = 5;
@@ -29,8 +27,14 @@ type SetLite = {
   name?: string;
   year?: number;
   num_parts?: number;
+  pieces?: number;
   image_url?: string | null;
   theme?: string;
+
+  // optional if your API supports it
+  rating_avg?: number | null;
+  average_rating?: number | null;
+  rating_count?: number | null;
 };
 
 type SetsResponse =
@@ -103,6 +107,50 @@ function normalizeSetsResponse(
   return { results, total, totalPages };
 }
 
+/** sort + order packed into one select value */
+type SortValue =
+  | "relevance"
+  | "rating_desc"
+  | "rating_asc"
+  | "pieces_desc"
+  | "pieces_asc"
+  | "year_desc"
+  | "year_asc"
+  | "name_asc"
+  | "name_desc";
+
+function parseSortValue(v: string): { sort: string; order?: "asc" | "desc" } {
+  const raw = (v || "relevance").trim();
+
+  if (raw === "relevance") return { sort: "relevance" };
+
+  const [sort, order] = raw.split("_");
+  if (!sort) return { sort: "relevance" };
+  if (order === "asc" || order === "desc") return { sort, order };
+
+  return { sort: raw };
+}
+
+function toSortValue(sort: string, order?: string): SortValue {
+  const s = (sort || "relevance").trim();
+  const o = (order || "").trim();
+  const key = o ? `${s}_${o}` : s;
+
+  const allowed: SortValue[] = [
+    "relevance",
+    "rating_desc",
+    "rating_asc",
+    "pieces_desc",
+    "pieces_asc",
+    "year_desc",
+    "year_asc",
+    "name_asc",
+    "name_desc",
+  ];
+
+  return (allowed.includes(key as SortValue) ? key : "relevance") as SortValue;
+}
+
 export default function SearchClient({
   initialQ,
   initialSort,
@@ -114,32 +162,30 @@ export default function SearchClient({
 }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const { token } = useAuth();
 
-  // URL is source of truth (back/forward works)
   const q = useMemo(() => (sp.get("q") || initialQ || "").trim(), [sp, initialQ]);
-  const sort = useMemo(
-    () => (sp.get("sort") || initialSort || "relevance").trim(),
-    [sp, initialSort]
-  );
+
+  // URL params: sort + order
+  const sortParam = useMemo(() => (sp.get("sort") || initialSort || "relevance").trim(), [sp, initialSort]);
+  const orderParam = useMemo(() => (sp.get("order") || "").trim(), [sp]);
+
+  // value used by the select
+  const sortValue = useMemo(() => toSortValue(sortParam, orderParam), [sortParam, orderParam]);
+
   const page = useMemo(() => {
     const p = Number(sp.get("page") || initialPage || 1);
     return Number.isFinite(p) && p > 0 ? p : 1;
   }, [sp, initialPage]);
 
-  // local input box state
   const [input, setInput] = useState(q);
   useEffect(() => setInput(q), [q]);
 
-  // recents: start null so SSR + first client render match (prevents hydration mismatch)
   const [recents, setRecents] = useState<string[] | null>(null);
 
-  // load recents after mount
   useEffect(() => {
     setRecents(readRecentsSafe());
   }, []);
 
-  // cross-tab updates (+ optional same-tab manual dispatch)
   useEffect(() => {
     function onStorage() {
       setRecents(readRecentsSafe());
@@ -148,7 +194,6 @@ export default function SearchClient({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // results state
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
   const [results, setResults] = useState<SetLite[]>([]);
@@ -157,27 +202,27 @@ export default function SearchClient({
 
   const lastReqKeyRef = useRef<string>("");
 
-  async function runSearch(nextQ: string, nextSort = sort, nextPage = 1) {
+  async function runSearch(nextQ: string, nextSortValue: SortValue = sortValue, nextPage = 1) {
     const cleanQ = String(nextQ || "").trim();
     if (!cleanQ) return;
 
+    const { sort, order } = parseSortValue(nextSortValue);
+
     const params = new URLSearchParams();
     params.set("q", cleanQ);
-    params.set("sort", nextSort || "relevance");
+    params.set("sort", sort || "relevance");
+    if (order) params.set("order", order);
+    else params.delete("order");
     params.set("page", String(nextPage));
     params.set("limit", String(PAGE_SIZE));
 
     router.push(`/search?${params.toString()}`);
 
-    // update recents client-side only
     const nextRecents = pushRecentSafe(cleanQ);
     setRecents(nextRecents);
-
-    // same-tab listeners (optional, but keeps other parts in sync if you rely on "storage")
     window.dispatchEvent(new Event("storage"));
   }
 
-  // fetch whenever q/sort/page changes
   useEffect(() => {
     let cancelled = false;
 
@@ -190,7 +235,7 @@ export default function SearchClient({
         return;
       }
 
-      const reqKey = `${q}__${sort}__${page}`;
+      const reqKey = `${q}__${sortParam}__${orderParam}__${page}`;
       lastReqKeyRef.current = reqKey;
 
       try {
@@ -199,7 +244,11 @@ export default function SearchClient({
 
         const params = new URLSearchParams();
         params.set("q", q);
-        params.set("sort", sort || "relevance");
+
+        // send sort + order to API
+        params.set("sort", sortParam || "relevance");
+        if (orderParam) params.set("order", orderParam);
+
         params.set("page", String(page));
         params.set("limit", String(PAGE_SIZE));
 
@@ -225,7 +274,7 @@ export default function SearchClient({
     return () => {
       cancelled = true;
     };
-  }, [q, sort, page]);
+  }, [q, sortParam, orderParam, page]);
 
   const heading = q ? `Search: "${q}"` : "Search";
   const showEmptyPrompt = !loading && !err && !q;
@@ -233,7 +282,6 @@ export default function SearchClient({
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 pb-16">
-      {/* Header + Search box */}
       <div className="pt-10">
         <h1 className="m-0 text-2xl font-semibold tracking-tight">{heading}</h1>
         <div className="mt-2 text-sm text-zinc-500">
@@ -243,7 +291,7 @@ export default function SearchClient({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            await runSearch(input, sort, 1);
+            await runSearch(input, sortValue, 1);
           }}
           className="mt-4 flex flex-wrap items-center gap-3"
         >
@@ -266,28 +314,33 @@ export default function SearchClient({
           <label className="flex items-center gap-2 text-sm">
             <span className="text-zinc-500">Sort</span>
             <select
-              value={sort}
+              value={sortValue}
               onChange={async (e) => {
-                const next = e.target.value;
                 if (!q) return;
-                await runSearch(q, next, 1);
+                await runSearch(q, e.target.value as SortValue, 1);
               }}
               disabled={!q || loading}
               className="h-10 rounded-2xl border border-black/[.10] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-zinc-950"
             >
               <option value="relevance">Relevance</option>
-              <option value="rating">Rating</option>
-              <option value="pieces">Pieces</option>
-              <option value="year">Year</option>
-              <option value="name">Name</option>
+
+              <option value="rating_desc">Rating (high → low)</option>
+              <option value="rating_asc">Rating (low → high)</option>
+
+              <option value="pieces_desc">Pieces (high → low)</option>
+              <option value="pieces_asc">Pieces (low → high)</option>
+
+              <option value="year_desc">Year (new → old)</option>
+              <option value="year_asc">Year (old → new)</option>
+
+              <option value="name_asc">Name (A → Z)</option>
+              <option value="name_desc">Name (Z → A)</option>
             </select>
           </label>
         </div>
       </div>
 
-      {/* Two-column layout */}
       <div className="mt-6 grid gap-4 lg:grid-cols-[280px_1fr]">
-        {/* LEFT: Sticky sidebar */}
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
             <div className="text-sm font-extrabold">Popular right now</div>
@@ -297,7 +350,7 @@ export default function SearchClient({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => runSearch(t, sort, 1)}
+                  onClick={() => runSearch(t, sortValue, 1)}
                   className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-extrabold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
                   title={`Search "${t}"`}
                 >
@@ -310,7 +363,6 @@ export default function SearchClient({
               <div className="text-sm font-extrabold">Recent</div>
 
               {recents === null ? (
-                // IMPORTANT: consistent SSR/first render markup
                 <div className="mt-2 text-sm text-zinc-500">Loading…</div>
               ) : recents.length === 0 ? (
                 <div className="mt-2 text-sm text-zinc-500">No recent searches yet.</div>
@@ -320,7 +372,7 @@ export default function SearchClient({
                     <button
                       key={t}
                       type="button"
-                      onClick={() => runSearch(t, sort, 1)}
+                      onClick={() => runSearch(t, sortValue, 1)}
                       className="w-full rounded-2xl border border-black/[.06] bg-zinc-50 px-3 py-2 text-left text-sm font-extrabold text-zinc-900 hover:bg-zinc-100 dark:border-white/[.10] dark:bg-black dark:text-zinc-50 dark:hover:bg-white/[.06]"
                       title={`Search "${t}"`}
                     >
@@ -333,7 +385,6 @@ export default function SearchClient({
           </div>
         </aside>
 
-        {/* RIGHT: Results */}
         <main>
           {loading ? <p className="m-0 text-sm">Loading…</p> : null}
           {err && !loading ? <p className="m-0 text-sm text-red-600">Error: {err}</p> : null}
@@ -342,15 +393,15 @@ export default function SearchClient({
             <div className="text-sm text-zinc-500">Type a search above or click a Popular chip to explore sets.</div>
           ) : null}
 
-          {showNoResults ? <div className="text-sm text-zinc-500">No results found. Try a different search.</div> : null}
+          {showNoResults ? (
+            <div className="text-sm text-zinc-500">No results found. Try a different search.</div>
+          ) : null}
 
-          <div className="mt-4 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+          {/* ✅ 3 per row on desktop, no footer actions */}
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((set) => (
-              <div key={set.set_num} className="w-[220px]">
-                <SetCard
-                  set={set as any}
-                  footer={token ? <SetCardActions token={token} setNum={set.set_num} /> : null}
-                />
+              <div key={set.set_num} className="h-full">
+                <SetCard set={set as any} />
               </div>
             ))}
           </div>
@@ -363,7 +414,7 @@ export default function SearchClient({
                 totalItems={total || 0}
                 pageSize={PAGE_SIZE}
                 disabled={loading}
-                onPageChange={(p: number) => runSearch(q, sort, p)}
+                onPageChange={(p: number) => runSearch(q, sortValue, p)}
               />
             </div>
           ) : null}

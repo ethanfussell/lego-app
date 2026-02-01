@@ -1,6 +1,7 @@
 // frontend_next/app/sale/page.tsx
 import SetCard from "@/app/components/SetCard";
 import { apiFetch } from "@/lib/api";
+import SaleClient from "./SaleClient";
 
 type SetLite = {
   set_num: string;
@@ -14,9 +15,8 @@ type SetLite = {
   rating_count?: number;
 };
 
-async function fetchSaleSets() {
+async function fetchSaleSets(): Promise<SetLite[]> {
   const params = new URLSearchParams();
-  // Placeholder: later switch to a real discount filter/sort
   params.set("q", "lego");
   params.set("sort", "rating");
   params.set("order", "desc");
@@ -31,7 +31,7 @@ async function fetchSaleSets() {
     ? data.results
     : [];
 
-  return items;
+  return items.filter((s) => typeof s?.set_num === "string" && s.set_num.trim() !== "");
 }
 
 export default async function Page() {
@@ -46,8 +46,8 @@ export default async function Page() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="mt-10">
-        <h1 className="m-0 text-2xl font-semibold">Deals & price drops</h1>
+      <section className="mt-10">
+        <h1 className="m-0 text-2xl font-semibold">Deals &amp; price drops</h1>
         <p className="mt-2 max-w-[540px] text-sm text-zinc-500">
           Browse highly-rated LEGO sets that we’ll eventually sort by discounts and price drops from different shops.
         </p>
@@ -58,16 +58,8 @@ export default async function Page() {
           <p className="mt-4 text-sm text-zinc-500">No sets found for this category yet.</p>
         ) : null}
 
-        {!error && sets.length > 0 ? (
-          <ul className="mt-6 grid list-none gap-4 p-0 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-            {sets.map((set) => (
-              <li key={set.set_num}>
-                <SetCard set={set as any} />
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+        {!error && sets.length > 0 ? <SaleClient sets={sets as any} /> : null}
+      </section>
     </div>
   );
 }

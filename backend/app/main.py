@@ -161,11 +161,16 @@ app.include_router(themes.router, tags=["themes"])
 # lists router already has prefix="/lists"
 app.include_router(lists_router.router)
 
+# ✅ FIX: mount review stats under /sets too so frontend /api/sets/reviews/me/stats works
+# (keeps existing /reviews/me/stats working as well)
 app.include_router(review_stats_router.router)
-app.include_router(ratings.router)
+app.include_router(review_stats_router.router, prefix="/sets", tags=["reviews"])
 
+app.include_router(ratings.router)
 app.include_router(offers_router)
 
+app.include_router(review_stats_router.router, prefix="/reviews", tags=["reviews"])
+app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["reviews"])
 
 # ---------------------------
 # Debug

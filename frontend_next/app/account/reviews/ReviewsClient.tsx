@@ -63,14 +63,11 @@ function pill(active: boolean) {
 }
 
 async function fetchMyReviews(token: string, filter: string | null) {
-  // Primary guess (most likely):
-  //   GET /reviews/me
-  // Optional filter:
-  //   ?filter=rated | unrated (we’ll do client-side too)
   const qs = new URLSearchParams();
   qs.set("limit", "200");
-  const url = qs.toString() ? `/reviews/me?${qs.toString()}` : "/reviews/me";
 
+  // ✅ backend is mounted under /sets
+  const url = qs.toString() ? `/sets/reviews/me?${qs.toString()}` : "/sets/reviews/me";
   const rows = await apiFetch<any>(url, { token, cache: "no-store" });
 
   const arr: ReviewRow[] = Array.isArray(rows) ? rows : Array.isArray(rows?.results) ? rows.results : [];

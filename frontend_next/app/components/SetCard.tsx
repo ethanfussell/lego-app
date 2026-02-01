@@ -34,9 +34,7 @@ type Props = {
   set: SetLite;
   variant?: "default" | "owned" | "wishlist" | "feed";
   footer?: React.ReactNode;
-
-  // only needed if you want to submit user ratings from the card (owned)
-  token?: string;
+  token?: string; // only needed for owned rating submit
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -55,6 +53,7 @@ function pickRatingAvg(s: SetLite) {
       : typeof s.average_rating === "number"
       ? s.average_rating
       : null;
+
   return typeof v === "number" && Number.isFinite(v) ? clamp(v, 0, 5) : null;
 }
 
@@ -65,7 +64,12 @@ function pickRatingCount(s: SetLite) {
 
 function pickPieces(s: SetLite) {
   const v =
-    typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : null;
+    typeof s.pieces === "number"
+      ? s.pieces
+      : typeof s.num_parts === "number"
+      ? s.num_parts
+      : null;
+
   return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
 }
 
@@ -130,6 +134,23 @@ function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: numb
   );
 }
 
+function TitleTwoLines({ title }: { title: string }) {
+  // Works without Tailwind line-clamp plugin
+  return (
+    <div
+      className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 leading-5 h-[2.5rem] overflow-hidden"
+      style={{
+        display: "-webkit-box",
+        WebkitBoxOrient: "vertical" as any,
+        WebkitLineClamp: 2 as any,
+      }}
+      title={title}
+    >
+      {title}
+    </div>
+  );
+}
+
 export default function SetCard({ set, variant = "default", footer, token }: Props) {
   const title = set.name || set.set_num;
   const year = set.year ? String(set.year) : "—";
@@ -173,10 +194,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
 
   const globalRatingCompact =
     ratingAvg != null
-      ? {
-          text: ratingAvg.toFixed(1),
-          count: ratingCount,
-        }
+      ? { text: ratingAvg.toFixed(1), count: ratingCount }
       : null;
 
   async function submitRating(n: number) {
@@ -205,9 +223,9 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   }
 
   return (
-    <div className="rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-      <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block">
-        {/* put overflow-hidden HERE instead */}
+    <div className="h-full rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950 flex flex-col">
+      <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
+        {/* Image */}
         <div className="overflow-hidden aspect-[4/3] w-full bg-zinc-50 dark:bg-white/5">
           {set.image_url ? (
             <img
@@ -223,8 +241,9 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
           )}
         </div>
 
+        {/* Body */}
         <div className="px-4 pb-4 pt-3">
-          <div className="line-clamp-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+          <TitleTwoLines title={title} />
 
           <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
             <span className="truncate">{set.set_num}</span>
@@ -258,11 +277,17 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
               Number.isFinite(price.original) &&
               price.sale < price.original ? (
                 <>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.sale)}</span>
-                  <span className="text-xs text-zinc-500 line-through">{formatPrice(price.original)}</span>
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+                    {formatPrice(price.sale)}
+                  </span>
+                  <span className="text-xs text-zinc-500 line-through">
+                    {formatPrice(price.original)}
+                  </span>
                 </>
               ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
-                <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.original)}</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+                  {formatPrice(price.original)}
+                </span>
               ) : (
                 <span className="text-xs text-zinc-500"> </span>
               )}
@@ -295,7 +320,6 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
           </div>
         </div>
       ) : footer ? (
-        // footer must be overflow-visible so menus can escape
         <div className="border-t border-black/[.06] px-4 py-3 overflow-visible dark:border-white/[.10]">
           {footer}
         </div>

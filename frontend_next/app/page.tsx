@@ -1,7 +1,6 @@
-import Link from "next/link";
 import type { Metadata } from "next";
-import QuickJump from "./components/QuickJump";
 import HomeClient from "./HomeClient";
+import QuickJump from "./components/QuickJump";
 
 const SITE_NAME = "YourSite";
 
@@ -11,5 +10,10 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <HomeClient />;
-};
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 py-6">
+      <HomeClient />
+      <QuickJump />
+    </div>
+  );
+}

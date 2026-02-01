@@ -9,7 +9,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001";
+  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
 export const metadata: Metadata = {
@@ -23,6 +23,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
             <TopNav />
+
+            {/* Keep main snug; handle anchor offset via scroll-padding-top in globals.css */}
             <main className="mx-auto w-full max-w-5xl px-6 pb-16">{children}</main>
           </div>
         </AuthProvider>

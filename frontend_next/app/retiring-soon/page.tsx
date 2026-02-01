@@ -1,6 +1,6 @@
 // frontend_next/app/retiring-soon/page.tsx
-import SetCard from "@/app/components/SetCard";
 import { apiFetch } from "@/lib/api";
+import RetiringSoonClient from "./RetiringSoonClient";
 
 type SetLite = {
   set_num: string;
@@ -14,9 +14,8 @@ type SetLite = {
   rating_count?: number;
 };
 
-async function fetchRetiringSoonSets() {
+async function fetchRetiringSoonSets(): Promise<SetLite[]> {
   const params = new URLSearchParams();
-  // Placeholder: later switch to a real retiring filter
   params.set("q", "retiring");
   params.set("sort", "rating");
   params.set("order", "desc");
@@ -31,7 +30,7 @@ async function fetchRetiringSoonSets() {
     ? data.results
     : [];
 
-  return items;
+  return items.filter((s) => typeof s?.set_num === "string" && s.set_num.trim() !== "");
 }
 
 export default async function Page() {
@@ -44,31 +43,5 @@ export default async function Page() {
     error = e?.message || String(e);
   }
 
-  return (
-    <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="mt-10">
-        <h1 className="m-0 text-2xl font-semibold">Retiring soon</h1>
-        <p className="mt-2 max-w-[540px] text-sm text-zinc-500">
-          Last-chance sets. Later this page will show sets that are officially marked as retiring soon so you can grab
-          them before they disappear.
-        </p>
-
-        {error ? <p className="mt-4 text-sm text-red-600">Error: {error}</p> : null}
-
-        {!error && sets.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500">No “retiring soon” sets yet.</p>
-        ) : null}
-
-        {!error && sets.length > 0 ? (
-          <ul className="mt-6 grid list-none gap-4 p-0 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-            {sets.map((set) => (
-              <li key={set.set_num}>
-                <SetCard set={set as any} />
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </div>
-  );
+  return <RetiringSoonClient initialSets={sets} initialError={error} />;
 }

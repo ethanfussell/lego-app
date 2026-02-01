@@ -1,9 +1,8 @@
 // frontend_next/app/sets/[setNum]/page.tsx
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 import SetDetailClient from "./SetDetailClient";
-import { fetchOffersForSet } from "@/lib/offers";
-import OffersSection from "./OffersSection";
 
 const SITE_NAME = "YourSite";
 
@@ -28,21 +27,17 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-// Handles Next versions where params may be a Promise (sync dynamic APIs) or a plain object
 async function unwrapParams<T extends object>(p: T | Promise<T>): Promise<T> {
-  // don't touch p.anything until after we unwrap (avoids Next warning)
   return typeof (p as any)?.then === "function" ? await (p as any) : (p as T);
 }
 
-/**
- * OPTIONAL STEP:
- * Use React cache() to dedupe identical fetchSet calls within the same request,
- * so Page() and generateMetadata() won't double-hit the API.
- */
 const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   const url = `${apiBase()}/sets/${encodeURIComponent(setNum)}`;
   const res = await fetch(url, { cache: "no-store" });
+
+  if (res.status === 404) return null;
   if (!res.ok) return null;
+
   return (await res.json()) as LegoSet;
 });
 
@@ -110,7 +105,6 @@ export async function generateMetadata({
   const decoded = decodeURIComponent(setNum);
 
   const data = await fetchSet(decoded);
-
   const name = data?.name || "LEGO Set";
   const description = buildDescription(decoded, data);
 
@@ -119,11 +113,8 @@ export async function generateMetadata({
   return {
     title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
     description,
-
-    // Ensures canonical & OG URLs resolve to absolute URLs
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
-
     openGraph: {
       title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
       description,
@@ -131,7 +122,6 @@ export async function generateMetadata({
       type: "website",
       images: data?.image_url ? [{ url: data.image_url, alt: name }] : undefined,
     },
-
     twitter: {
       card: data?.image_url ? "summary_large_image" : "summary",
       title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
@@ -149,28 +139,16 @@ export default async function Page({
   const { setNum } = await unwrapParams(params);
   const decoded = decodeURIComponent(setNum);
 
-  // Set detail (server)
   const data = await fetchSet(decoded);
-
-  // Offers (server) — offers are keyed by *plain* set number (no "-1")
-  const plainSetNum = decoded.replace(/-1$/, "");
-  const offersData = await fetchOffersForSet(plainSetNum);
-const offers = Array.isArray(offersData) ? offersData : [];
+  if (!data) notFound();
 
   return (
     <>
-      {data ? (
-        <script
-          type="application/ld+json"
-          // JSON-LD needs to be in the initial HTML
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
-        />
-      ) : null}
-
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
+      />
       <SetDetailClient setNum={decoded} initialData={data} />
-
-      {/* Offers section */}
-      <OffersSection offers={offers} />
     </>
   );
 }
