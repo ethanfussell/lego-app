@@ -5,11 +5,21 @@ import React, { useState } from "react";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 
-export default function QuickCollectionsAdd({
-  onCollectionsChanged,
-}: {
+type Props = {
   onCollectionsChanged?: () => void;
-}) {
+};
+
+type CollectionAddResponse = {
+  set_num?: string;
+  setNum?: string;
+  [k: string]: unknown;
+};
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
   const { token } = useAuth();
   const [setNum, setSetNum] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -21,7 +31,8 @@ export default function QuickCollectionsAdd({
       setError("You must be logged in.");
       return;
     }
-    if (!setNum.trim()) {
+    const trimmed = setNum.trim();
+    if (!trimmed) {
       setError("Please enter a set number.");
       return;
     }
@@ -31,19 +42,20 @@ export default function QuickCollectionsAdd({
       setError(null);
       setMessage(null);
 
-      const data = await apiFetch<any>(`/collections/${type}`, {
+      const data = await apiFetch<CollectionAddResponse>(`/collections/${type}`, {
         method: "POST",
         token,
         cache: "no-store",
-        body: { set_num: setNum.trim() },
+        body: { set_num: trimmed },
       });
 
-      setMessage(`Added ${data?.set_num || setNum.trim()} to ${type === "owned" ? "Owned" : "Wishlist"}`);
+      const added = String(data?.set_num || data?.setNum || trimmed);
+      setMessage(`Added ${added} to ${type === "owned" ? "Owned" : "Wishlist"}`);
       setSetNum("");
 
       onCollectionsChanged?.();
-    } catch (e: any) {
-      setError(e?.message || String(e));
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }

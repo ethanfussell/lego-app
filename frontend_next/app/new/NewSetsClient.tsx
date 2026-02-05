@@ -7,21 +7,24 @@ import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-};
+// ✅ Use the SetCard prop type directly (avoids `as any` / mismatch)
+type SetLite = React.ComponentProps<typeof SetCard>["set"];
 
 type CollectionRow = {
   set_num: string;
 };
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function isCollectionRow(x: unknown): x is CollectionRow {
+  return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+}
+
+function toCollectionRowArray(x: unknown): CollectionRow[] {
+  return Array.isArray(x) ? x.filter(isCollectionRow) : [];
+}
 
 function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | "wish" }) {
   const cls =
@@ -33,9 +36,9 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | 
 }
 
 async function fetchCollectionSetNums(token: string, path: "/collections/me/owned" | "/collections/me/wishlist") {
-  const rows = await apiFetch<CollectionRow[]>(path, { token, cache: "no-store" });
-  const arr = Array.isArray(rows) ? rows : [];
-  return new Set(arr.map((r) => String(r?.set_num || "").trim()).filter(Boolean));
+  const raw = await apiFetch<unknown>(path, { token, cache: "no-store" });
+  const rows = toCollectionRowArray(raw);
+  return new Set(rows.map((r) => String(r.set_num || "").trim()).filter(Boolean));
 }
 
 function SetRow({
@@ -67,7 +70,7 @@ function SetRow({
       <div className="mt-4 overflow-x-auto pb-2">
         <ul className="m-0 flex list-none gap-3 p-0">
           {sets.map((s) => {
-            const sn = String(s?.set_num || "").trim();
+            const sn = String((s as { set_num?: unknown }).set_num || "").trim();
             if (!sn) return null;
 
             const isOwned = owned.has(sn);
@@ -86,7 +89,7 @@ function SetRow({
 
             return (
               <li key={sn} className="w-[220px] shrink-0">
-                <SetCard set={s as any} footer={footer} />
+                <SetCard set={s} footer={footer} />
               </li>
             );
           })}
@@ -96,7 +99,7 @@ function SetRow({
   );
 }
 
-export default function NewClient({
+export default function NewSetsClient({
   initialSets,
   initialError,
 }: {
@@ -117,6 +120,7 @@ export default function NewClient({
       setListsError(null);
 
       if (!hydrated) return;
+
       if (!token) {
         setOwnedSetNums(new Set());
         setWishlistSetNums(new Set());
@@ -133,11 +137,11 @@ export default function NewClient({
         if (cancelled) return;
         setOwnedSetNums(owned);
         setWishlistSetNums(wish);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (cancelled) return;
         setOwnedSetNums(new Set());
         setWishlistSetNums(new Set());
-        setListsError(e?.message || String(e));
+        setListsError(errorMessage(e));
       } finally {
         if (!cancelled) setListsLoading(false);
       }
@@ -149,7 +153,8 @@ export default function NewClient({
     };
   }, [token, hydrated]);
 
-  const newSets = Array.isArray(initialSets) ? initialSets : [];
+  // ✅ memoize so downstream useMemos don’t get “deps change every render”
+  const newSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
 
   const justReleased = useMemo(() => newSets.slice(0, 12), [newSets]);
   const moreNewRow = useMemo(() => newSets.slice(12, 24), [newSets]);
@@ -157,7 +162,6 @@ export default function NewClient({
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      {/* Hero */}
       <section className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">New LEGO sets</h1>
         <p className="mt-2 max-w-[560px] text-sm text-zinc-500">
@@ -166,7 +170,6 @@ export default function NewClient({
 
         {initialError ? <p className="mt-4 text-sm text-red-600">Error loading new sets: {initialError}</p> : null}
 
-        {/* Lists status */}
         {hydrated && token ? (
           <div className="mt-4 text-sm text-zinc-500">
             {listsLoading ? "Loading your lists…" : null}
@@ -177,7 +180,6 @@ export default function NewClient({
 
       {!initialError && newSets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No new sets found yet.</p> : null}
 
-      {/* Row 1 */}
       <SetRow
         title="Just released"
         subtitle="The absolute newest sets, sorted by release year."
@@ -187,7 +189,6 @@ export default function NewClient({
         token={token ?? null}
       />
 
-      {/* Row 2 */}
       <SetRow
         title="More new sets"
         subtitle="Keep scrolling for even more fresh releases."
@@ -197,7 +198,6 @@ export default function NewClient({
         token={token ?? null}
       />
 
-      {/* Grid */}
       {moreNewGrid.length > 0 ? (
         <section className="mt-12">
           <h2 className="m-0 text-lg font-semibold">All recent releases</h2>
@@ -205,7 +205,7 @@ export default function NewClient({
 
           <div className="mt-5 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
             {moreNewGrid.map((s) => {
-              const sn = String(s?.set_num || "").trim();
+              const sn = String((s as { set_num?: unknown }).set_num || "").trim();
               if (!sn) return null;
 
               const isOwned = ownedSetNums.has(sn);
@@ -224,7 +224,7 @@ export default function NewClient({
 
               return (
                 <div key={sn} className="w-[220px]">
-                  <SetCard set={s as any} footer={footer} />
+                  <SetCard set={s} footer={footer} />
                 </div>
               );
             })}

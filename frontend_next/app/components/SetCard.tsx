@@ -1,7 +1,7 @@
 // frontend_next/app/components/SetCard.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
@@ -51,8 +51,8 @@ function pickRatingAvg(s: SetLite) {
     typeof s.rating_avg === "number"
       ? s.rating_avg
       : typeof s.average_rating === "number"
-      ? s.average_rating
-      : null;
+        ? s.average_rating
+        : null;
 
   return typeof v === "number" && Number.isFinite(v) ? clamp(v, 0, 5) : null;
 }
@@ -67,8 +67,8 @@ function pickPieces(s: SetLite) {
     typeof s.pieces === "number"
       ? s.pieces
       : typeof s.num_parts === "number"
-      ? s.num_parts
-      : null;
+        ? s.num_parts
+        : null;
 
   return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
 }
@@ -81,34 +81,36 @@ function StarIcon({ className = "" }: { className?: string }) {
   );
 }
 
+/**
+ * ✅ Declared OUTSIDE render to satisfy react-hooks/static-components
+ */
+function RatingStar({ fillPct }: { fillPct: 0 | 50 | 100 }) {
+  return (
+    <span className="relative inline-block h-4 w-4">
+      <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300 dark:text-zinc-700" />
+      {fillPct !== 0 ? (
+        <span className="absolute inset-0 overflow-hidden" style={{ width: `${fillPct}%` }}>
+          <StarIcon className="h-4 w-4 text-zinc-900 dark:text-zinc-50" />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function Stars({ value, className = "" }: { value: number; className?: string }) {
   const v = clamp(value, 0, 5);
   const full = Math.floor(v);
   const half = v - full >= 0.5 ? 1 : 0;
   const empty = 5 - full - half;
 
-  const Star = ({ fillPct }: { fillPct: 0 | 50 | 100 }) => (
-    <span className="relative inline-block h-4 w-4">
-      <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300 dark:text-zinc-700" />
-      {fillPct !== 0 ? (
-        <span
-          className="absolute inset-0 overflow-hidden"
-          style={{ width: fillPct === 100 ? "100%" : "50%" }}
-        >
-          <StarIcon className="h-4 w-4 text-zinc-900 dark:text-zinc-50" />
-        </span>
-      ) : null}
-    </span>
-  );
-
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`} aria-label={`Rating ${v} out of 5`}>
       {Array.from({ length: full }).map((_, i) => (
-        <Star key={`f${i}`} fillPct={100} />
+        <RatingStar key={`f${i}`} fillPct={100} />
       ))}
-      {half ? <Star key="h" fillPct={50} /> : null}
+      {half ? <RatingStar key="h" fillPct={50} /> : null}
       {Array.from({ length: empty }).map((_, i) => (
-        <Star key={`e${i}`} fillPct={0} />
+        <RatingStar key={`e${i}`} fillPct={0} />
       ))}
     </span>
   );
@@ -138,11 +140,11 @@ function TitleTwoLines({ title }: { title: string }) {
   // Works without Tailwind line-clamp plugin
   return (
     <div
-      className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 leading-5 h-[2.5rem] overflow-hidden"
+      className="h-[2.5rem] overflow-hidden text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-50"
       style={{
         display: "-webkit-box",
-        WebkitBoxOrient: "vertical" as any,
-        WebkitLineClamp: 2 as any,
+        WebkitBoxOrient: "vertical",
+        WebkitLineClamp: 2,
       }}
       title={title}
     >
@@ -174,17 +176,17 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       typeof set.sale_price === "number"
         ? set.sale_price
         : typeof set.sale_price_from === "number"
-        ? set.sale_price_from
-        : null;
+          ? set.sale_price_from
+          : null;
 
     const original =
       typeof set.original_price === "number"
         ? set.original_price
         : typeof set.price === "number"
-        ? set.price
-        : typeof set.price_from === "number"
-        ? set.price_from
-        : null;
+          ? set.price
+          : typeof set.price_from === "number"
+            ? set.price_from
+            : null;
 
     return { original, sale };
   }, [set]);
@@ -192,10 +194,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const showPrice = variant === "wishlist" || variant === "feed" || variant === "default";
   const isOwned = variant === "owned";
 
-  const globalRatingCompact =
-    ratingAvg != null
-      ? { text: ratingAvg.toFixed(1), count: ratingCount }
-      : null;
+  const globalRatingCompact = ratingAvg != null ? { text: ratingAvg.toFixed(1), count: ratingCount } : null;
 
   async function submitRating(n: number) {
     if (!token) {
@@ -215,29 +214,24 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
 
       setUserRating(n);
       setShowRate(false);
-    } catch (e: any) {
-      setRateErr(e?.message || String(e));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRateErr(msg);
     } finally {
       setSavingRate(false);
     }
   }
 
   return (
-    <div className="h-full rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950 flex flex-col">
+    <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
-        <div className="overflow-hidden aspect-[4/3] w-full bg-zinc-50 dark:bg-white/5">
+        <div className="aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
           {set.image_url ? (
-            <img
-              src={set.image_url}
-              alt={title}
-              className="h-full w-full object-contain p-4"
-              loading="lazy"
-            />
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={set.image_url} alt={title} className="h-full w-full object-contain p-4" loading="lazy" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
-              No image
-            </div>
+            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>
           )}
         </div>
 
@@ -256,9 +250,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
 
             {globalRatingCompact ? (
               <div className="flex items-center gap-1 whitespace-nowrap">
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                  {globalRatingCompact.text}
-                </span>
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">{globalRatingCompact.text}</span>
                 <StarIcon className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />
                 {typeof globalRatingCompact.count === "number" ? (
                   <span className="text-zinc-500">({globalRatingCompact.count})</span>
@@ -277,17 +269,11 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
               Number.isFinite(price.original) &&
               price.sale < price.original ? (
                 <>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-                    {formatPrice(price.sale)}
-                  </span>
-                  <span className="text-xs text-zinc-500 line-through">
-                    {formatPrice(price.original)}
-                  </span>
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.sale)}</span>
+                  <span className="text-xs text-zinc-500 line-through">{formatPrice(price.original)}</span>
                 </>
               ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
-                <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-                  {formatPrice(price.original)}
-                </span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.original)}</span>
               ) : (
                 <span className="text-xs text-zinc-500"> </span>
               )}
@@ -320,9 +306,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
           </div>
         </div>
       ) : footer ? (
-        <div className="border-t border-black/[.06] px-4 py-3 overflow-visible dark:border-white/[.10]">
-          {footer}
-        </div>
+        <div className="overflow-visible border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">{footer}</div>
       ) : null}
     </div>
   );

@@ -1,4 +1,3 @@
-// frontend_next/app/components/AddToListMenu.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -13,21 +12,35 @@ type ListSummary = {
   system_key?: string | null; // "owned" | "wishlist"
 };
 
+type ListItemLite = { set_num: string };
+
 type ListDetail = ListSummary & {
-  items?: Array<{ set_num: string }>;
+  items?: ListItemLite[];
+  items_count?: number;
 };
 
 type CollectionRow = {
   set_num: string;
 };
 
-function hasSet(detail: ListDetail | null, setNum: string) {
-  const items = Array.isArray(detail?.items) ? detail!.items! : [];
-  return items.some((x) => String(x?.set_num) === String(setNum));
-}
+type Pos = {
+  top: number;
+  left: number;
+  width: number;
+  placement: "down" | "up";
+};
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
+}
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function hasSet(detail: ListDetail | null, setNum: string) {
+  const items = Array.isArray(detail?.items) ? detail.items : [];
+  return items.some((x) => String(x?.set_num) === String(setNum));
 }
 
 export default function AddToListMenu({
@@ -62,8 +75,7 @@ export default function AddToListMenu({
   const [ownedSelected, setOwnedSelected] = useState<boolean>(initialOwnedSelected);
   const [wishlistSelected, setWishlistSelected] = useState<boolean>(initialWishlistSelected);
 
-  // portal position
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; placement: "down" | "up" }>({
+  const [pos, setPos] = useState<Pos>({
     top: 0,
     left: 0,
     width: 256,
@@ -83,31 +95,26 @@ export default function AddToListMenu({
   }, [lists]);
 
   function customSelected(listId: string) {
-    const d = detailById[listId] || null;
-    return hasSet(d, setNum);
+    return hasSet(detailById[listId] || null, setNum);
   }
 
-  // --- Positioning: compute top/left in viewport and clamp / flip ---
   function computePosition() {
     const btn = btnRef.current;
     if (!btn) return;
 
     const r = btn.getBoundingClientRect();
-    const menuW = 256; // matches w-64
+    const menuW = 256;
     const gap = 8;
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // horizontal clamp
     let left = r.right - menuW;
     left = clamp(left, 8, vw - menuW - 8);
 
-    // decide up vs down by available space
     const approxMenuH = 360;
     const spaceBelow = vh - r.bottom;
     const spaceAbove = r.top;
-
     const placeUp = spaceBelow < approxMenuH && spaceAbove > spaceBelow;
 
     const top = placeUp ? Math.max(8, r.top - gap) : Math.min(vh - 8, r.bottom + gap);
@@ -148,9 +155,9 @@ export default function AddToListMenu({
     function onPointerDown(e: MouseEvent) {
       const btn = btnRef.current;
       const menu = menuRef.current;
+      const t = e.target;
 
-      const t = e.target as Node | null;
-      if (!t) return;
+      if (!(t instanceof Node)) return;
 
       if (btn && btn.contains(t)) return;
       if (menu && menu.contains(t)) return;
@@ -167,7 +174,7 @@ export default function AddToListMenu({
     };
   }, [open]);
 
-  // Load system membership from /collections/*, and custom lists from /lists/*
+  // Load system membership + custom lists (and list details for checkmarks)
   useEffect(() => {
     let cancelled = false;
 
@@ -179,16 +186,15 @@ export default function AddToListMenu({
         setLoading(true);
         setErr(null);
 
-        // 1) system membership (authoritative)
-        const [ownedRows, wishRows] = await Promise.all([
-          apiFetch<CollectionRow[]>("/collections/me/owned", { token, cache: "no-store" }),
-          apiFetch<CollectionRow[]>("/collections/me/wishlist", { token, cache: "no-store" }),
+        const [ownedRowsU, wishRowsU] = await Promise.all([
+          apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" }),
+          apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" }),
         ]);
 
         if (cancelled) return;
 
-        const ownedArr = Array.isArray(ownedRows) ? ownedRows : [];
-        const wishArr = Array.isArray(wishRows) ? wishRows : [];
+        const ownedArr: CollectionRow[] = Array.isArray(ownedRowsU) ? (ownedRowsU as CollectionRow[]) : [];
+        const wishArr: CollectionRow[] = Array.isArray(wishRowsU) ? (wishRowsU as CollectionRow[]) : [];
 
         const inOwned = ownedArr.some((r) => String(r?.set_num) === String(setNum));
         const inWish = wishArr.some((r) => String(r?.set_num) === String(setNum));
@@ -196,34 +202,30 @@ export default function AddToListMenu({
         setOwnedSelected(inOwned);
         setWishlistSelected(inOwned ? false : inWish);
 
-        // 2) custom lists
         if (!enableCustomLists) {
           setLists([]);
           setDetailById({});
           return;
         }
 
-        const mine = await apiFetch<ListSummary[]>("/lists/me?include_system=false", {
-          token,
-          cache: "no-store",
-        });
-
-        const arr = Array.isArray(mine) ? mine : [];
+        const mineU = await apiFetch<unknown>("/lists/me?include_system=false", { token, cache: "no-store" });
+        const arr: ListSummary[] = Array.isArray(mineU) ? (mineU as ListSummary[]) : [];
         if (cancelled) return;
 
         setLists(arr);
 
-        // 3) details for checkmarks (custom only)
         const entries = await Promise.all(
           arr.map(async (l) => {
+            const id = String(l.id);
             try {
-              const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(l.id))}`, {
+              const dU = await apiFetch<unknown>(`/lists/${encodeURIComponent(id)}`, {
                 token,
                 cache: "no-store",
               });
-              return [String(l.id), d || null] as const;
+              const d = (dU && typeof dU === "object") ? (dU as ListDetail) : null;
+              return [id, d] as const;
             } catch {
-              return [String(l.id), null] as const;
+              return [id, null] as const;
             }
           })
         );
@@ -233,8 +235,8 @@ export default function AddToListMenu({
         const map: Record<string, ListDetail | null> = {};
         for (const [id, d] of entries) map[id] = d;
         setDetailById(map);
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || String(e));
+      } catch (e: unknown) {
+        if (!cancelled) setErr(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -246,7 +248,6 @@ export default function AddToListMenu({
     };
   }, [open, token, setNum, enableCustomLists]);
 
-  // ---------- API actions ----------
   async function toggleOwned() {
     if (!token) return;
 
@@ -255,9 +256,9 @@ export default function AddToListMenu({
     if (next) setWishlistSelected(false);
 
     if (next) {
-      await apiFetch("/collections/owned", { token, method: "POST", body: { set_num: setNum } });
+      await apiFetch<unknown>("/collections/owned", { token, method: "POST", body: { set_num: setNum } });
     } else {
-      await apiFetch(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
+      await apiFetch<unknown>(`/collections/owned/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
     }
   }
 
@@ -269,9 +270,9 @@ export default function AddToListMenu({
     if (next) setOwnedSelected(false);
 
     if (next) {
-      await apiFetch("/collections/wishlist", { token, method: "POST", body: { set_num: setNum } });
+      await apiFetch<unknown>("/collections/wishlist", { token, method: "POST", body: { set_num: setNum } });
     } else {
-      await apiFetch(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
+      await apiFetch<unknown>(`/collections/wishlist/${encodeURIComponent(setNum)}`, { token, method: "DELETE" });
     }
   }
 
@@ -281,10 +282,10 @@ export default function AddToListMenu({
     const id = String(list.id);
     const selectedNow = customSelected(id);
 
-    // optimistic
+    // optimistic update
     setDetailById((prev) => {
       const cur = prev[id] || null;
-      const items = Array.isArray(cur?.items) ? [...cur!.items!] : [];
+      const items = Array.isArray(cur?.items) ? [...cur.items] : [];
       const nextItems = selectedNow
         ? items.filter((x) => String(x.set_num) !== String(setNum))
         : [...items, { set_num: setNum }];
@@ -296,13 +297,13 @@ export default function AddToListMenu({
     });
 
     if (!selectedNow) {
-      await apiFetch(`/lists/${encodeURIComponent(id)}/items`, {
+      await apiFetch<unknown>(`/lists/${encodeURIComponent(id)}/items`, {
         token,
         method: "POST",
         body: { set_num: setNum },
       });
     } else {
-      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(setNum)}`, {
+      await apiFetch<unknown>(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(setNum)}`, {
         token,
         method: "DELETE",
       });
@@ -312,7 +313,7 @@ export default function AddToListMenu({
   const label = ownedSelected ? "In Owned" : wishlistSelected ? "In Wishlist" : "Add to list";
   const disableButtons = loading || !token;
 
-  const menu = open ? (
+  const menu = (
     <div
       ref={menuRef}
       onMouseDown={(e) => e.stopPropagation()}
@@ -335,8 +336,8 @@ export default function AddToListMenu({
           try {
             await toggleOwned();
             setOpen(false);
-          } catch (e: any) {
-            setErr(e?.message || String(e));
+          } catch (e: unknown) {
+            setErr(errorMessage(e));
           }
         }}
         className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
@@ -352,8 +353,8 @@ export default function AddToListMenu({
           try {
             await toggleWishlist();
             setOpen(false);
-          } catch (e: any) {
-            setErr(e?.message || String(e));
+          } catch (e: unknown) {
+            setErr(errorMessage(e));
           }
         }}
         className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
@@ -383,8 +384,8 @@ export default function AddToListMenu({
                   try {
                     await toggleCustom(l);
                     setOpen(false);
-                  } catch (e: any) {
-                    setErr(e?.message || String(e));
+                  } catch (e: unknown) {
+                    setErr(errorMessage(e));
                   }
                 }}
                 className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
@@ -398,34 +399,29 @@ export default function AddToListMenu({
         </div>
       )}
     </div>
-  ) : null;
+  );
 
   return (
     <>
-      {/*
-        Small + consistent sizing, and lets the parent fully control layout.
-        - If fullWidth: fill available space (good for stacked layouts)
-        - Else: behave like a flex item (good for side-by-side buttons)
-      */}
-        <button
-          ref={btnRef}
-          type="button"
-          onClick={() => {
-            setErr(null);
-            setOpen((v) => !v);
-          }}
-          className={[
-            fullWidth ? "w-full" : "min-w-0",
-            "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border border-black/[.10] bg-white px-4 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
-            buttonClassName,
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          {label}
-        </button>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => {
+          setErr(null);
+          setOpen((v) => !v);
+        }}
+        className={[
+          fullWidth ? "w-full" : "min-w-0",
+          "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border border-black/[.10] bg-white px-4 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
+          buttonClassName,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {label}
+      </button>
 
-        {mounted && open ? createPortal(menu, document.body) : null}
+      {mounted && open ? createPortal(menu, document.body) : null}
     </>
   );
 }

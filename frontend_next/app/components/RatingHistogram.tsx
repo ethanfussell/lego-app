@@ -1,11 +1,18 @@
+// frontend_next/app/components/RatingHistogram.tsx
 "use client";
 
 import React, { useMemo } from "react";
 
 const DEFAULT_BINS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
 
+type Histogram =
+  | Record<string, number>
+  | Record<number, number>
+  | null
+  | undefined;
+
 type Props = {
-  histogram?: Record<string, number> | Record<number, number> | null;
+  histogram?: Histogram;
   bins?: number[];
   height?: number;
   barWidth?: number;
@@ -15,6 +22,20 @@ type Props = {
   paddingY?: number;
   paddingX?: number;
 };
+
+function getHistCount(hist: Histogram, rating: number): number {
+  if (!hist) return 0;
+
+  const key = rating.toFixed(1);
+
+  // Support both string-key and number-key objects
+  const asStringRecord = hist as Record<string, number>;
+  if (typeof asStringRecord[key] === "number") return asStringRecord[key];
+
+  const asNumberRecord = hist as Record<number, number>;
+  const n = asNumberRecord[rating];
+  return typeof n === "number" ? n : 0;
+}
 
 export default function RatingHistogram({
   histogram,
@@ -28,11 +49,10 @@ export default function RatingHistogram({
   paddingX = 4,
 }: Props) {
   const rows = useMemo(() => {
-    const h: any = histogram || {};
-    return bins.map((b) => {
-      const key = b.toFixed(1);
-      return { rating: b, count: Number(h[key] ?? h[b] ?? 0) };
-    });
+    return bins.map((b) => ({
+      rating: b,
+      count: getHistCount(histogram, b),
+    }));
   }, [histogram, bins]);
 
   const MIN_ZERO_PX = 6;

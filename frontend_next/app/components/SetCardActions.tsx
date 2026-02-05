@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 import AddToListMenu from "@/app/components/AddToListMenu";
+import { trackLoginCta, trackShopClick } from "@/lib/analytics";
+import { outboundClick } from "@/lib/ga";
 
 export default function SetCardActions({
   token,
@@ -13,12 +15,25 @@ export default function SetCardActions({
   setNum: string;
   className?: string;
 }) {
+  const shopHref = `/sets/${encodeURIComponent(setNum)}#shop`;
+
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       {/* Shop */}
       <div className="flex-1">
         <Link
-          href={`/sets/${encodeURIComponent(setNum)}#shop`}
+          href={shopHref}
+          onClick={() => {
+            trackShopClick({ set_num: setNum, placement: "set_card_actions" });
+
+            // GA event (counts as outbound-intent; actual outbound happens on the shop section)
+            outboundClick({
+              url: shopHref,
+              label: "Shop",
+              placement: "set_card_actions",
+              set_num: setNum,
+            });
+          }}
           className={[
             "inline-flex w-full items-center justify-center",
             "whitespace-nowrap rounded-full border border-black/[.10] bg-white",
@@ -42,6 +57,16 @@ export default function SetCardActions({
         ) : (
           <Link
             href="/login"
+            onClick={() => {
+              trackLoginCta({ placement: "set_card_actions" });
+
+              outboundClick({
+                url: "/login",
+                label: "Log in",
+                placement: "set_card_actions",
+                set_num: setNum,
+              });
+            }}
             className={[
               "inline-flex w-full items-center justify-center",
               "whitespace-nowrap rounded-full border border-black/[.10] bg-white",

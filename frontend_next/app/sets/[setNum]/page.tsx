@@ -19,16 +19,18 @@ type LegoSet = {
   description?: string | null;
 };
 
-function siteBase() {
+function siteBase(): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
-function apiBase() {
+function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-async function unwrapParams<T extends object>(p: T | Promise<T>): Promise<T> {
-  return typeof (p as any)?.then === "function" ? await (p as any) : (p as T);
+function isLegoSet(x: unknown): x is LegoSet {
+  if (typeof x !== "object" || x === null) return false;
+  const sn = (x as { set_num?: unknown }).set_num;
+  return typeof sn === "string" && sn.trim() !== "";
 }
 
 const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
@@ -38,10 +40,13 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   if (res.status === 404) return null;
   if (!res.ok) return null;
 
-  return (await res.json()) as LegoSet;
+  const data: unknown = await res.json();
+  return isLegoSet(data) ? data : null;
 });
 
-function buildJsonLd(setDetail: LegoSet) {
+type JsonLdObject = Record<string, unknown>;
+
+function buildJsonLd(setDetail: LegoSet): JsonLdObject {
   const avg =
     typeof setDetail.average_rating === "number"
       ? setDetail.average_rating
@@ -51,7 +56,15 @@ function buildJsonLd(setDetail: LegoSet) {
 
   const count = typeof setDetail.rating_count === "number" ? setDetail.rating_count : 0;
 
-  const jsonLd: any = {
+  const additionalProperty: JsonLdObject[] = [
+    ...(setDetail.pieces
+      ? [{ "@type": "PropertyValue", name: "Pieces", value: String(setDetail.pieces) }]
+      : []),
+    ...(setDetail.theme ? [{ "@type": "PropertyValue", name: "Theme", value: String(setDetail.theme) }] : []),
+    ...(setDetail.year ? [{ "@type": "PropertyValue", name: "Year", value: String(setDetail.year) }] : []),
+  ];
+
+  const jsonLd: JsonLdObject = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: setDetail.name || setDetail.set_num || "LEGO set",
@@ -59,17 +72,7 @@ function buildJsonLd(setDetail: LegoSet) {
     brand: { "@type": "Brand", name: "LEGO" },
     image: setDetail.image_url ? [setDetail.image_url] : undefined,
     category: "LEGO Sets",
-    additionalProperty: [
-      ...(setDetail.pieces
-        ? [{ "@type": "PropertyValue", name: "Pieces", value: String(setDetail.pieces) }]
-        : []),
-      ...(setDetail.theme
-        ? [{ "@type": "PropertyValue", name: "Theme", value: String(setDetail.theme) }]
-        : []),
-      ...(setDetail.year
-        ? [{ "@type": "PropertyValue", name: "Year", value: String(setDetail.year) }]
-        : []),
-    ],
+    additionalProperty,
   };
 
   if (count > 0 && typeof avg === "number") {
@@ -85,7 +88,7 @@ function buildJsonLd(setDetail: LegoSet) {
   return jsonLd;
 }
 
-function buildDescription(decodedSetNum: string, data: LegoSet | null) {
+function buildDescription(decodedSetNum: string, data: LegoSet | null): string {
   const name = data?.name || "LEGO Set";
   const pieces = data?.pieces ? `${data.pieces} pieces` : null;
   const year = data?.year ? `from ${data.year}` : null;
@@ -101,7 +104,7 @@ export async function generateMetadata({
 }: {
   params: { setNum: string } | Promise<{ setNum: string }>;
 }): Promise<Metadata> {
-  const { setNum } = await unwrapParams(params);
+  const { setNum } = await params; // await works for both value and Promise
   const decoded = decodeURIComponent(setNum);
 
   const data = await fetchSet(decoded);
@@ -136,7 +139,7 @@ export default async function Page({
 }: {
   params: { setNum: string } | Promise<{ setNum: string }>;
 }) {
-  const { setNum } = await unwrapParams(params);
+  const { setNum } = await params;
   const decoded = decodeURIComponent(setNum);
 
   const data = await fetchSet(decoded);
@@ -144,10 +147,7 @@ export default async function Page({
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }} />
       <SetDetailClient setNum={decoded} initialData={data} />
     </>
   );

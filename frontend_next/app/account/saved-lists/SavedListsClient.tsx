@@ -1,41 +1,76 @@
 // frontend_next/app/account/saved-lists/SavedListsClient.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 
-function readSavedIds() {
+const SAVED_KEY = "saved_list_ids";
+const SAVED_EVENT = "saved_lists_updated";
+
+type ListDetail = {
+  id: string | number;
+  title?: string | null;
+  name?: string | null;
+
+  items_count?: number | null;
+  items?: Array<unknown> | null;
+
+  is_public?: boolean | null;
+
+  owner?: string | null;
+  owner_username?: string | null;
+  username?: string | null;
+};
+
+function safeString(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function readSavedIds(): string[] {
   try {
-    const raw = localStorage.getItem("saved_list_ids");
-    const arr = JSON.parse(raw || "[]");
-    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+    const raw = localStorage.getItem(SAVED_KEY);
+    const parsed: unknown = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(safeString).map((s) => s.trim()).filter(Boolean);
   } catch {
     return [];
   }
 }
 
+function isListDetail(x: unknown): x is ListDetail {
+  if (!x || typeof x !== "object") return false;
+  const obj = x as Record<string, unknown>;
+  return "id" in obj;
+}
+
 export default function SavedListsClient() {
   const { token } = useAuth();
 
-  const [savedIds, setSavedIds] = useState<string[]>(() => (typeof window === "undefined" ? [] : readSavedIds()));
-  const [lists, setLists] = useState<any[]>([]);
-  const [missingCount, setMissingCount] = useState(0);
+  const [savedIds, setSavedIds] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : readSavedIds()
+  );
 
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [lists, setLists] = useState<ListDetail[]>([]);
+  const [missingCount, setMissingCount] = useState<number>(0);
+
+  const [loading, setLoading] = useState<boolean>(true);
+  const [err, setErr] = useState<string>("");
+
+  // Keep ids stable + deduped (prevents double-fetch loops if storage contains duplicates)
+  const savedIdsUniq = useMemo(() => Array.from(new Set(savedIds)), [savedIds]);
 
   useEffect(() => {
-    function refresh() {
-      setSavedIds(readSavedIds());
-    }
+    const refresh = () => setSavedIds(readSavedIds());
+
     refresh();
     window.addEventListener("storage", refresh);
-    window.addEventListener("saved_lists_updated", refresh as any);
+    window.addEventListener(SAVED_EVENT, refresh);
+
     return () => {
       window.removeEventListener("storage", refresh);
-      window.removeEventListener("saved_lists_updated", refresh as any);
+      window.removeEventListener(SAVED_EVENT, refresh);
     };
   }, []);
 
@@ -48,29 +83,36 @@ export default function SavedListsClient() {
         setErr("");
         setMissingCount(0);
 
-        if (savedIds.length === 0) {
+        if (savedIdsUniq.length === 0) {
           setLists([]);
           return;
         }
 
         const results = await Promise.allSettled(
-          savedIds.map((id) => apiFetch<any>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" }))
+          savedIdsUniq.map(async (id) => {
+            const data: unknown = await apiFetch<unknown>(
+              `/lists/${encodeURIComponent(id)}`,
+              { token, cache: "no-store" }
+            );
+            return data;
+          })
         );
 
         if (cancelled) return;
 
-        const ok: any[] = [];
+        const ok: ListDetail[] = [];
         let missing = 0;
 
         for (const r of results) {
-          if (r.status === "fulfilled" && r.value) ok.push(r.value);
+          if (r.status === "fulfilled" && isListDetail(r.value)) ok.push(r.value);
           else missing += 1;
         }
 
         setLists(ok);
         setMissingCount(missing);
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || "Failed to load saved lists");
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e ?? "Failed to load saved lists");
+        if (!cancelled) setErr(msg);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -80,7 +122,7 @@ export default function SavedListsClient() {
     return () => {
       cancelled = true;
     };
-  }, [token, savedIds]);
+  }, [token, savedIdsUniq]);
 
   return (
     <div className="mx-auto max-w-4xl px-6 pb-16">
@@ -101,11 +143,11 @@ export default function SavedListsClient() {
       {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
       {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
-      {!loading && !err && savedIds.length === 0 ? (
+      {!loading && !err && savedIdsUniq.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-500">You haven’t saved any lists yet.</p>
       ) : null}
 
-      {!loading && !err && savedIds.length > 0 && lists.length === 0 ? (
+      {!loading && !err && savedIdsUniq.length > 0 && lists.length === 0 ? (
         <div className="mt-6 text-sm text-zinc-500">
           <p className="m-0">None of your saved lists could be loaded.</p>
           <p className="mt-2 text-xs text-zinc-400">They may have been deleted or set to private.</p>
@@ -120,13 +162,17 @@ export default function SavedListsClient() {
 
       <div className="mt-6 grid gap-3">
         {lists.map((l) => {
-          const id = l?.id;
-          if (!id) return null;
+          const id = l.id;
+          const title = (l.title ?? l.name ?? "Untitled list").toString();
 
-          const title = l?.title || l?.name || "Untitled list";
-          const itemsCount = Array.isArray(l?.items) ? l.items.length : l?.items_count ?? 0;
-          const owner = l?.owner || l?.owner_username || l?.username || "—";
-          const isPublic = !!l?.is_public;
+          const itemsCount = Array.isArray(l.items)
+            ? l.items.length
+            : Number(l.items_count ?? 0);
+
+          const owner =
+            (l.owner ?? l.owner_username ?? l.username ?? "—").toString();
+
+          const isPublic = Boolean(l.is_public);
 
           return (
             <Link

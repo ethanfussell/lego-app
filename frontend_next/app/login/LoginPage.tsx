@@ -1,3 +1,4 @@
+// frontend_next/app/login/LoginPage.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -9,6 +10,28 @@ function safeNextPath(raw: string | null, fallback = "/collection") {
   if (!raw.startsWith("/")) return fallback;
   if (raw.startsWith("//")) return fallback;
   return raw;
+}
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+type LoginResponse = {
+  access_token?: unknown;
+  token?: unknown;
+};
+
+function getTokenFromLoginResponse(x: unknown): string {
+  if (typeof x !== "object" || x === null) return "";
+  const o = x as LoginResponse;
+
+  const a = o.access_token;
+  if (typeof a === "string" && a.trim()) return a;
+
+  const t = o.token;
+  if (typeof t === "string" && t.trim()) return t;
+
+  return "";
 }
 
 export default function LoginPage() {
@@ -37,7 +60,6 @@ export default function LoginPage() {
       body.set("username", username);
       body.set("password", password);
 
-      // IMPORTANT: call the Next.js proxy (same-origin) to avoid CORS
       const resp = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -50,16 +72,16 @@ export default function LoginPage() {
         throw new Error(`Login failed (${resp.status}): ${text}`);
       }
 
-      const data = await resp.json();
-      const token = data.access_token || data.token || "";
+      const raw: unknown = await resp.json();
+      const token = getTokenFromLoginResponse(raw);
       if (!token) throw new Error("Login succeeded but no token was returned.");
 
       loginWithToken(token);
 
       router.replace(next);
       router.refresh();
-    } catch (err: any) {
-      setError(err?.message || String(err));
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -77,11 +99,7 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              style={{
-                padding: "0.55rem 0.65rem",
-                borderRadius: 10,
-                border: "1px solid #d1d5db",
-              }}
+              style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
             />
           </label>
 
@@ -92,15 +110,11 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              style={{
-                padding: "0.55rem 0.65rem",
-                borderRadius: 10,
-                border: "1px solid #d1d5db",
-              }}
+              style={{ padding: "0.55rem 0.65rem", borderRadius: 10, border: "1px solid #d1d5db" }}
             />
           </label>
 
-          {error && <div style={{ color: "#b42318" }}>{error}</div>}
+          {error ? <div style={{ color: "#b42318" }}>{error}</div> : null}
 
           <button
             type="submit"

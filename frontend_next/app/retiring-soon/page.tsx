@@ -14,6 +14,38 @@ type SetLite = {
   rating_count?: number;
 };
 
+type FeedResponse =
+  | SetLite[]
+  | {
+      results?: unknown;
+      total?: unknown;
+      total_pages?: unknown;
+      page?: unknown;
+    };
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function isSetLite(x: unknown): x is SetLite {
+  return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+}
+
+function toSetLiteArray(x: unknown): SetLite[] {
+  return Array.isArray(x) ? x.filter(isSetLite) : [];
+}
+
+function asFeedResponse(x: unknown): FeedResponse {
+  if (Array.isArray(x)) return toSetLiteArray(x);
+
+  if (typeof x === "object" && x !== null) {
+    const o = x as { results?: unknown };
+    return { results: o.results };
+  }
+
+  return [];
+}
+
 async function fetchRetiringSoonSets(): Promise<SetLite[]> {
   const params = new URLSearchParams();
   params.set("q", "retiring");
@@ -22,15 +54,16 @@ async function fetchRetiringSoonSets(): Promise<SetLite[]> {
   params.set("page", "1");
   params.set("limit", "60");
 
-  const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const data = asFeedResponse(raw);
 
   const items: SetLite[] = Array.isArray(data)
     ? data
-    : Array.isArray(data?.results)
-    ? data.results
-    : [];
+    : Array.isArray((data as { results?: unknown }).results)
+      ? toSetLiteArray((data as { results?: unknown }).results)
+      : [];
 
-  return items.filter((s) => typeof s?.set_num === "string" && s.set_num.trim() !== "");
+  return items.filter((s) => s.set_num.trim() !== "");
 }
 
 export default async function Page() {
@@ -39,8 +72,8 @@ export default async function Page() {
 
   try {
     sets = await fetchRetiringSoonSets();
-  } catch (e: any) {
-    error = e?.message || String(e);
+  } catch (e: unknown) {
+    error = errorMessage(e);
   }
 
   return <RetiringSoonClient initialSets={sets} initialError={error} />;

@@ -27,6 +27,9 @@ export default function RetiringSoonClient({
   const { token } = useAuth();
   const sets = Array.isArray(initialSets) ? initialSets : [];
 
+  // Avoid `as any` for SetCard props
+  type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="mt-10">
@@ -38,16 +41,14 @@ export default function RetiringSoonClient({
 
         {initialError ? <p className="mt-4 text-sm text-red-600">Error: {initialError}</p> : null}
 
-        {!initialError && sets.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500">No “retiring soon” sets yet.</p>
-        ) : null}
+        {!initialError && sets.length === 0 ? <p className="mt-4 text-sm text-zinc-500">No “retiring soon” sets yet.</p> : null}
 
         {!initialError && sets.length > 0 ? (
           <ul className="mt-6 grid list-none gap-3 p-0 justify-start items-stretch [grid-template-columns:repeat(auto-fill,220px)]">
             {sets.map((set) => (
               <li key={set.set_num} className="h-full">
                 <SetCard
-                  set={set as any}
+                  set={set as unknown as SetCardSetProp}
                   footer={<SetCardActions token={token ?? null} setNum={set.set_num} />}
                 />
               </li>

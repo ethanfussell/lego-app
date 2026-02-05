@@ -1,24 +1,12 @@
 // frontend_next/app/discover/DiscoverClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import SetCard from "@/app/components/SetCard";
+import SetCard, { type SetLite } from "@/app/components/SetCard";
 import Pagination from "@/app/components/Pagination";
 import { apiFetch } from "@/lib/api";
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-};
 
 export type DiscoverInitial = {
   q: string; // kept for compatibility, but Discover ignores it
@@ -34,18 +22,29 @@ export type DiscoverInitial = {
 
 const PAGE_SIZE_FALLBACK = 50;
 
-// Keep these if you like them as quick links INTO /search
 const POPULAR_TERMS = ["Star Wars", "Botanical", "Icons", "Technic", "Modular", "Castle", "Space", "Harry Potter"];
 
+type FeedResponse =
+  | SetLite[]
+  | {
+      results?: unknown;
+      total?: unknown;
+      total_pages?: unknown;
+      page?: unknown;
+    };
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 function normalizeSort(v: unknown) {
-  // Feed default: newest-ish
-  const s = String(v || "year");
+  const s = String(v ?? "year").trim();
   const allowed = new Set(["rating", "pieces", "year", "name"]);
   return allowed.has(s) ? s : "year";
 }
 
-function normalizeOrder(v: unknown) {
-  const s = String(v || "desc");
+function normalizeOrder(v: unknown): "asc" | "desc" {
+  const s = String(v ?? "desc").trim();
   return s === "asc" ? "asc" : "desc";
 }
 
@@ -54,29 +53,39 @@ function toNum(v: unknown, fallback: number) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-async function fetchFeed(opts: { sort: string; order: string; page: number; limit: number }) {
+function isSetLite(x: unknown): x is SetLite {
+  return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+}
+
+function toSetLiteArray(x: unknown): SetLite[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter(isSetLite);
+}
+
+async function fetchFeed(opts: { sort: string; order: "asc" | "desc"; page: number; limit: number }) {
   const params = new URLSearchParams();
   params.set("sort", opts.sort);
   params.set("order", opts.order);
   params.set("page", String(opts.page));
   params.set("limit", String(opts.limit));
 
-  // ✅ no q param — discover is a feed
-  const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const data = raw as FeedResponse;
 
   const results: SetLite[] = Array.isArray(data)
-    ? data
+    ? toSetLiteArray(data)
     : Array.isArray(data?.results)
-    ? data.results
-    : [];
+      ? toSetLiteArray(data.results)
+      : [];
 
-  const total = typeof data?.total === "number" ? data.total : results.length;
+  const total = !Array.isArray(data) && typeof data?.total === "number" ? data.total : results.length;
+
   const totalPages =
-    typeof data?.total_pages === "number"
+    !Array.isArray(data) && typeof data?.total_pages === "number"
       ? data.total_pages
-      : Math.max(1, Math.ceil(total / opts.limit));
+      : Math.max(1, Math.ceil(total / Math.max(1, opts.limit)));
 
-  const page = typeof data?.page === "number" ? data.page : opts.page;
+  const page = !Array.isArray(data) && typeof data?.page === "number" ? data.page : opts.page;
 
   return { results, total, totalPages, page };
 }
@@ -85,11 +94,9 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
   const router = useRouter();
   const sp = useSearchParams();
 
-  // ✅ Discover ignores q completely
   const sort = normalizeSort(sp.get("sort") ?? initial.sort);
   const order = normalizeOrder(sp.get("order") ?? initial.order);
   const page = toNum(sp.get("page") ?? initial.page, 1);
-
   const pageSize = initial.pageSize || PAGE_SIZE_FALLBACK;
 
   const [results, setResults] = useState<SetLite[]>(initial.results || []);
@@ -98,23 +105,21 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(initial.error || null);
 
-  function pushUrl(next: { sort?: string; order?: string; page?: number }) {
+  function pushUrl(next: { sort?: string; order?: "asc" | "desc"; page?: number }) {
     const params = new URLSearchParams();
 
     const nextSort = normalizeSort(next.sort ?? sort);
     const nextOrder = normalizeOrder(next.order ?? order);
     const nextPage = toNum(next.page ?? page, 1);
 
-    // Only set when not default-ish (optional, keeps URLs cleaner)
     if (nextSort && nextSort !== "year") params.set("sort", nextSort);
     if (nextOrder && nextOrder !== "desc") params.set("order", nextOrder);
     if (nextPage && nextPage !== 1) params.set("page", String(nextPage));
 
     const qs = params.toString();
-    router.push(qs ? `/discover?${qs}` : `/discover`);
+    router.push(qs ? `/discover?${qs}` : "/discover");
   }
 
-  // Pull primitives out so the effect deps are stable
   const initialSort = initial.sort;
   const initialOrder = initial.order;
   const initialPage = initial.page;
@@ -129,7 +134,6 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
       page === toNum(initialPage, 1) &&
       !initialError;
 
-    // If SSR data already matches URL, don't re-fetch on first paint
     if (matchesInitial) return;
 
     (async () => {
@@ -143,10 +147,10 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
         setResults(r.results);
         setTotal(r.total);
         setTotalPages(r.totalPages);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (ignore) return;
 
-        setError(e?.message || String(e) || "Failed to load feed");
+        setError(errorMessage(e) || "Failed to load feed");
         setResults([]);
         setTotal(0);
         setTotalPages(1);
@@ -158,16 +162,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
     return () => {
       ignore = true;
     };
-  }, [
-    sort,
-    order,
-    page,
-    pageSize,
-    initialSort,
-    initialOrder,
-    initialPage,
-    initialError,
-  ]);
+  }, [sort, order, page, pageSize, initialSort, initialOrder, initialPage, initialError]);
 
   function handleSortChange(e: React.ChangeEvent<HTMLSelectElement>) {
     pushUrl({ sort: e.target.value, page: 1 });
@@ -181,9 +176,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">Discover</h1>
-        <div className="mt-2 text-sm text-zinc-500">
-          {total ? `${total.toLocaleString()} sets` : ""}
-        </div>
+        <div className="mt-2 text-sm text-zinc-500">{total ? `${total.toLocaleString()} sets` : ""}</div>
 
         <div className="mt-3 flex justify-end">
           <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -204,7 +197,6 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-[280px_1fr]">
-        {/* LEFT sidebar: quick links INTO search */}
         <aside className="sticky top-24 h-fit">
           <div className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
             <div className="mb-3 font-semibold">Popular searches</div>
@@ -221,13 +213,10 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
               ))}
             </div>
 
-            <div className="mt-5 text-sm text-zinc-500">
-              Looking for something specific? Use the search bar in the top nav.
-            </div>
+            <div className="mt-5 text-sm text-zinc-500">Looking for something specific? Use the search bar in the top nav.</div>
           </div>
         </aside>
 
-        {/* RIGHT results */}
         <main>
           {loading ? <p className="mt-0 text-sm">Loading…</p> : null}
           {error && !loading ? <p className="mt-0 text-sm text-red-600">Error: {error}</p> : null}
@@ -235,8 +224,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
           <div className="mt-2 grid grid-cols-[repeat(auto-fill,220px)] gap-4">
             {results.map((set) => (
               <div key={set.set_num}>
-                {/* ✅ SetCard already has its own Link */}
-                <SetCard set={set as any} />
+                <SetCard set={set} />
               </div>
             ))}
           </div>

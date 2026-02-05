@@ -1,9 +1,11 @@
+// frontend_next/app/(authed)/lists/ListsClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import type { ApiFetchOptions } from "@/lib/api";
 
 type ListSummary = {
   id: string | number;
@@ -13,8 +15,19 @@ type ListSummary = {
   system_key?: string | null;
 };
 
-function isSystemList(l: ListSummary) {
-  return !!String(l?.system_key || "").trim();
+function errorMessage(e: unknown, fallback = "Something went wrong"): string {
+  return e instanceof Error ? e.message : String(e ?? fallback);
+}
+
+function isSystemList(l: ListSummary): boolean {
+  return String(l.system_key ?? "").trim().length > 0;
+}
+
+function withToken(
+  token: string,
+  opts: Omit<ApiFetchOptions, "token">
+): ApiFetchOptions {
+  return { ...opts, token };
 }
 
 export default function ListsClient() {
@@ -25,77 +38,96 @@ export default function ListsClient() {
 
   const [lists, setLists] = useState<ListSummary[]>([]);
 
-  // create form
   const [title, setTitle] = useState("");
   const [isPublic, setIsPublic] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const customLists = useMemo(() => lists.filter((l) => !isSystemList(l)), [lists]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!token) return;
+
     setLoading(true);
     setErr(null);
+
     try {
-      const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
+      const mine = await apiFetch<ListSummary[]>("/lists/me", withToken(token, { cache: "no-store" }));
       setLists(Array.isArray(mine) ? mine : []);
-    } catch (e: any) {
-      setErr(e?.message || String(e));
+    } catch (e: unknown) {
+      setErr(errorMessage(e));
       setLists([]);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function createList() {
+  useEffect(() => {
+    if (!token) {
+      setLists([]);
+      setErr(null);
+      setLoading(false);
+      return;
+    }
+    void refresh();
+  }, [token, refresh]);
+
+  const createList = useCallback(async () => {
     const t = title.trim();
     if (!t || !token || creating) return;
 
     setCreating(true);
     setErr(null);
+
     try {
-      // Most common shape: POST /lists { title, is_public }
-      await apiFetch("/lists", {
-        token,
-        method: "POST",
-        body: { title: t, is_public: isPublic },
-      });
+      await apiFetch(
+        "/lists",
+        withToken(token, {
+          method: "POST",
+          body: { title: t, is_public: isPublic },
+        })
+      );
+
       setTitle("");
       setIsPublic(false);
       await refresh();
-    } catch (e: any) {
-      setErr(e?.message || String(e));
+    } catch (e: unknown) {
+      setErr(errorMessage(e));
     } finally {
       setCreating(false);
     }
-  }
+  }, [title, token, creating, isPublic, refresh]);
 
-  async function togglePublic(l: ListSummary) {
-    if (!token) return;
-    const id = String(l.id);
-    const next = !l.is_public;
+  const togglePublic = useCallback(
+    async (l: ListSummary) => {
+      if (!token) return;
 
-    // optimistic
-    setLists((prev) => prev.map((x) => (String(x.id) === id ? { ...x, is_public: next } : x)));
+      const id = String(l.id);
+      const current: boolean = l.is_public ?? false;
+      const next = !current;
+      const rollbackValue: boolean | null = l.is_public ?? null;
 
-    try {
-      // Most common shape: PATCH /lists/{id} { is_public }
-      await apiFetch(`/lists/${encodeURIComponent(id)}`, {
-        token,
-        method: "PATCH",
-        body: { is_public: next },
-      });
-    } catch (e: any) {
-      // rollback
-      setLists((prev) => prev.map((x) => (String(x.id) === id ? { ...x, is_public: l.is_public } : x)));
-      setErr(e?.message || String(e));
-    }
-  }
+      // optimistic (avoid assigning undefined under exactOptionalPropertyTypes)
+      setLists((prev) =>
+        prev.map((x) => (String(x.id) === id ? { ...x, is_public: next } : x))
+      );
+
+      try {
+        await apiFetch(
+          `/lists/${encodeURIComponent(id)}`,
+          withToken(token, {
+            method: "PATCH",
+            body: { is_public: next },
+          })
+        );
+      } catch (e: unknown) {
+        setLists((prev) =>
+          prev.map((x) => (String(x.id) === id ? { ...x, is_public: rollbackValue } : x))
+        );
+        setErr(errorMessage(e));
+      }
+    },
+    [token]
+  );
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -154,6 +186,7 @@ export default function ListsClient() {
           <div className="grid gap-3 sm:grid-cols-2">
             {customLists.map((l) => {
               const id = String(l.id);
+
               return (
                 <div
                   key={id}
@@ -161,7 +194,7 @@ export default function ListsClient() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-semibold">{l.title || `List ${id}`}</div>
+                      <div className="font-semibold">{l.title ?? `List ${id}`}</div>
                       <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                         {l.items_count ?? 0} sets • {l.is_public ? "Public" : "Private"}
                       </div>
@@ -169,7 +202,7 @@ export default function ListsClient() {
 
                     <button
                       type="button"
-                      onClick={() => togglePublic(l)}
+                      onClick={() => void togglePublic(l)}
                       className="rounded-full border border-black/[.10] px-3 py-1 text-xs font-semibold hover:bg-black/[.04] dark:border-white/[.14] dark:hover:bg-white/[.06]"
                       title="Toggle public/private"
                     >
@@ -186,7 +219,7 @@ export default function ListsClient() {
                     </Link>
                     <button
                       type="button"
-                      onClick={refresh}
+                      onClick={() => void refresh()}
                       className="rounded-xl border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.14] dark:hover:bg-white/[.06]"
                     >
                       Refresh

@@ -6,6 +6,12 @@ import { apiFetch } from "@/lib/api";
 
 type CreatedList = { id: number | string };
 
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  return String(e);
+}
+
 export default function CreateListButton({
   token,
   onCreated,
@@ -51,8 +57,8 @@ export default function CreateListButton({
       if (created?.id != null) {
         router.push(`/lists/${encodeURIComponent(String(created.id))}`);
       }
-    } catch (e: any) {
-      setErr(e?.message || String(e));
+    } catch (e: unknown) {
+      setErr(errMsg(e));
     } finally {
       setSaving(false);
     }
@@ -82,9 +88,7 @@ export default function CreateListButton({
           >
             <div className="text-base font-semibold">New list</div>
 
-            <label className="mt-4 block text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-              Title
-            </label>
+            <label className="mt-4 block text-xs font-semibold text-zinc-600 dark:text-zinc-400">Title</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}

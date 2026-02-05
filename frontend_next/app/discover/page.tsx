@@ -24,6 +24,32 @@ type SetLite = {
   rating_count?: number;
 };
 
+type FeedResponse =
+  | SetLite[]
+  | {
+      results?: SetLite[];
+      total?: number;
+      total_pages?: number;
+      page?: number;
+    };
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+// Next 16: searchParams may be Promise-wrapped
+type PageProps = {
+  searchParams?: Promise<SearchParams> | SearchParams;
+};
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function first(sp: SearchParams, key: string): string | undefined {
+  const v = sp[key];
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 function toNum(v: unknown, fallback: number) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -31,15 +57,49 @@ function toNum(v: unknown, fallback: number) {
 
 function normalizeSort(v: unknown) {
   // For "feed", default to newest-ish.
-  // If your backend supports these, keep them. Otherwise we can adjust.
-  const s = String(v || "year").trim();
+  const s = String(v ?? "year").trim();
   const allowed = new Set(["year", "rating", "pieces", "name", "relevance"]);
   return allowed.has(s) ? s : "year";
 }
 
 function normalizeOrder(v: unknown) {
-  const s = String(v || "desc").trim();
+  const s = String(v ?? "desc").trim();
   return s === "asc" ? "asc" : "desc";
+}
+
+function isSetLite(x: unknown): x is SetLite {
+  if (typeof x !== "object" || x === null) return false;
+  const sn = (x as { set_num?: unknown }).set_num;
+  return typeof sn === "string" && sn.trim().length > 0;
+}
+
+function toSetLiteArray(x: unknown): SetLite[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter(isSetLite);
+}
+
+function asFeedResponse(x: unknown): FeedResponse {
+  // If backend returns array directly
+  if (Array.isArray(x)) return toSetLiteArray(x);
+
+  // If backend returns object { results, total, ... }
+  if (typeof x === "object" && x !== null) {
+    const o = x as {
+      results?: unknown;
+      total?: unknown;
+      total_pages?: unknown;
+      page?: unknown;
+    };
+
+    return {
+      results: Array.isArray(o.results) ? toSetLiteArray(o.results) : undefined,
+      total: typeof o.total === "number" ? o.total : undefined,
+      total_pages: typeof o.total_pages === "number" ? o.total_pages : undefined,
+      page: typeof o.page === "number" ? o.page : undefined,
+    };
+  }
+
+  return [];
 }
 
 async function fetchFeed(opts: { sort: string; order: string; page: number; limit: number }) {
@@ -50,39 +110,30 @@ async function fetchFeed(opts: { sort: string; order: string; page: number; limi
   params.set("limit", String(opts.limit));
 
   // ✅ No q param — discover is a feed, not search
-  const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const data = asFeedResponse(raw);
 
-  const results: SetLite[] = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.results)
-    ? data.results
-    : [];
+  const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
 
-  const total = typeof data?.total === "number" ? data.total : results.length;
+  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
+
   const totalPages =
-    typeof data?.total_pages === "number"
+    !Array.isArray(data) && typeof data.total_pages === "number"
       ? data.total_pages
       : Math.max(1, Math.ceil(total / opts.limit));
 
-  const page = typeof data?.page === "number" ? data.page : opts.page;
+  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
 
   return { results, total, totalPages, page };
 }
 
-export default async function Page({
-  searchParams,
-}: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
-}) {
-  const sp = await Promise.resolve(searchParams);
+export default async function Page({ searchParams }: PageProps) {
+  const sp: SearchParams = await Promise.resolve(searchParams ?? {});
 
   // ✅ Ignore q entirely (even if someone manually adds it)
-  const sortRaw = sp?.sort;
-  const orderRaw = sp?.order;
-
-  const sort = normalizeSort(Array.isArray(sortRaw) ? sortRaw[0] : sortRaw);
-  const order = normalizeOrder(Array.isArray(orderRaw) ? orderRaw[0] : orderRaw);
-  const page = toNum(sp?.page, 1);
+  const sort = normalizeSort(first(sp, "sort"));
+  const order = normalizeOrder(first(sp, "order"));
+  const page = toNum(first(sp, "page"), 1);
 
   const pageSize = 50;
 
@@ -107,8 +158,8 @@ export default async function Page({
       totalPages: r.totalPages,
       page: r.page,
     };
-  } catch (e: any) {
-    initial = { ...initial, error: e?.message || String(e) };
+  } catch (e: unknown) {
+    initial = { ...initial, error: errorMessage(e) };
   }
 
   return <DiscoverClient initial={initial} />;

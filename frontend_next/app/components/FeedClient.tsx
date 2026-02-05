@@ -23,20 +23,30 @@ type FeedClientProps = {
   wishlistSetNums?: Set<string>;
 };
 
+type SetLite = {
+  set_num?: string;
+  [k: string]: unknown;
+};
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export default function FeedClient({
   title,
   description,
-  queryParams = {},
+  queryParams,
   ownedSetNums,
   wishlistSetNums,
 }: FeedClientProps) {
   const { token } = useAuth();
 
-  const [sets, setSets] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
+  const qp = useMemo<QueryParams>(() => queryParams ?? {}, [queryParams]);
+  const qpKey = useMemo(() => JSON.stringify(qp), [qp]);
 
-  const qpKey = useMemo(() => JSON.stringify(queryParams || {}), [queryParams]);
+  const [sets, setSets] = useState<SetLite[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -47,18 +57,22 @@ export default function FeedClient({
         setError("");
 
         const params = new URLSearchParams();
-        params.set("page", String(queryParams.page ?? 1));
-        params.set("limit", String(queryParams.limit ?? 50));
-        if (queryParams.q) params.set("q", queryParams.q);
-        if (queryParams.sort) params.set("sort", queryParams.sort);
-        if (queryParams.order) params.set("order", queryParams.order);
+        params.set("page", String(qp.page ?? 1));
+        params.set("limit", String(qp.limit ?? 50));
+        if (qp.q) params.set("q", qp.q);
+        if (qp.sort) params.set("sort", qp.sort);
+        if (qp.order) params.set("order", qp.order);
 
-        const data = await apiFetch<any>(`/sets?${params.toString()}`, { cache: "no-store" });
-        const items = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+        const data = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+        const items = Array.isArray(data)
+          ? (data as SetLite[])
+          : Array.isArray((data as { results?: unknown })?.results)
+          ? ((data as { results: SetLite[] }).results as SetLite[])
+          : [];
 
         if (!cancelled) setSets(items);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || String(e));
+      } catch (e: unknown) {
+        if (!cancelled) setError(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -68,7 +82,7 @@ export default function FeedClient({
     return () => {
       cancelled = true;
     };
-  }, [qpKey, queryParams.page, queryParams.limit, queryParams.q, queryParams.sort, queryParams.order]);
+  }, [qpKey, qp]);
 
   const hasResults = sets.length > 0;
 
@@ -90,17 +104,28 @@ export default function FeedClient({
             const sn = String(s?.set_num || "").trim();
             if (!sn) return null;
 
-            // keep these in case you use them later for badges, etc.
-            const owned = !!ownedSetNums?.has(sn);
-            const wished = !!wishlistSetNums?.has(sn);
-            void owned;
-            void wished;
+            // if you want the props to *count as used*, actually use them:
+            const owned = ownedSetNums?.has(sn);
+            const wished = wishlistSetNums?.has(sn);
 
             return (
               <li key={sn} className="w-full max-w-[260px]">
                 <SetCard
-                  set={s as any}
-                  footer={token ? <SetCardActions token={token} setNum={sn} /> : null}
+                  set={s}
+                  footer={
+                    token ? (
+                      <div className="space-y-2">
+                        {(owned || wished) ? (
+                          <div className="text-xs font-semibold text-zinc-500">
+                            {owned ? "In Owned" : null}
+                            {owned && wished ? " · " : null}
+                            {wished ? "In Wishlist" : null}
+                          </div>
+                        ) : null}
+                        <SetCardActions token={token} setNum={sn} />
+                      </div>
+                    ) : null
+                  }
                 />
               </li>
             );

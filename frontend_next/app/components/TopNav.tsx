@@ -2,11 +2,19 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+
 import { useAuth } from "@/app/providers";
 import ProfileMenu from "@/app/components/ProfileMenu";
-import { createPortal } from "react-dom";
+import {
+  trackLoginCta,
+  trackNavClick,
+  trackSearchSubmit,
+  trackSearchSuggestionClick,
+  trackMenuToggle,
+} from "@/lib/analytics";
 
 type Suggestion = {
   set_num: string;
@@ -36,22 +44,25 @@ function mobileLinkClass(active: boolean) {
   );
 }
 
-/**
- * Notes / fixes vs the messy version:
- * - Suggestions dropdown is a normal dropdown under the input (NOT the mobile menu panel).
- * - Mobile sheet is portaled and ONLY contains nav + auth actions.
- * - No duplicate ids; aria-controls points at the actual sheet id.
- * - Escape closes both mobile sheet + suggestions (optional polish kept).
- * - Close-on-route-change, scroll lock while mounted.
- */
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function isSuggestionArray(x: unknown): x is Suggestion[] {
+  if (!Array.isArray(x)) return false;
+  return x.every((v) => {
+    if (typeof v !== "object" || v === null) return false;
+    const sn = (v as { set_num?: unknown }).set_num;
+    return typeof sn === "string" && sn.trim().length > 0;
+  });
+}
+
 export default function TopNav() {
   const pathname = usePathname() || "/";
   const router = useRouter();
   const { token, me, logout } = useAuth();
+  const isAuthed = !!token;
 
-  // -------------------------
-  // Links
-  // -------------------------
   const links = useMemo(
     () => [
       { href: "/", label: "Home", active: pathname === "/" },
@@ -68,27 +79,53 @@ export default function TopNav() {
   // -------------------------
   // Mobile slide-in menu (portal)
   // -------------------------
-  const [mobileMounted, setMobileMounted] = useState(false); // in DOM
-  const [mobileOpen, setMobileOpen] = useState(false); // anim state
-
+  const [mobileMounted, setMobileMounted] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const MOBILE_ANIM_MS = 220;
 
-  function openMobile() {
+  const closeFiredRef = useRef(false);
+
+  const openMobile = useCallback(() => {
+    closeFiredRef.current = false;
     setMobileMounted(true);
     requestAnimationFrame(() => setMobileOpen(true));
-  }
 
-  function closeMobile() {
-    setMobileOpen(false);
-    window.setTimeout(() => setMobileMounted(false), MOBILE_ANIM_MS);
-  }
+    trackMenuToggle({
+      action: "open",
+      reason: "hamburger",
+      placement: "topnav_mobile",
+      path: pathname,
+      authed: isAuthed,
+    });
+  }, [pathname, isAuthed]);
 
-  // Close on route change
+  const closeMobile = useCallback(
+    (reason: string) => {
+      if (!mobileMounted) return;
+
+      setMobileOpen(false);
+      window.setTimeout(() => setMobileMounted(false), MOBILE_ANIM_MS);
+
+      if (!closeFiredRef.current) {
+        closeFiredRef.current = true;
+        trackMenuToggle({
+          action: "close",
+          reason,
+          placement: "topnav_mobile",
+          path: pathname,
+          authed: isAuthed,
+        });
+      }
+    },
+    [mobileMounted, pathname, isAuthed]
+  );
+
+  // Close on route change (only if currently open)
   useEffect(() => {
     if (!mobileMounted) return;
-    closeMobile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+    if (!mobileOpen) return;
+    closeMobile("route_change");
+  }, [pathname, mobileMounted, mobileOpen, closeMobile]);
 
   // Lock body scroll while sheet is mounted
   useEffect(() => {
@@ -129,12 +166,12 @@ export default function TopNav() {
 
         const resp = await fetch(`/api/sets/suggest?q=${encodeURIComponent(q)}`, { cache: "no-store" });
         if (!resp.ok) throw new Error(`Suggest failed (${resp.status})`);
-        const data = await resp.json();
 
-        setSuggestions(Array.isArray(data) ? data : []);
+        const data: unknown = await resp.json();
+        setSuggestions(isSuggestionArray(data) ? data : []);
         setShowSuggest(true);
-      } catch (e: any) {
-        setSuggestErr(e?.message || String(e));
+      } catch (e: unknown) {
+        setSuggestErr(errorMessage(e));
         setSuggestions([]);
         setShowSuggest(false);
       } finally {
@@ -147,42 +184,60 @@ export default function TopNav() {
     };
   }, [searchText]);
 
-  function goSearchAll(term?: string) {
-    const q = String(term ?? searchText).trim();
-    if (!q) return;
+  const goSearchAll = useCallback(
+    (term?: string, source: "enter" | "search_all" | "chip" = "enter") => {
+      const q = String(term ?? searchText).trim();
+      if (!q) return;
 
-    setShowSuggest(false);
-    if (mobileMounted) closeMobile();
+      trackSearchSubmit({
+        query: q,
+        placement: mobileMounted ? "topnav_mobile" : "topnav_desktop",
+        source,
+      });
 
-    router.push(`/search?q=${encodeURIComponent(q)}`);
-    setSearchText("");
-  }
+      setShowSuggest(false);
+      if (mobileMounted) closeMobile("nav_click");
 
-  function pickSuggestion(s: Suggestion) {
-    const setNum = s?.set_num;
-    if (!setNum) return;
+      router.push(`/search?q=${encodeURIComponent(q)}`);
+      setSearchText("");
+    },
+    [searchText, mobileMounted, closeMobile, router]
+  );
 
-    setShowSuggest(false);
-    if (mobileMounted) closeMobile();
+  const pickSuggestion = useCallback(
+    (s: Suggestion) => {
+      const setNum = s.set_num;
+      const q = searchText.trim();
+      if (!setNum) return;
 
-    router.push(`/sets/${encodeURIComponent(setNum)}`);
-    setSearchText("");
-  }
+      trackSearchSuggestionClick({
+        query: q,
+        set_num: setNum,
+        placement: mobileMounted ? "topnav_mobile" : "topnav_desktop",
+      });
 
-  // ✅ Optional polish: Escape closes suggestions + mobile sheet
+      setShowSuggest(false);
+      if (mobileMounted) closeMobile("nav_click");
+
+      router.push(`/sets/${encodeURIComponent(setNum)}`);
+      setSearchText("");
+    },
+    [searchText, mobileMounted, closeMobile, router]
+  );
+
+  // Escape closes suggestions + mobile sheet
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setShowSuggest(false);
-      if (mobileMounted) closeMobile();
+      if (showSuggest) setShowSuggest(false);
+      if (mobileMounted && mobileOpen) closeMobile("escape");
     };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileMounted]);
+  }, [mobileMounted, mobileOpen, showSuggest, closeMobile]);
 
-  // shared search input (desktop + mobile)
-  const SearchBox = (
+  const SearchBox: React.ReactNode = (
     <div className="relative w-full">
       <input
         value={searchText}
@@ -194,11 +249,9 @@ export default function TopNav() {
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            goSearchAll();
+            goSearchAll(undefined, "enter");
           }
-          if (e.key === "Escape") {
-            setShowSuggest(false);
-          }
+          if (e.key === "Escape") setShowSuggest(false);
         }}
         onFocus={() => {
           if (searchText.trim()) setShowSuggest(true);
@@ -235,24 +288,22 @@ export default function TopNav() {
 
             {!loading && !suggestErr && searchText.trim() ? (
               <li
-                onMouseDown={() => goSearchAll()}
+                onMouseDown={() => goSearchAll(undefined, "search_all")}
                 className="cursor-pointer rounded-lg px-3 py-2 hover:bg-black/[.04] dark:hover:bg-white/[.06]"
               >
-                Search all sets for <span className="font-semibold">"{searchText.trim()}"</span>
+                Search all sets for <span className="font-semibold">{`\u201C${searchText.trim()}\u201D`}</span>
               </li>
             ) : null}
           </ul>
         </div>
       ) : null}
     </div>
-  ) as any;
+  );
 
   return (
     <nav className="sticky top-0 z-50 border-b border-black/[.08] bg-white/90 backdrop-blur dark:border-white/[.12] dark:bg-black/60">
       <div className="mx-auto w-full max-w-5xl px-6 py-3">
-        {/* Top row */}
         <div className="flex items-center gap-3">
-          {/* Mobile hamburger */}
           <button
             type="button"
             onClick={openMobile}
@@ -264,21 +315,28 @@ export default function TopNav() {
             ☰
           </button>
 
-          {/* Desktop nav links */}
           <div className="hidden sm:flex flex-wrap items-center gap-2">
             {links.map((l) => (
-              <Link key={l.href} href={l.href} className={pillClass(l.active)}>
+              <Link
+                key={l.href}
+                href={l.href}
+                className={pillClass(l.active)}
+                onClick={() => trackNavClick({ href: l.href, label: l.label, placement: "topnav_desktop" })}
+              >
                 {l.label}
               </Link>
             ))}
           </div>
 
-          {/* Desktop right: search + auth */}
           <div className="ml-auto hidden sm:flex items-center gap-3">
             <div className="w-[260px]">{SearchBox}</div>
 
             {!token ? (
-              <Link href="/login" className="text-sm font-semibold hover:underline">
+              <Link
+                href="/login"
+                className="text-sm font-semibold hover:underline"
+                onClick={() => trackLoginCta({ placement: "topnav_desktop" })}
+              >
                 🔐 Login
               </Link>
             ) : (
@@ -287,12 +345,15 @@ export default function TopNav() {
           </div>
         </div>
 
-        {/* Mobile second row: search + auth */}
         <div className="mt-3 sm:hidden space-y-3">
           {SearchBox}
           <div className="flex items-center justify-end">
             {!token ? (
-              <Link href="/login" className="text-sm font-semibold hover:underline">
+              <Link
+                href="/login"
+                className="text-sm font-semibold hover:underline"
+                onClick={() => trackLoginCta({ placement: "topnav_mobile" })}
+              >
                 🔐 Login
               </Link>
             ) : (
@@ -302,22 +363,19 @@ export default function TopNav() {
         </div>
       </div>
 
-      {/* Mobile slide-in sheet (ONLY nav + auth) */}
       {mobileMounted && typeof document !== "undefined"
         ? createPortal(
             <div className="sm:hidden fixed inset-0 z-[999]">
-              {/* Backdrop */}
               <button
                 type="button"
                 aria-label="Close menu"
-                onClick={closeMobile}
+                onClick={() => closeMobile("backdrop")}
                 className={cx(
                   "absolute inset-0 h-full w-full transition-opacity duration-200",
                   mobileOpen ? "bg-black/60 opacity-100 backdrop-blur-[2px]" : "bg-black/0 opacity-0"
                 )}
               />
 
-              {/* Panel */}
               <div
                 id="topnav-mobile-sheet"
                 role="dialog"
@@ -335,7 +393,7 @@ export default function TopNav() {
                   <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Menu</div>
                   <button
                     type="button"
-                    onClick={closeMobile}
+                    onClick={() => closeMobile("close_button")}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/[.10] hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
                     aria-label="Close menu"
                   >
@@ -349,7 +407,10 @@ export default function TopNav() {
                       key={l.href}
                       href={l.href}
                       className={mobileLinkClass(l.active)}
-                      onClick={closeMobile}
+                      onClick={() => {
+                        trackNavClick({ href: l.href, label: l.label, placement: "topnav_mobile_sheet" });
+                        closeMobile("nav_click");
+                      }}
                     >
                       {l.label}
                     </Link>
@@ -361,7 +422,10 @@ export default function TopNav() {
                     <Link
                       href="/login"
                       className="inline-flex w-full items-center justify-center rounded-full bg-black px-4 py-2 font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
-                      onClick={closeMobile}
+                      onClick={() => {
+                        trackLoginCta({ placement: "topnav_mobile_sheet" });
+                        closeMobile("login_click");
+                      }}
                     >
                       Log in
                     </Link>
@@ -369,7 +433,7 @@ export default function TopNav() {
                     <button
                       type="button"
                       onClick={() => {
-                        closeMobile();
+                        closeMobile("logout_click");
                         logout();
                       }}
                       className="inline-flex w-full items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"

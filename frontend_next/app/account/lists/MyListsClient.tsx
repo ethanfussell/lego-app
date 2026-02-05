@@ -6,11 +6,26 @@ import Link from "next/link";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 
+type ListRow = {
+  id?: string | number;
+  title?: string;
+  name?: string;
+  items_count?: number;
+  items?: unknown[];
+  is_public?: boolean;
+  is_system?: boolean;
+  system_key?: string | null;
+};
+
+function errorMessage(e: unknown, fallback = "Failed to load lists"): string {
+  return e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? fallback);
+}
+
 export default function MyListsClient() {
   const { token, hydrated } = useAuth();
   const isLoggedIn = hydrated && !!token;
 
-  const [lists, setLists] = useState<any[]>([]);
+  const [lists, setLists] = useState<ListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -20,7 +35,7 @@ export default function MyListsClient() {
     async function load() {
       if (!hydrated) return;
 
-      if (!isLoggedIn) {
+      if (!isLoggedIn || !token) {
         setLists([]);
         setLoading(false);
         setErr("");
@@ -31,18 +46,21 @@ export default function MyListsClient() {
         setLoading(true);
         setErr("");
 
-        const data = await apiFetch<any>("/lists/me?include_system=false", { token, cache: "no-store" });
-        if (cancelled) return;
+        const data = await apiFetch<ListRow[]>("/lists/me?include_system=false", {
+          token,
+          cache: "no-store",
+        });
 
+        if (cancelled) return;
         setLists(Array.isArray(data) ? data : []);
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || "Failed to load lists");
+      } catch (e: unknown) {
+        if (!cancelled) setErr(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -76,12 +94,18 @@ export default function MyListsClient() {
 
           <div className="mt-6 grid gap-3">
             {lists.map((l) => {
-              const id = l?.id;
-              if (!id) return null;
+              const id = l.id;
+              if (id === null || id === undefined) return null;
 
-              const title = l?.title || l?.name || "Untitled list";
-              const count = l?.items_count ?? (Array.isArray(l?.items) ? l.items.length : 0);
-              const vis = l?.is_public ? "Public" : "Private";
+              const title = l.title || l.name || "Untitled list";
+              const count =
+                typeof l.items_count === "number"
+                  ? l.items_count
+                  : Array.isArray(l.items)
+                    ? l.items.length
+                    : 0;
+
+              const vis = l.is_public ? "Public" : "Private";
 
               return (
                 <Link

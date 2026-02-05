@@ -1,10 +1,12 @@
 // app/layout.tsx
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/app/components/TopNav";
 import Footer from "@/app/components/Footer";
 import { AuthProvider } from "@/app/providers";
+import AnalyticsClient from "@/app/components/AnalyticsClient";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -18,16 +20,37 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const GA_ID = process.env.NEXT_PUBLIC_GA4_ID;
+
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
+        {/* GA4 */}
+        {GA_ID ? (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(GA_ID)}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga4-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
+                window.gtag('js', new Date());
+                window.gtag('config', '${GA_ID}', {
+                  send_page_view: false,
+                  debug_mode: ${process.env.NODE_ENV !== "production" ? "true" : "false"}
+                });
+              `}
+            </Script>
+          </>
+        ) : null}
+
         <AuthProvider>
           <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
             <TopNav />
-
-            {/* Keep main snug; handle anchor offset via scroll-padding-top in globals.css */}
+            <AnalyticsClient />
             <main className="mx-auto w-full max-w-5xl px-6 pb-16">{children}</main>
-
             <Footer />
           </div>
         </AuthProvider>

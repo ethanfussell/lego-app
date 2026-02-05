@@ -8,20 +8,60 @@ import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 
-function formatRating(rating: any) {
+type ReviewRow = {
+  set_num?: string | null;
+  set_name?: string | null;
+  rating?: number | null;
+  text?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+
+  // image fields we may see from various endpoints
+  image_url?: string | null;
+  imageUrl?: string | null;
+  set_image_url?: string | null;
+  setImageUrl?: string | null;
+  set_image?: string | null;
+  setImage?: string | null;
+};
+
+type RatingHistogramData = unknown;
+
+type ReviewStats = {
+  total_reviews?: number | null;
+  rated_reviews?: number | null;
+  avg_rating?: number | null;
+  rating_histogram?: RatingHistogramData;
+  recent?: ReviewRow[] | null;
+};
+
+function errorMessage(e: unknown, fallback = "Something went wrong"): string {
+  return e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? fallback);
+}
+
+function formatRating(rating: unknown) {
   if (rating === null || rating === undefined) return "—";
   const n = Number(rating);
   if (Number.isNaN(n)) return "—";
   return n.toFixed(1);
 }
 
-function formatDate(iso: any) {
+function formatDate(iso: unknown) {
   if (!iso) return "";
   try {
     return new Date(String(iso)).toLocaleDateString();
   } catch {
     return "";
   }
+}
+
+function clampStyle(lines: number): React.CSSProperties {
+  return {
+    display: "-webkit-box",
+    WebkitLineClamp: lines,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+  };
 }
 
 function MiniStat({
@@ -52,15 +92,21 @@ function MiniStat({
   );
 }
 
-function MiniSetReviewCard({ r }: { r: any }) {
-  const setNum = r?.set_num || "";
-  const setName = r?.set_name || "Unknown set";
-  const rating = formatRating(r?.rating);
-  const text = String(r?.text || "").trim();
-  const when = formatDate(r?.updated_at || r?.created_at);
+function MiniSetReviewCard({ r }: { r: ReviewRow }) {
+  const setNum = String(r.set_num ?? "").trim();
+  const setName = String(r.set_name ?? "").trim() || "Unknown set";
+  const rating = formatRating(r.rating);
+  const text = String(r.text ?? "").trim();
+  const when = formatDate(r.updated_at ?? r.created_at);
 
   const imageUrl =
-    r?.image_url || r?.imageUrl || r?.set_image_url || r?.setImageUrl || r?.set_image || r?.setImage || null;
+    r.image_url ??
+    r.imageUrl ??
+    r.set_image_url ??
+    r.setImageUrl ??
+    r.set_image ??
+    r.setImage ??
+    null;
 
   return (
     <Link
@@ -79,15 +125,7 @@ function MiniSetReviewCard({ r }: { r: any }) {
 
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-3">
-            <div
-              className="min-w-0"
-              style={{
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical" as any,
-                overflow: "hidden",
-              }}
-            >
+            <div className="min-w-0" style={clampStyle(2)}>
               <div className="font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">{setName}</div>
             </div>
 
@@ -101,15 +139,7 @@ function MiniSetReviewCard({ r }: { r: any }) {
           </div>
 
           {text ? (
-            <div
-              className="mt-2 text-sm text-zinc-700 dark:text-zinc-300"
-              style={{
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical" as any,
-                overflow: "hidden",
-              }}
-            >
+            <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-300" style={clampStyle(2)}>
               {text}
             </div>
           ) : (
@@ -121,34 +151,25 @@ function MiniSetReviewCard({ r }: { r: any }) {
   );
 }
 
-type ReviewStats = {
-  total_reviews?: number;
-  rated_reviews?: number;
-  avg_rating?: number;
-  rating_histogram?: any;
-  recent?: any[];
-};
-
 export default function MyReviewsClient() {
   const router = useRouter();
   const sp = useSearchParams();
   const { token, me, hydrated } = useAuth();
 
   const isLoggedIn = hydrated && !!token;
+
   const username = useMemo(() => {
-    const anyMe = me as any;
-    return (me?.username || anyMe?.email || "Account") as string;
-  }, [me]);
+    // We only *need* username for display; keep it safe and simple.
+    return me?.username ? String(me.username) : "Account";
+  }, [me?.username]);
 
   const filterParam = String(sp.get("filter") || "").toLowerCase();
-
   const [onlyRated, setOnlyRated] = useState(filterParam.includes("rated"));
   const [onlyWithText, setOnlyWithText] = useState(filterParam.includes("text"));
 
   useEffect(() => {
     setOnlyRated(filterParam.includes("rated"));
     setOnlyWithText(filterParam.includes("text"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterParam]);
 
   function pushFilterParams(nextOnlyRated: boolean, nextOnlyWithText: boolean) {
@@ -165,7 +186,7 @@ export default function MyReviewsClient() {
     router.replace(qs ? `/account/reviews?${qs}` : "/account/reviews");
   }
 
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -178,7 +199,7 @@ export default function MyReviewsClient() {
     async function load() {
       if (!hydrated) return;
 
-      if (!isLoggedIn) {
+      if (!isLoggedIn || !token) {
         setRows([]);
         setStats(null);
         setErr("");
@@ -192,17 +213,17 @@ export default function MyReviewsClient() {
 
       try {
         const [reviewsData, statsData] = await Promise.all([
-          apiFetch<any>("/sets/reviews/me?limit=200", { token, cache: "no-store" }),
-          apiFetch<any>("/reviews/me/stats", { token, cache: "no-store" }),
+          apiFetch<ReviewRow[]>("/sets/reviews/me?limit=200", { token, cache: "no-store" }),
+          apiFetch<ReviewStats>("/reviews/me/stats", { token, cache: "no-store" }),
         ]);
 
         if (cancelled) return;
 
         setRows(Array.isArray(reviewsData) ? reviewsData : []);
         setStats(statsData || null);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (cancelled) return;
-        const msg = e?.message || String(e);
+        const msg = errorMessage(e, "Failed to load reviews");
         setErr(msg);
         setStats(null);
         setStatsErr(msg);
@@ -211,7 +232,7 @@ export default function MyReviewsClient() {
       }
     }
 
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -219,8 +240,8 @@ export default function MyReviewsClient() {
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
-      if (onlyRated && (r?.rating === null || r?.rating === undefined)) return false;
-      if (onlyWithText && !String(r?.text || "").trim()) return false;
+      if (onlyRated && (r.rating === null || r.rating === undefined)) return false;
+      if (onlyWithText && !String(r.text ?? "").trim()) return false;
       return true;
     });
   }, [rows, onlyRated, onlyWithText]);
@@ -365,9 +386,10 @@ export default function MyReviewsClient() {
 
           {!loading && !err && filtered.length > 0 ? (
             <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3">
-              {filtered.map((r) => (
-                <MiniSetReviewCard key={`${r?.set_num || ""}-${r?.created_at || r?.updated_at || ""}`} r={r} />
-              ))}
+              {filtered.map((r) => {
+                const key = `${String(r.set_num ?? "")}-${String(r.created_at ?? r.updated_at ?? "")}`;
+                return <MiniSetReviewCard key={key} r={r} />;
+              })}
             </div>
           ) : null}
         </>

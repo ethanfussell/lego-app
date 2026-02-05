@@ -1,8 +1,9 @@
+// frontend_next/app/api/ratings/[set_num]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-function backendBase() {
+function backendBase(): string {
   return (
     process.env.API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -10,7 +11,17 @@ function backendBase() {
   );
 }
 
-function passthroughHeaders(req: NextRequest) {
+function errorMessage(e: unknown, fallback = "Unknown error"): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return fallback;
+  }
+}
+
+function passthroughHeaders(req: NextRequest): Headers {
   const h = new Headers();
   const auth = req.headers.get("authorization");
   if (auth) h.set("authorization", auth);
@@ -20,7 +31,7 @@ function passthroughHeaders(req: NextRequest) {
   return h;
 }
 
-function responseHeaders(contentType?: string | null) {
+function responseHeaders(contentType?: string | null): Record<string, string> {
   return {
     "content-type": contentType || "application/json",
     "x-hit": "ratings-[set_num]",
@@ -68,11 +79,11 @@ export async function PUT(req: NextRequest, ctx: RouteCtx) {
       status: resp.status,
       headers: responseHeaders(resp.headers.get("content-type")),
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return new NextResponse(
       JSON.stringify({
         detail: "ratings proxy crashed",
-        error: e?.message || String(e),
+        error: errorMessage(e),
       }),
       { status: 500, headers: responseHeaders() }
     );

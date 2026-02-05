@@ -1,6 +1,7 @@
+// frontend_next/app/(authed)/collection/owned/CollectionOwnedClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -29,48 +30,84 @@ type SetLite = {
   theme?: string;
 };
 
-function toSetNums(detail: ListDetail | null | undefined) {
-  const raw = Array.isArray(detail?.items) ? detail!.items! : [];
-  return raw.map((x) => x?.set_num).filter(Boolean);
+function errorMessage(e: unknown, fallback = "Something went wrong"): string {
+  return e instanceof Error ? e.message : String(e ?? fallback);
 }
 
-async function fetchSetsBulk(setNums: string[], token: string) {
-  const nums = (Array.isArray(setNums) ? setNums : [])
-    .map((x) => String(x || "").trim())
-    .filter(Boolean);
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
+function toSetNums(detail: ListDetail | null | undefined): string[] {
+  const items = Array.isArray(detail?.items) ? detail.items : [];
+  return items.map((x) => String(x.set_num ?? "").trim()).filter(Boolean);
+}
+
+function toPlain(n: string): string {
+  return n.replace(/-\d+$/, "");
+}
+function toDash1(n: string): string {
+  return /-\d+$/.test(n) ? n : `${n}-1`;
+}
+
+function asSetLiteArray(v: unknown): SetLite[] {
+  if (!Array.isArray(v)) return [];
+  const out: SetLite[] = [];
+
+  for (const raw of v) {
+    if (!isRecord(raw)) continue;
+
+    const set_num = typeof raw.set_num === "string" ? raw.set_num.trim() : "";
+    if (!set_num) continue;
+
+    const base: SetLite = { set_num };
+
+    const maybeName = raw.name;
+    const maybeYear = raw.year;
+    const maybeParts = raw.num_parts;
+    const maybeTheme = raw.theme;
+
+    // IMPORTANT: with exactOptionalPropertyTypes, do not assign undefined; omit instead
+    out.push({
+      ...base,
+      ...(typeof maybeName === "string" ? { name: maybeName } : {}),
+      ...(typeof maybeYear === "number" ? { year: maybeYear } : {}),
+      ...(typeof maybeParts === "number" ? { num_parts: maybeParts } : {}),
+      image_url: typeof raw.image_url === "string" ? raw.image_url : null,
+      ...(typeof maybeTheme === "string" ? { theme: maybeTheme } : {}),
+    });
+  }
+
+  return out;
+}
+
+async function fetchSetsBulk(setNums: string[], token: string): Promise<SetLite[]> {
+  const nums = setNums.map((x) => String(x ?? "").trim()).filter(Boolean);
   if (nums.length === 0) return [];
 
-  // Backend expects: set_nums=21355-1,4000045-1
   const params = new URLSearchParams();
   params.set("set_nums", nums.join(","));
 
-  const data = await apiFetch<any>(`/sets/bulk?${params.toString()}`, {
+  const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, {
     token,
     cache: "no-store",
   });
 
-  const arr = Array.isArray(data) ? data : [];
+  const arr = asSetLiteArray(data);
   if (arr.length === 0) return [];
 
-  // Normalizers to handle "21355" vs "21355-1"
-  const toPlain = (n: string) => n.replace(/-\d+$/, "");
-  const toDash1 = (n: string) => (/-\d+$/.test(n) ? n : `${n}-1`);
-
-  // Build lookup map with multiple keys per set
-  const byKey = new Map<string, any>();
+  const byKey = new Map<string, SetLite>();
   for (const s of arr) {
-    const sn = String(s?.set_num || "").trim();
+    const sn = s.set_num.trim();
     if (!sn) continue;
     byKey.set(sn, s);
     byKey.set(toPlain(sn), s);
     byKey.set(toDash1(sn), s);
   }
 
-  // Return sets in the same order as the list items
   return nums
     .map((n) => byKey.get(n) || byKey.get(toPlain(n)) || byKey.get(toDash1(n)))
-    .filter(Boolean);
+    .filter((x): x is SetLite => Boolean(x));
 }
 
 export default function CollectionOwnedClient() {
@@ -83,15 +120,13 @@ export default function CollectionOwnedClient() {
   const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
   const [sets, setSets] = useState<SetLite[]>([]);
 
-  const ownedSetNums = useMemo(() => new Set(toSetNums(ownedDetail).map(String)), [ownedDetail]);
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!token) return;
 
-    // find owned list id
     const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
     const arr = Array.isArray(mine) ? mine : [];
-    const owned = arr.find((l) => String(l.system_key).toLowerCase() === "owned");
+    const owned = arr.find((l) => String(l.system_key ?? "").toLowerCase() === "owned");
+
     if (!owned) {
       setOwnedDetail(null);
       setSets([]);
@@ -103,17 +138,17 @@ export default function CollectionOwnedClient() {
       cache: "no-store",
     });
 
-    setOwnedDetail(detail || null);
+    setOwnedDetail(detail ?? null);
 
-    const nums = toSetNums(detail).slice(); // all
+    const nums = toSetNums(detail);
     const bulk = await fetchSetsBulk(nums, token);
     setSets(bulk);
-  }
+  }, [token]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    (async () => {
       if (!token) {
         router.push("/login");
         return;
@@ -123,20 +158,17 @@ export default function CollectionOwnedClient() {
         setLoading(true);
         setErr(null);
         await refresh();
-        if (cancelled) return;
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || String(e));
+      } catch (e: unknown) {
+        if (!cancelled) setErr(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
+    })();
 
-    load();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, router, refresh]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -156,8 +188,8 @@ export default function CollectionOwnedClient() {
         </Link>
       </div>
 
-      {loading && <p className="mt-6 text-sm">Loading…</p>}
-      {err && <p className="mt-6 text-sm text-red-600">Error: {err}</p>}
+      {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
+      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
       {sets.length === 0 && !loading ? (
         <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">No sets yet.</p>
@@ -165,7 +197,7 @@ export default function CollectionOwnedClient() {
         <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 list-none p-0">
           {sets.map((s) => (
             <li key={s.set_num}>
-              <SetCard set={s} variant="owned" token={token}/>
+              <SetCard set={s} variant="owned" token={token} />
             </li>
           ))}
         </ul>

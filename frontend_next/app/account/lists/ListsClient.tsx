@@ -11,15 +11,19 @@ type ListRow = {
   title?: string;
   name?: string;
   items_count?: number;
-  items?: any[];
+  items?: unknown[];
   is_public?: boolean;
   is_system?: boolean;
   system_key?: string | null;
 };
 
-function isSystemList(l: ListRow) {
-  if (l?.is_system) return true;
-  const k = String(l?.system_key || "").toLowerCase();
+function errorMessage(e: unknown, fallback = "Failed to load lists"): string {
+  return e instanceof Error ? e.message : String(e ?? fallback);
+}
+
+function isSystemList(l: ListRow): boolean {
+  if (l.is_system) return true;
+  const k = String(l.system_key ?? "").trim().toLowerCase();
   return k === "owned" || k === "wishlist";
 }
 
@@ -53,16 +57,17 @@ export default function ListsClient() {
         });
 
         if (cancelled) return;
+
         const arr = Array.isArray(data) ? data : [];
         setLists(arr.filter((l) => !isSystemList(l)));
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || "Failed to load lists");
+      } catch (e: unknown) {
+        if (!cancelled) setErr(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -103,12 +108,11 @@ export default function ListsClient() {
 
           <div className="mt-6 grid gap-3">
             {lists.map((l) => {
-              const id = l?.id;
-              if (id === null || id === undefined) return null;
+              const id = l.id;
 
-              const title = l?.title || l?.name || "Untitled list";
-              const count = Array.isArray(l?.items) ? l.items.length : Number(l?.items_count ?? 0);
-              const isPublic = !!l?.is_public;
+              const title = l.title || l.name || "Untitled list";
+              const count = Array.isArray(l.items) ? l.items.length : Number(l.items_count ?? 0);
+              const isPublic = Boolean(l.is_public);
 
               return (
                 <Link

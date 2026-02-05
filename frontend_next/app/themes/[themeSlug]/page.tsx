@@ -8,12 +8,19 @@ function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
-// Next sometimes passes params/searchParams as Promise in newer versions
-async function unwrapParams<T extends object>(p: T | Promise<T>): Promise<T> {
-  return typeof (p as any)?.then === "function" ? await (p as any) : (p as T);
+type SP = Record<string, string | string[] | undefined>;
+
+type PromiseLikeValue<T> = {
+  then: (onFulfilled: (value: T) => unknown) => unknown;
+};
+
+function isPromiseLike<T>(v: unknown): v is PromiseLikeValue<T> {
+  return typeof v === "object" && v !== null && "then" in v && typeof (v as { then?: unknown }).then === "function";
 }
 
-type SP = Record<string, string | string[] | undefined>;
+async function unwrap<T>(p: T | Promise<T>): Promise<T> {
+  return isPromiseLike<T>(p) ? await (p as Promise<T>) : (p as T);
+}
 
 function first(sp: SP, key: string): string {
   const raw = sp[key];
@@ -33,20 +40,17 @@ export async function generateMetadata({
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
   searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
-  const { themeSlug } = await unwrapParams(params);
-  const sp = await unwrapParams(searchParams || ({} as SP));
+  const { themeSlug } = await unwrap(params);
+  const sp = searchParams ? await unwrap(searchParams) : ({} as SP);
 
   const theme = decodeURIComponent(themeSlug);
   const page = toInt(first(sp, "page") || "1", 1);
 
-  const canonical =
-    `/themes/${encodeURIComponent(themeSlug)}` + (page > 1 ? `?page=${page}` : "");
+  const canonical = `/themes/${encodeURIComponent(themeSlug)}` + (page > 1 ? `?page=${page}` : "");
 
   const title = `${theme} sets | ${SITE_NAME}`;
   const description =
-    page > 1
-      ? `Browse LEGO sets in the ${theme} theme. Page ${page}.`
-      : `Browse LEGO sets in the ${theme} theme.`;
+    page > 1 ? `Browse LEGO sets in the ${theme} theme. Page ${page}.` : `Browse LEGO sets in the ${theme} theme.`;
 
   return {
     title,
@@ -63,8 +67,6 @@ export default async function ThemeSetsPage({
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
 }) {
-  const { themeSlug } = await unwrapParams(params);
-
-  // Client handles fetching based on URL params
+  const { themeSlug } = await unwrap(params);
   return <ThemeDetailClient themeSlug={themeSlug} />;
 }

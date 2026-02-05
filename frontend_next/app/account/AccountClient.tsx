@@ -26,19 +26,114 @@ type ListLite = {
   is_public?: boolean;
 };
 
+type ReviewRecent = {
+  set_num?: string;
+  set_name?: string;
+  rating?: number | string | null;
+  text?: string | null;
+  created_at?: string | null;
+  createdAt?: string | null;
+
+  image_url?: string | null;
+  imageUrl?: string | null;
+  set_image_url?: string | null;
+  setImageUrl?: string | null;
+  set_image?: string | null;
+  setImage?: string | null;
+};
+
 type ReviewStats = {
   total_reviews?: number;
   rated_reviews?: number;
   avg_rating?: number;
-  rating_histogram?: any;
-  recent?: any[];
+  rating_histogram?: unknown;
+  recent?: unknown;
 };
 
-function formatRating(rating: any) {
+function formatRating(rating: unknown): string {
   if (rating === null || rating === undefined) return "—";
   const n = Number(rating);
   if (Number.isNaN(n)) return "—";
   return n.toFixed(1);
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function asString(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+function asNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function asReviewRecentArray(v: unknown): ReviewRecent[] {
+  if (!Array.isArray(v)) return [];
+
+  const out: ReviewRecent[] = [];
+  for (const item of v) {
+    if (!isRecord(item)) continue;
+
+    out.push({
+      set_num: asString(item.set_num),
+      set_name: asString(item.set_name),
+      rating: (item.rating as ReviewRecent["rating"]) ?? null,
+      text: typeof item.text === "string" ? item.text : null,
+      created_at: typeof item.created_at === "string" ? item.created_at : null,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : null,
+
+      image_url: typeof item.image_url === "string" ? item.image_url : null,
+      imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : null,
+      set_image_url: typeof item.set_image_url === "string" ? item.set_image_url : null,
+      setImageUrl: typeof item.setImageUrl === "string" ? item.setImageUrl : null,
+      set_image: typeof item.set_image === "string" ? item.set_image : null,
+      setImage: typeof item.setImage === "string" ? item.setImage : null,
+    });
+  }
+
+  return out;
+}
+
+function asOwnedSetArray(v: unknown): OwnedSet[] {
+  if (!Array.isArray(v)) return [];
+  const out: OwnedSet[] = [];
+
+  for (const item of v) {
+    if (!isRecord(item)) continue;
+    out.push({
+      set_num: asString(item.set_num),
+      name: asString(item.name) || undefined,
+      theme: typeof item.theme === "string" ? item.theme : (item.theme === null ? null : undefined),
+      pieces: typeof item.pieces === "number" ? item.pieces : (item.pieces === null ? null : undefined),
+    });
+  }
+
+  return out;
+}
+
+function asListLiteArray(v: unknown): ListLite[] {
+  if (!Array.isArray(v)) return [];
+  const out: ListLite[] = [];
+
+  for (const item of v) {
+    if (!isRecord(item)) continue;
+    out.push({
+      id:
+        typeof item.id === "string" || typeof item.id === "number"
+          ? item.id
+          : undefined,
+      title: asString(item.title) || undefined,
+      name: asString(item.name) || undefined,
+      items_count: typeof item.items_count === "number" ? item.items_count : undefined,
+      is_public: typeof item.is_public === "boolean" ? item.is_public : undefined,
+    });
+  }
+
+  return out;
 }
 
 function CardShell({ children }: { children: React.ReactNode }) {
@@ -118,9 +213,9 @@ function ThemeRow({ theme, count, href }: { theme: string; count: number; href: 
   );
 }
 
-function RecentMiniReviewCard({ r }: { r: any }) {
+function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
   const setNum = String(r?.set_num || "");
-  const setName = r?.set_name || setNum;
+  const setName = (r?.set_name && String(r.set_name)) || setNum;
   const rating = formatRating(r?.rating);
   const text = String(r?.text || "").trim();
 
@@ -173,6 +268,12 @@ function RecentMiniReviewCard({ r }: { r: any }) {
   );
 }
 
+function makeRecentKey(r: ReviewRecent, idx: number): string {
+  const setNum = r.set_num || "x";
+  const created = r.created_at || r.createdAt || "";
+  return `${setNum}-${created || String(idx)}`;
+}
+
 export default function AccountClient() {
   const router = useRouter();
   const { token, me, logout, hydrated } = useAuth();
@@ -183,7 +284,6 @@ export default function AccountClient() {
   const [owned, setOwned] = useState<OwnedSet[]>([]);
   const [wishlist, setWishlist] = useState<WishlistSet[]>([]);
   const [customLists, setCustomLists] = useState<ListLite[]>([]);
-  const [publicLists, setPublicLists] = useState<ListLite[]>([]);
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -192,7 +292,7 @@ export default function AccountClient() {
   const [reviewStatsLoading, setReviewStatsLoading] = useState(false);
   const [reviewStatsErr, setReviewStatsErr] = useState("");
 
-  const [recentEnriched, setRecentEnriched] = useState<any[]>([]);
+  const [recentEnriched, setRecentEnriched] = useState<ReviewRecent[]>([]);
 
   // ---- Saved lists count (storage + same-tab custom event) ----
   const [savedCount, setSavedCount] = useState<number>(() => {
@@ -201,18 +301,22 @@ export default function AccountClient() {
   });
 
   useEffect(() => {
-    function refresh() {
+    const refresh = () => {
       setSavedCount(readSavedListIds().length);
-    }
+    };
+
     refresh();
 
     const evt = savedListsEventName();
-    window.addEventListener("storage", refresh);
-    window.addEventListener(evt, refresh as any);
+    const onStorage = () => refresh();
+    const onSavedLists = () => refresh();
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(evt, onSavedLists as EventListener);
 
     return () => {
-      window.removeEventListener("storage", refresh);
-      window.removeEventListener(evt, refresh as any);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(evt, onSavedLists as EventListener);
     };
   }, []);
 
@@ -222,10 +326,11 @@ export default function AccountClient() {
   const avgRating = reviewStats?.avg_rating ?? null;
 
   // IMPORTANT: memoize to keep a stable reference for effect deps
-  const recentReviewsRaw = useMemo(() => {
-    const arr = Array.isArray(reviewStats?.recent) ? (reviewStats!.recent as any[]) : [];
+  const recentReviewsRaw = useMemo<ReviewRecent[]>(() => {
+    const raw = reviewStats?.recent;
+    const arr = asReviewRecentArray(raw);
     return arr.slice(0, 6);
-  }, [reviewStats?.recent]);
+  }, [reviewStats]);
 
   const ownedCount = owned.length;
   const wishlistCount = wishlist.length;
@@ -235,8 +340,6 @@ export default function AccountClient() {
     for (const s of owned) total += Number(s?.pieces || 0);
     return total;
   }, [owned]);
-
-  const avgPieces = ownedCount > 0 ? Math.round(piecesOwned / ownedCount) : 0;
 
   const topThemes = useMemo(() => {
     const freq = new Map<string, number>();
@@ -275,24 +378,35 @@ export default function AccountClient() {
       setReviewStatsErr("");
 
       try {
-        const [ownedData, wishlistData, custom, pub, stats] = await Promise.all([
-          apiFetch<any>("/collections/me/owned", { token, cache: "no-store" }),
-          apiFetch<any>("/collections/me/wishlist", { token, cache: "no-store" }),
-          apiFetch<any>("/lists/me?include_system=false", { token, cache: "no-store" }),
-          apiFetch<any>(`/lists/public?owner=${encodeURIComponent(username)}`, { cache: "no-store" }),
-          apiFetch<any>("/reviews/me/stats", { token, cache: "no-store" }),
+        const [ownedData, wishlistData, custom, stats] = await Promise.all([
+          apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" }),
+          apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" }),
+          apiFetch<unknown>("/lists/me?include_system=false", { token, cache: "no-store" }),
+          apiFetch<unknown>("/reviews/me/stats", { token, cache: "no-store" }),
         ]);
 
         if (cancelled) return;
 
-        setOwned(Array.isArray(ownedData) ? ownedData : []);
-        setWishlist(Array.isArray(wishlistData) ? wishlistData : []);
-        setCustomLists(Array.isArray(custom) ? custom : []);
-        setPublicLists(Array.isArray(pub) ? pub : []);
-        setReviewStats(stats || null);
-      } catch (e: any) {
+        setOwned(asOwnedSetArray(ownedData));
+        setWishlist(asOwnedSetArray(wishlistData));
+        setCustomLists(asListLiteArray(custom));
+        setPublicLists(asListLiteArray(pub));
+
+        // stats can be an object; we’ll keep it permissive but non-any
+        if (isRecord(stats)) {
+          setReviewStats({
+            total_reviews: asNumber(stats.total_reviews) ?? undefined,
+            rated_reviews: asNumber(stats.rated_reviews) ?? undefined,
+            avg_rating: asNumber(stats.avg_rating) ?? undefined,
+            rating_histogram: stats.rating_histogram,
+            recent: stats.recent,
+          });
+        } else {
+          setReviewStats(null);
+        }
+      } catch (e: unknown) {
         if (cancelled) return;
-        const msg = e?.message || String(e);
+        const msg = e instanceof Error ? e.message : String(e);
         setErr(msg);
         setReviewStats(null);
         setReviewStatsErr(msg);
@@ -303,7 +417,7 @@ export default function AccountClient() {
       }
     }
 
-    loadAll();
+    void loadAll();
     return () => {
       cancelled = true;
     };
@@ -327,7 +441,7 @@ export default function AccountClient() {
       const need = recentReviewsRaw
         .filter((r) => !(r?.image_url || r?.imageUrl || r?.set_image_url || r?.setImageUrl))
         .map((r) => r?.set_num)
-        .filter(Boolean);
+        .filter((x): x is string => Boolean(x));
 
       if (!need.length) {
         setRecentEnriched(recentReviewsRaw);
@@ -336,14 +450,29 @@ export default function AccountClient() {
 
       try {
         const qs = encodeURIComponent([...new Set(need)].join(","));
-        const sets = await apiFetch<any>(`/sets/bulk?set_nums=${qs}`, { token, cache: "no-store" });
+        const setsRaw = await apiFetch<unknown>(`/sets/bulk?set_nums=${qs}`, { token, cache: "no-store" });
 
         if (cancelled) return;
 
-        const byNum = new Map((Array.isArray(sets) ? sets : []).map((s) => [s?.set_num, s]));
+        const setsArr = Array.isArray(setsRaw) ? setsRaw : [];
+        const byNum = new Map<string, Record<string, unknown>>();
+        for (const s of setsArr) {
+          if (!isRecord(s)) continue;
+          const sn = asString(s.set_num);
+          if (!sn) continue;
+          byNum.set(sn, s);
+        }
 
         const merged = recentReviewsRaw.map((r) => {
-          const s = byNum.get(r?.set_num);
+          const s = r.set_num ? byNum.get(r.set_num) : undefined;
+
+          const imageFromSet =
+            (s && typeof s.image_url === "string" && s.image_url) ||
+            (s && typeof s.imageUrl === "string" && s.imageUrl) ||
+            (s && typeof s.set_image_url === "string" && s.set_image_url) ||
+            (s && typeof s.setImageUrl === "string" && s.setImageUrl) ||
+            null;
+
           return {
             ...r,
             image_url:
@@ -351,10 +480,7 @@ export default function AccountClient() {
               r?.imageUrl ||
               r?.set_image_url ||
               r?.setImageUrl ||
-              s?.image_url ||
-              s?.imageUrl ||
-              s?.set_image_url ||
-              s?.setImageUrl ||
+              imageFromSet ||
               null,
           };
         });
@@ -365,7 +491,7 @@ export default function AccountClient() {
       }
     }
 
-    enrichRecent();
+    void enrichRecent();
     return () => {
       cancelled = true;
     };
@@ -471,10 +597,6 @@ export default function AccountClient() {
 
             {!reviewStatsLoading && !reviewStatsErr && reviewStats ? (
               <div className="mt-4 grid gap-3">
-                {/* IMPORTANT:
-                    - no auto-rows-fr
-                    - no tall histogram height that forces the row taller
-                    - fixed height only for these review tiles */}
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3 items-start">
                   <StatCard
                     label="Total reviews"
@@ -506,11 +628,10 @@ export default function AccountClient() {
                       </div>
                     </div>
 
-                    {/* Fill remaining space inside the fixed-height tile (won't grow the row) */}
                     <div className="mt-2 flex flex-1 items-end justify-center overflow-hidden">
                       <RatingHistogram
                         histogram={reviewStats.rating_histogram}
-                        height={40} // keep within the fixed tile height
+                        height={40}
                         barWidth={16}
                         gap={10}
                         showLabels={false}
@@ -528,11 +649,8 @@ export default function AccountClient() {
                     <p className="mt-2 text-sm text-zinc-500">No recent reviews.</p>
                   ) : (
                     <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-3">
-                      {recentToShow.map((r) => (
-                        <RecentMiniReviewCard
-                          key={`${r?.set_num || "x"}-${r?.created_at || r?.createdAt || Math.random()}`}
-                          r={r}
-                        />
+                      {recentToShow.map((r, idx) => (
+                        <RecentMiniReviewCard key={makeRecentKey(r, idx)} r={r} />
                       ))}
                     </div>
                   )}
@@ -550,7 +668,12 @@ export default function AccountClient() {
             ) : (
               <div className="mt-3 grid max-w-xl gap-2">
                 {topThemes.map(([theme, count]) => (
-                  <ThemeRow key={theme} theme={theme} count={count} href={`/collection/owned?theme=${encodeURIComponent(theme)}`} />
+                  <ThemeRow
+                    key={theme}
+                    theme={theme}
+                    count={count}
+                    href={`/collection/owned?theme=${encodeURIComponent(theme)}`}
+                  />
                 ))}
               </div>
             )}

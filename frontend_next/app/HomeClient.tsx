@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { isRecord } from "@/lib/types";
 
 type PublicList = {
   id: string | number;
@@ -97,17 +98,23 @@ export default function HomeClient() {
         setLoadingLists(true);
         setListsErr("");
 
-        const data = await apiFetch<any>("/lists/public", { cache: "no-store" });
-        const arr = Array.isArray(data) ? data : data?.results || [];
+        const data = await apiFetch<unknown>("/lists/public", { cache: "no-store" });
+
+        const arr: PublicList[] = Array.isArray(data)
+          ? (data as PublicList[])
+          : isRecord(data) && Array.isArray(data.results)
+            ? (data.results as PublicList[])
+            : [];
+
         if (!cancelled) setLists(arr.slice(0, 6));
-      } catch (e: any) {
-        if (!cancelled) setListsErr(e?.message || String(e));
+      } catch (e: unknown) {
+        if (!cancelled) setListsErr(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setLoadingLists(false);
       }
     }
 
-    load();
+    void load();
     return () => {
       cancelled = true;
     };

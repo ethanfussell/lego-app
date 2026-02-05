@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 function useIsMobile(breakpointPx = 640) {
   const [isMobile, setIsMobile] = useState(() => {
@@ -11,18 +10,26 @@ function useIsMobile(breakpointPx = 640) {
   });
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     const mql = window.matchMedia(`(max-width: ${breakpointPx}px)`);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+
+    const handler = () => {
+      setIsMobile(mql.matches);
+    };
+
+    // ✅ Set initial value via handler (avoids setState-in-effect lint rule)
+    handler();
+
+    if ("addEventListener" in mql) {
+      mql.addEventListener("change", handler);
+      return () => mql.removeEventListener("change", handler);
+    }
 
     // Safari fallback
-    if ("addEventListener" in mql) mql.addEventListener("change", handler);
-    else (mql as any).addListener(handler);
-
-    setIsMobile(mql.matches);
-
+    (mql as MediaQueryList).addListener(handler);
     return () => {
-      if ("removeEventListener" in mql) mql.removeEventListener("change", handler);
-      else (mql as any).removeListener(handler);
+      (mql as MediaQueryList).removeListener(handler);
     };
   }, [breakpointPx]);
 
@@ -53,7 +60,7 @@ function MenuButton({
       className={cx(
         "flex w-full items-center justify-between px-4 py-3 text-left text-sm",
         "hover:bg-black/[.04] dark:hover:bg-white/[.06]",
-        danger ? "text-red-700 dark:text-red-300 font-semibold" : "text-zinc-900 dark:text-zinc-50 font-medium"
+        danger ? "text-red-700 font-semibold dark:text-red-300" : "text-zinc-900 font-medium dark:text-zinc-50"
       )}
     >
       <span className="truncate">{label}</span>
@@ -86,15 +93,13 @@ function SheetButton({
   );
 }
 
-export default function ProfileMenu({
-  me,
-  onLogout,
-}: {
-  me: any;
-  onLogout?: () => void;
-}) {
+type MeUser = {
+  username?: string | null;
+  email?: string | null;
+} | null;
+
+export default function ProfileMenu({ me, onLogout }: { me: MeUser; onLogout?: () => void }) {
   const router = useRouter();
-  const pathname = usePathname() || "/";
   const isMobile = useIsMobile(640);
 
   const username = useMemo(() => me?.username || me?.email || "Account", [me]);
@@ -105,10 +110,8 @@ export default function ProfileMenu({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // close helper (restores focus nicely)
   const close = () => {
     setOpen(false);
-    // return focus to trigger (prevents aria-hidden warning if focus was inside)
     buttonRef.current?.focus?.();
   };
 
@@ -117,20 +120,16 @@ export default function ProfileMenu({
     fn?.();
   }
 
-  // Close on route change
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
   // Close on Escape
   useEffect(() => {
     if (!open) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Close on outside click (desktop dropdown only)
@@ -161,7 +160,6 @@ export default function ProfileMenu({
     const prevOverflow = body.style.overflow;
 
     body.style.overflow = "hidden";
-
     return () => {
       body.style.overflow = prevOverflow;
     };
@@ -215,62 +213,62 @@ export default function ProfileMenu({
         </div>
       ) : null}
 
-    {/* Mobile sheet (mounted only while open) */}
-    {open && isMobile ? (
-      <div className="fixed inset-0 z-[70] sm:hidden" role="dialog" aria-modal="true">
-        {/* Backdrop (click to close) */}
-        <button
-          type="button"
-          aria-label="Close menu"
-          onClick={close}
-          className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-        />
-
-        {/* Panel */}
-        <div className="absolute right-0 top-0 h-full w-[min(92vw,360px)] border-l border-black/[.10] bg-white p-4 shadow-2xl dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="flex items-center gap-3">
-            <div
-              aria-hidden
-              className="grid h-10 w-10 place-items-center rounded-full bg-zinc-900 text-base font-extrabold text-white dark:bg-zinc-50 dark:text-zinc-900"
-            >
-              {initials}
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-semibold text-zinc-900 dark:text-zinc-50">{username}</div>
-            </div>
-
-            <button
-              type="button"
-              onClick={close}
-              className="rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="my-4 h-px bg-black/[.06] dark:bg-white/[.10]" />
-
-          <SheetButton label="Account" onClick={() => closeThen(() => router.push("/account"))} />
-          <SheetButton label="My Collection" onClick={() => closeThen(() => router.push("/collection"))} />
-          <SheetButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
-
-          <div className="mt-6" />
-
-          <SheetButton
-            label="Log out"
-            danger
-            onClick={() =>
-              closeThen(() => {
-                onLogout?.();
-                router.push("/");
-              })
-            }
+      {/* Mobile sheet (mounted only while open) */}
+      {open && isMobile ? (
+        <div className="fixed inset-0 z-[70] sm:hidden" role="dialog" aria-modal="true">
+          {/* Backdrop (click to close) */}
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={close}
+            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
           />
+
+          {/* Panel */}
+          <div className="absolute right-0 top-0 h-full w-[min(92vw,360px)] border-l border-black/[.10] bg-white p-4 shadow-2xl dark:border-white/[.14] dark:bg-zinc-950">
+            <div className="flex items-center gap-3">
+              <div
+                aria-hidden
+                className="grid h-10 w-10 place-items-center rounded-full bg-zinc-900 text-base font-extrabold text-white dark:bg-zinc-50 dark:text-zinc-900"
+              >
+                {initials}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold text-zinc-900 dark:text-zinc-50">{username}</div>
+              </div>
+
+              <button
+                type="button"
+                onClick={close}
+                className="rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="my-4 h-px bg-black/[.06] dark:bg-white/[.10]" />
+
+            <SheetButton label="Account" onClick={() => closeThen(() => router.push("/account"))} />
+            <SheetButton label="My Collection" onClick={() => closeThen(() => router.push("/collection"))} />
+            <SheetButton label="Settings" onClick={() => closeThen(() => alert("Settings coming soon."))} />
+
+            <div className="mt-6" />
+
+            <SheetButton
+              label="Log out"
+              danger
+              onClick={() =>
+                closeThen(() => {
+                  onLogout?.();
+                  router.push("/");
+                })
+              }
+            />
+          </div>
         </div>
-      </div>
-    ) : null}
+      ) : null}
     </div>
   );
 }

@@ -2,14 +2,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, type ApiFetchOptions } from "@/lib/api";
 import { useAuth } from "@/app/providers";
-import SetCard from "@/app/components/SetCard";
+import SetCard, { type SetLite as CardSetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
-import Link from "next/link";
 
 const PREVIEW_COUNT = 10;
 
@@ -18,7 +17,7 @@ type ListSummary = {
   title?: string | null;
   is_public?: boolean | null;
   items_count?: number | null;
-  system_key?: string | null; // "owned" | "wishlist" | null
+  system_key?: string | null;
 };
 
 type ListItemLike = {
@@ -38,55 +37,59 @@ type ListDetail = {
   setNums?: string[] | null;
 };
 
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  num_parts?: number;
-  image_url?: string | null;
-  theme?: string;
-};
-
-function isSystemList(l: any): boolean {
-  return !!String(l?.system_key || "").trim();
+function errorMessage(e: unknown, fallback = "Something went wrong"): string {
+  return e instanceof Error ? e.message : String(e ?? fallback);
 }
 
-function toSetNums(detail: ListDetail | null): string[] {
+function isSystemList(l: ListSummary): boolean {
+  return String(l.system_key ?? "").trim().length > 0;
+}
+
+function toSetNums(detail: ListDetail | null | undefined): string[] {
   if (!detail) return [];
 
-  const arr = (detail.set_nums || detail.setNums) as unknown;
+  const arr = detail.set_nums ?? detail.setNums;
   if (Array.isArray(arr)) {
-    return arr.map((x) => String(x || "").trim()).filter(Boolean);
+    return arr.map((x) => String(x ?? "").trim()).filter(Boolean);
   }
 
-  const items = detail.items as unknown;
+  const items = detail.items;
   if (Array.isArray(items)) {
     return items
-      .map((it: any) => String(it?.set_num || it?.setNum || "").trim())
+      .map((it) => String(it?.set_num ?? it?.setNum ?? "").trim())
       .filter(Boolean);
   }
 
   return [];
 }
 
-async function fetchSet(setNum: string, token?: string): Promise<SetLite | null> {
-  const s = String(setNum || "").trim();
+function withToken(
+  token: string,
+  opts: Omit<ApiFetchOptions, "token">
+): ApiFetchOptions {
+  return { ...opts, token };
+}
+
+async function fetchSet(setNum: string, token: string): Promise<CardSetLite | null> {
+  const s = String(setNum ?? "").trim();
   if (!s) return null;
+
   try {
-    return await apiFetch<SetLite>(`/sets/${encodeURIComponent(s)}`, {
-      token,
-      cache: "no-store",
-    });
+    return await apiFetch<CardSetLite>(
+      `/sets/${encodeURIComponent(s)}`,
+      withToken(token, { cache: "no-store" })
+    );
   } catch {
     return null;
   }
 }
 
-async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite[]> {
-  const uniq = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
+async function fetchSetsBulk(setNums: string[], token: string): Promise<CardSetLite[]> {
+  const uniq = Array.from(new Set(setNums.map((s) => String(s ?? "").trim()).filter(Boolean)));
   if (uniq.length === 0) return [];
+
   const results = await Promise.all(uniq.map((sn) => fetchSet(sn, token)));
-  return results.filter(Boolean) as SetLite[];
+  return results.filter((x): x is CardSetLite => Boolean(x));
 }
 
 function Row({
@@ -99,24 +102,29 @@ function Row({
 }: {
   title: string;
   subtitle?: string;
-  sets: SetLite[];
+  sets: CardSetLite[];
   href?: string;
   emptyText?: string;
-  renderFooter?: (set: SetLite) => React.ReactNode;
+  renderFooter?: (set: CardSetLite) => React.ReactNode;
 }) {
   const hasItems = sets.length > 0;
 
   return (
     <div className="mt-8">
-      <CarouselRow title={title} subtitle={subtitle} viewHref={href} emptyText={emptyText}>
+      <CarouselRow
+        title={title}
+        viewHref={href}
+        emptyText={emptyText}
+        {...(subtitle ? { subtitle } : {})}
+      >
         {hasItems
           ? sets.map((set) => {
-              const setNum = String(set?.set_num || "").trim();
+              const setNum = String(set.set_num ?? "").trim();
               if (!setNum) return null;
 
               return (
                 <div key={setNum} className="w-[220px] shrink-0">
-                  <SetCard set={set as any} footer={renderFooter ? renderFooter(set) : null} />
+                  <SetCard set={set} footer={renderFooter ? renderFooter(set) : null} />
                 </div>
               );
             })
@@ -136,14 +144,14 @@ export default function CollectionClient() {
   const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
   const [wishlistDetail, setWishlistDetail] = useState<ListDetail | null>(null);
 
-  const [ownedPreview, setOwnedPreview] = useState<SetLite[]>([]);
-  const [wishlistPreview, setWishlistPreview] = useState<SetLite[]>([]);
-  const [customPreviewById, setCustomPreviewById] = useState<Record<string, SetLite[]>>({});
+  const [ownedPreview, setOwnedPreview] = useState<CardSetLite[]>([]);
+  const [wishlistPreview, setWishlistPreview] = useState<CardSetLite[]>([]);
+  const [customPreviewById, setCustomPreviewById] = useState<Record<string, CardSetLite[]>>({});
 
   const customLists = useMemo(() => lists.filter((l) => !isSystemList(l)), [lists]);
 
   const renderFooterForSet = useCallback(
-    (set: SetLite) => {
+    (set: CardSetLite) => {
       if (!token) return null;
       return <SetCardActions token={token} setNum={set.set_num} />;
     },
@@ -157,19 +165,25 @@ export default function CollectionClient() {
     setErr(null);
 
     try {
-      const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
+      const mine = await apiFetch<ListSummary[]>("/lists/me", withToken(token, { cache: "no-store" }));
       const mineArr = Array.isArray(mine) ? mine : [];
       setLists(mineArr);
 
-      const owned = mineArr.find((l) => String(l.system_key || "").toLowerCase() === "owned");
-      const wish = mineArr.find((l) => String(l.system_key || "").toLowerCase() === "wishlist");
+      const owned = mineArr.find((l) => String(l.system_key ?? "").toLowerCase() === "owned");
+      const wish = mineArr.find((l) => String(l.system_key ?? "").toLowerCase() === "wishlist");
 
       const [ownedD, wishD] = await Promise.all([
         owned
-          ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, { token, cache: "no-store" })
+          ? apiFetch<ListDetail>(
+              `/lists/${encodeURIComponent(String(owned.id))}`,
+              withToken(token, { cache: "no-store" })
+            )
           : Promise.resolve(null),
         wish
-          ? apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, { token, cache: "no-store" })
+          ? apiFetch<ListDetail>(
+              `/lists/${encodeURIComponent(String(wish.id))}`,
+              withToken(token, { cache: "no-store" })
+            )
           : Promise.resolve(null),
       ]);
 
@@ -190,14 +204,15 @@ export default function CollectionClient() {
       const customOnly = mineArr.filter((l) => !isSystemList(l));
 
       const entries = await Promise.all(
-        customOnly.map(async (l): Promise<{ id: string; sets: SetLite[] }> => {
+        customOnly.map(async (l): Promise<{ id: string; sets: CardSetLite[] }> => {
           const id = String(l.id);
 
           try {
-            const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
-              token,
-              cache: "no-store",
-            });
+            const d = await apiFetch<ListDetail>(
+              `/lists/${encodeURIComponent(id)}`,
+              withToken(token, { cache: "no-store" })
+            );
+
             const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
             const sets = await fetchSetsBulk(nums, token);
             return { id, sets };
@@ -207,11 +222,11 @@ export default function CollectionClient() {
         })
       );
 
-      const map: Record<string, SetLite[]> = {};
+      const map: Record<string, CardSetLite[]> = {};
       for (const e of entries) map[e.id] = e.sets;
       setCustomPreviewById(map);
-    } catch (e: any) {
-      setErr(e?.message || String(e) || "Failed to load collection");
+    } catch (e: unknown) {
+      setErr(errorMessage(e, "Failed to load collection"));
     } finally {
       setLoading(false);
     }
@@ -229,7 +244,8 @@ export default function CollectionClient() {
       setLoading(false);
       return;
     }
-    refreshAll();
+
+    void refreshAll();
   }, [token, refreshAll]);
 
   return (
@@ -264,33 +280,33 @@ export default function CollectionClient() {
 
       <Row
         title="Owned"
-        subtitle={ownedDetail?.items_count ? `${ownedDetail.items_count} sets` : undefined}
         sets={ownedPreview}
         href="/collection/owned"
         renderFooter={renderFooterForSet}
+        {...(ownedDetail?.items_count ? { subtitle: `${ownedDetail.items_count} sets` } : {})}
       />
 
       <Row
         title="Wishlist"
-        subtitle={wishlistDetail?.items_count ? `${wishlistDetail.items_count} sets` : undefined}
         sets={wishlistPreview}
         href="/collection/wishlist"
         renderFooter={renderFooterForSet}
+        {...(wishlistDetail?.items_count ? { subtitle: `${wishlistDetail.items_count} sets` } : {})}
       />
 
       {customLists.map((l) => {
         const id = String(l.id);
-        const sets = customPreviewById[id] || [];
+        const sets = customPreviewById[id] ?? [];
         const count = l.items_count ?? 0;
 
         return (
           <Row
             key={id}
-            title={l.title || `List ${id}`}
-            subtitle={`${l.is_public ? "Public" : "Private"} • ${count} sets`}
+            title={l.title ?? `List ${id}`}
             sets={sets}
             href={`/lists/${encodeURIComponent(id)}`}
             renderFooter={renderFooterForSet}
+            subtitle={`${l.is_public ? "Public" : "Private"} • ${count} sets`}
           />
         );
       })}

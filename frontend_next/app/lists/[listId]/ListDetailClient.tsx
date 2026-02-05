@@ -1,4 +1,4 @@
-// frontend_next/app/lists/[id]/ListDetailClient.tsx
+// frontend_next/app/lists/[listId]/ListDetailClient.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -36,6 +36,10 @@ type SetLite = {
   theme?: string;
 };
 
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 function toSetNums(detail: ListDetail | null | undefined): string[] {
   if (!detail) return [];
   if (Array.isArray(detail.set_nums)) {
@@ -54,14 +58,13 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
   const params = new URLSearchParams();
   params.set("set_nums", nums.join(","));
 
-  const data = await apiFetch<SetLite[]>(`/sets/bulk?${params.toString()}`, {
-    token,
-    cache: "no-store",
-  });
+  const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, { token, cache: "no-store" });
+  const arr = Array.isArray(data) ? (data as unknown[]).filter((x): x is SetLite => {
+    return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+  }) : [];
 
-  const arr = Array.isArray(data) ? data : [];
   const byNum = new Map(arr.map((s) => [String(s.set_num), s]));
-  return nums.map((n) => byNum.get(n)).filter(Boolean) as SetLite[];
+  return nums.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
 }
 
 function chipClass(variant: "neutral" | "good" | "warn") {
@@ -92,16 +95,12 @@ export default function ListDetailClient({ listId }: { listId: string }) {
   const [notFound, setNotFound] = useState(false);
   const [forbidden, setForbidden] = useState(false);
 
-  // Copy-link UX
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [copyErr, setCopyErr] = useState<string | null>(null);
 
-  const setNums = useMemo(() => toSetNums(detail), [detail]);
-  const setNumSet = useMemo(() => new Set(setNums.map(String)), [setNums]); // kept if you use it elsewhere later
-
   const ownerName = useMemo(() => {
-    const d: any = detail || {};
-    return String(d.owner_username || d.owner || d.username || "").trim();
+    if (!detail) return "";
+    return String(detail.owner_username || detail.owner || detail.username || "").trim();
   }, [detail]);
 
   const isSystem = !!detail?.is_system || !!String(detail?.system_key || "").trim();
@@ -134,19 +133,14 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     setForbidden(false);
 
     try {
-      const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, {
-        token,
-        cache: "no-store",
-      });
-
+      const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
       setDetail(d || null);
 
       const nums = toSetNums(d || null);
       const bulk = await fetchSetsBulk(nums, token);
       setSets(bulk);
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e instanceof APIError) {
-        // NOTE: some backends return 404 for "private or not found" to avoid leaking existence.
         if (e.status === 404) {
           setNotFound(true);
           setDetail(null);
@@ -176,7 +170,6 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         return;
       }
 
-      // Wait for auth to hydrate (localStorage token loaded)
       if (!hydrated) return;
 
       try {
@@ -185,8 +178,8 @@ export default function ListDetailClient({ listId }: { listId: string }) {
           setErr(null);
         }
         await refresh();
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || String(e));
+      } catch (e: unknown) {
+        if (!cancelled) setErr(errorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -205,19 +198,13 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     setSavingPrivacy(true);
     setErr(null);
 
-    // optimistic
     setDetail((d) => (d ? { ...d, is_public: next } : d));
 
     try {
-      await apiFetch(`/lists/${encodeURIComponent(id)}`, {
-        token,
-        method: "PATCH",
-        body: { is_public: next },
-      });
-    } catch (e: any) {
-      // rollback
+      await apiFetch(`/lists/${encodeURIComponent(id)}`, { token, method: "PATCH", body: { is_public: next } });
+    } catch (e: unknown) {
       setDetail((d) => (d ? { ...d, is_public: !next } : d));
-      setErr(e?.message || String(e));
+      setErr(errorMessage(e));
     } finally {
       setSavingPrivacy(false);
     }
@@ -230,18 +217,13 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     setErr(null);
     setRemoving((m) => ({ ...m, [sn]: true }));
 
-    // optimistic UI
     setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
     setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
 
     try {
-      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, {
-        token,
-        method: "DELETE",
-      });
-    } catch (e: any) {
-      setErr(e?.message || String(e));
-      // safest: refresh truth
+      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, { token, method: "DELETE" });
+    } catch (e: unknown) {
+      setErr(errorMessage(e));
       try {
         await refresh();
       } catch {
@@ -258,8 +240,6 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
   async function copyLink() {
     setCopyErr(null);
-
-    // only makes sense in browser
     if (typeof window === "undefined") return;
 
     const url = window.location.href;
@@ -268,28 +248,22 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
       } else {
-        // fallback
         const ok = window.prompt("Copy this link:", url);
-        if (ok === null) {
-          // user cancelled; don't treat as error
-          return;
-        }
+        if (ok === null) return;
       }
 
       setCopyState("copied");
       window.setTimeout(() => setCopyState("idle"), 1200);
-    } catch (e: any) {
-      // last resort fallback
+    } catch (e: unknown) {
       try {
         window.prompt("Copy this link:", url);
       } catch {
         // ignore
       }
-      setCopyErr(e?.message || "Could not copy link.");
+      setCopyErr(errorMessage(e) || "Could not copy link.");
     }
   }
 
-  // Optional polish: don't show "List {id}" when it might be private/not found
   const title = detail?.title?.trim() || "Private";
   const description = detail?.description?.trim() || "";
 
@@ -302,9 +276,11 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
   const showGrid = !loading && !err && !notFound && !forbidden && sets.length > 0;
 
+  // Avoid `as any` for SetCard props
+  type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4 pt-10">
         <div className="min-w-0">
           <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
@@ -340,7 +316,6 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             Back
           </Link>
 
-          {/* ✅ Copy link only for public lists */}
           {isPublic ? (
             <button
               type="button"
@@ -378,17 +353,12 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
       {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
 
-      {/* States */}
       {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
       {err ? <p className="mt-8 text-sm text-red-600">Error: {err}</p> : null}
 
-      {/* "Not found" (may include private when backend uses 404 for privacy) */}
       {!loading && !err && notFound ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">
-            {token ? "List not found" : "This list may be private"}
-          </div>
-
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">{token ? "List not found" : "This list may be private"}</div>
           <div className="mt-2 text-zinc-600 dark:text-zinc-400">
             {token
               ? "It may have been deleted, the link is wrong, or you don’t have access."
@@ -474,14 +444,33 @@ export default function ListDetailClient({ listId }: { listId: string }) {
         </div>
       ) : null}
 
-      {/* Grid */}
       {showGrid ? (
         <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
             const sn = String(s.set_num);
+            const isRemoving = !!removing[sn];
+
             return (
-              <li key={sn}>
-                <SetCard set={s as any} footer={token ? <SetCardActions token={token} setNum={sn} /> : null} />
+              <li key={sn} className={isRemoving ? "opacity-60" : ""}>
+                <SetCard
+                  set={s as unknown as SetCardSetProp}
+                  footer={
+                    <div className="space-y-2">
+                      {token ? <SetCardActions token={token} setNum={sn} /> : null}
+
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          onClick={() => removeFromThisList(sn)}
+                          disabled={isRemoving}
+                          className="inline-flex w-full items-center justify-center rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                        >
+                          {isRemoving ? "Removing…" : "Remove"}
+                        </button>
+                      ) : null}
+                    </div>
+                  }
+                />
               </li>
             );
           })}

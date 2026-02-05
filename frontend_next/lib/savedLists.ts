@@ -1,40 +1,70 @@
-export const SAVED_LIST_IDS_KEY = "saved_list_ids";
+// frontend_next/lib/savedLists.ts
+const STORAGE_KEY = "saved_list_ids";
+const EVENT_NAME = "saved_lists_updated";
 
-export function savedListsEventName() {
-  return "saved_lists_updated";
+function uniqStrings(arr: string[]) {
+  return [...new Set(arr.map((s) => s.trim()).filter(Boolean))];
 }
 
-export function readSavedListIds(): string[] {
+function safeRead(): string[] {
+  if (typeof window === "undefined") return [];
+
   try {
-    const raw = localStorage.getItem(SAVED_LIST_IDS_KEY);
-    const arr = JSON.parse(raw || "[]");
-    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) return [];
+    return uniqStrings(parsed.map(String));
   } catch {
     return [];
   }
 }
 
-export function writeSavedListIds(ids: any[]): string[] {
-  const cleaned = Array.from(new Set((ids || []).map(String).filter(Boolean)));
-  localStorage.setItem(SAVED_LIST_IDS_KEY, JSON.stringify(cleaned));
+function safeWrite(ids: string[]) {
+  if (typeof window === "undefined") return;
 
-  // same-tab update (storage event doesn’t fire in same tab reliably)
-  window.dispatchEvent(new Event(savedListsEventName()));
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(uniqStrings(ids)));
 
-  return cleaned;
+  // notify same-tab listeners
+  window.dispatchEvent(new Event(EVENT_NAME));
 }
 
-export function toggleSavedListId(id: any): string[] {
-  const key = String(id);
-  const ids = readSavedListIds();
-  const s = new Set(ids);
-
-  if (s.has(key)) s.delete(key);
-  else s.add(key);
-
-  return writeSavedListIds([...s]);
+export function savedListsEventName() {
+  return EVENT_NAME;
 }
 
-export function isListSaved(id: any): boolean {
-  return readSavedListIds().includes(String(id));
+export function readSavedListIds(): string[] {
+  return safeRead();
+}
+
+export function setSavedListIds(ids: string[]) {
+  safeWrite(ids);
+}
+
+export function isSavedListId(id: string) {
+  const key = String(id || "").trim();
+  if (!key) return false;
+  return safeRead().includes(key);
+}
+
+export function addSavedListId(id: string) {
+  const key = String(id || "").trim();
+  if (!key) return safeRead();
+  const next = uniqStrings([...safeRead(), key]);
+  safeWrite(next);
+  return next;
+}
+
+export function removeSavedListId(id: string) {
+  const key = String(id || "").trim();
+  const next = safeRead().filter((x) => x !== key);
+  safeWrite(next);
+  return next;
+}
+
+export function toggleSavedListId(id: string) {
+  const key = String(id || "").trim();
+  if (!key) return safeRead();
+  return isSavedListId(key) ? removeSavedListId(key) : addSavedListId(key);
 }
