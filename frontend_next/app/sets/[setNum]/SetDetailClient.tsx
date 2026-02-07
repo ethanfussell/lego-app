@@ -351,46 +351,54 @@ export default function SetDetailClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-  // Similar sets (by theme)
-  useEffect(() => {
-    if (!setDetail?.theme) {
-      setSimilarSets([]);
-      return;
+// -------------------------------
+// Similar sets (by theme)
+// -------------------------------
+useEffect(() => {
+  const theme = String(setDetail?.theme ?? "").trim();
+
+  if (!theme) {
+    setSimilarSets([]);
+    return;
+  }
+
+  let cancelled = false;
+
+  async function fetchSimilar() {
+    try {
+      setSimilarLoading(true);
+      setSimilarError(null);
+
+      const p = new URLSearchParams();
+      p.set("q", theme);
+      p.set("sort", "rating");
+      p.set("order", "desc");
+      p.set("page", "1");
+      p.set("limit", "24");
+
+      const data = await apiFetch<unknown>(`/sets?${p.toString()}`, { cache: "no-store" });
+
+      const items: SetLite[] = Array.isArray(data)
+        ? (data as SetLite[])
+        : Array.isArray((data as { results?: unknown })?.results)
+        ? ((data as { results: SetLite[] }).results as SetLite[])
+        : [];
+
+      const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
+      if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
+    } catch (e: unknown) {
+      if (!cancelled) setSimilarError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (!cancelled) setSimilarLoading(false);
     }
+  }
 
-    let cancelled = false;
+  void fetchSimilar();
 
-    async function fetchSimilar() {
-      try {
-        setSimilarLoading(true);
-        setSimilarError(null);
-
-        const theme = String(setDetail.theme || "").trim();
-        if (!theme) return;
-
-        const p = new URLSearchParams();
-        p.set("q", theme);
-        p.set("sort", "rating");
-        p.set("order", "desc");
-        p.set("page", "1");
-        p.set("limit", "24");
-
-        const data = await apiFetch<unknown>(`/sets?${p.toString()}`, { cache: "no-store" });
-        const items = normalizeSetsResponse(data as SetsResponse).filter((s) => String(s.set_num) !== String(setNum));
-
-        if (!cancelled) setSimilarSets(items.slice(0, PREVIEW_SIMILAR_LIMIT));
-      } catch (e: unknown) {
-        if (!cancelled) setSimilarError(errorMessage(e));
-      } finally {
-        if (!cancelled) setSimilarLoading(false);
-      }
-    }
-
-    fetchSimilar();
-    return () => {
-      cancelled = true;
-    };
-  }, [setDetail?.theme, setNum]);
+  return () => {
+    cancelled = true;
+  };
+}, [setDetail?.theme, setNum]);
 
   // Reviews: create/update
   async function upsertMyReview(payload: { rating: number | null; text: string | null }) {

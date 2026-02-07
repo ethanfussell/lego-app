@@ -1,5 +1,4 @@
 // frontend_next/lib/api.ts
-
 import type { JsonValue } from "./types";
 import { isRecord } from "./types";
 
@@ -15,54 +14,71 @@ export class APIError extends Error {
   }
 }
 
-function originForServer(): string {
-  if (process.env.NODE_ENV !== "production") {
-    const port = process.env.PORT || "3000";
-    return `http://localhost:${port}`;
-  }
+function stripTrailingSlashes(s: string): string {
+  return s.replace(/\/+$/, "");
+}
 
+/**
+ * If someone sets NEXT_PUBLIC_API_BASE_URL=http://localhost (no port),
+ * we almost always mean the FastAPI dev server on :8000.
+ */
+function normalizeLocalhostBase(raw: string): string {
+  const s = stripTrailingSlashes(raw.trim());
+  if (!s) return s;
+
+  // http(s)://localhost  (no port)
+  if (/^https?:\/\/localhost$/i.test(s)) return `${s}:8000`;
+
+  // http(s)://127.0.0.1  (no port)
+  if (/^https?:\/\/127\.0\.0\.1$/i.test(s)) return `${s}:8000`;
+
+  return s;
+}
+
+function originForServer(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || "";
-  if (explicit) return explicit.replace(/\/+$/, "");
+  if (explicit) return stripTrailingSlashes(explicit);
 
   const vercel = process.env.VERCEL_URL || "";
-  if (vercel) return `https://${vercel}`.replace(/\/+$/, "");
+  if (vercel) return stripTrailingSlashes(`https://${vercel}`);
 
-  return "http://localhost:3000";
+  const port = process.env.PORT || "3000";
+  return `http://localhost:${port}`;
 }
 
 function apiBase(): string {
   const useDirect = process.env.USE_DIRECT_BACKEND === "1" || process.env.USE_DIRECT_BACKEND === "true";
 
   if (useDirect) {
-    return (
+    const raw =
       process.env.API_BASE_URL ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://127.0.0.1:8000"
-    );
+      "http://127.0.0.1:8000";
+
+    return normalizeLocalhostBase(raw);
   }
 
-  if (typeof window === "undefined") {
-    return `${originForServer()}/api`;
-  }
-
+  // If not direct, always go through the Next proxy route.
+  if (typeof window === "undefined") return `${originForServer()}/api`;
   return "/api";
 }
 
-function joinUrl(base: string, path: string) {
-  const b = base.replace(/\/+$/, "");
+function joinUrl(base: string, path: string): string {
+  const b = stripTrailingSlashes(base);
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
 
-function buildUrl(path: string) {
+function buildUrl(path: string): string {
   if (!path) throw new Error("apiFetch: missing path");
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
 
   const base = apiBase();
 
-  if (base.endsWith("/api") || base === "/api") {
-    if (path.startsWith("/api/")) return joinUrl(base, path.replace(/^\/api/, ""));
+  // If base is /api or .../api, avoid double-prefixing /api
+  if (base === "/api" || base.endsWith("/api")) {
     if (path === "/api") return base;
+    if (path.startsWith("/api/")) return joinUrl(base, path.replace(/^\/api/, ""));
     return joinUrl(base, path);
   }
 
@@ -78,7 +94,6 @@ export type ApiFetchOptions = Omit<RequestInit, "body" | "headers" | "method"> &
   headers?: Record<string, string>;
 };
 
-// Reads response body safely as unknown
 async function readBody(resp: Response): Promise<unknown> {
   const text = await resp.text();
   if (!text) return null;
@@ -91,7 +106,6 @@ async function readBody(resp: Response): Promise<unknown> {
 }
 
 function errorDetailFromBody(body: unknown): string {
-  // FastAPI often returns { detail: ... }
   if (isRecord(body) && "detail" in body) return String((body as Record<string, unknown>).detail);
   if (typeof body === "string") return body;
   try {
@@ -99,6 +113,32 @@ function errorDetailFromBody(body: unknown): string {
   } catch {
     return "";
   }
+}
+
+function logIfHtmlOrError(resp: Response, body: unknown) {
+  const ct = resp.headers.get("content-type") || "";
+  const isHtml = ct.includes("text/html") || (typeof body === "string" && body.trim().startsWith("<!DOCTYPE html"));
+
+  if (resp.ok && !isHtml) return;
+
+  const preview =
+    typeof body === "string"
+      ? body.slice(0, 180)
+      : (() => {
+          try {
+            return JSON.stringify(body).slice(0, 180);
+          } catch {
+            return "";
+          }
+        })();
+
+  // eslint-disable-next-line no-console
+  console.error("[apiFetch] bad response", {
+    url: resp.url,
+    status: resp.status,
+    contentType: ct,
+    preview,
+  });
 }
 
 export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions = {}): Promise<T> {
@@ -113,12 +153,10 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions 
 
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
 
-  const upper = method; // already constrained to HttpMethod
+  const upper: HttpMethod = method;
   const hasBody = body != null && upper !== "GET";
 
-  if (hasBody && !finalHeaders["Content-Type"]) {
-    finalHeaders["Content-Type"] = "application/json";
-  }
+  if (hasBody && !finalHeaders["Content-Type"]) finalHeaders["Content-Type"] = "application/json";
 
   const isJson = (finalHeaders["Content-Type"] || "").includes("application/json");
 
@@ -127,21 +165,15 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions 
     headers: finalHeaders,
     cache: "no-store",
     ...rest,
-    ...(hasBody
-      ? { body: isJson ? JSON.stringify(body) : String(body) }
-      : {}),
+    ...(hasBody ? { body: isJson ? JSON.stringify(body) : String(body) } : {}),
   };
 
   const resp = await fetch(url, init);
-
   const data = await readBody(resp);
 
-  if (!resp.ok) {
-    throw new APIError(resp.status, errorDetailFromBody(data));
-  }
+  logIfHtmlOrError(resp, data);
 
-  // If you rely on null for empty bodies, you can keep it:
-  // but strict code is nicer if we just return `null as unknown as T` is NOT great.
-  // Instead: if data is null, return it and let T include null when needed.
+  if (!resp.ok) throw new APIError(resp.status, errorDetailFromBody(data));
+
   return data as T;
 }

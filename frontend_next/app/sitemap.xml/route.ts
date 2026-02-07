@@ -34,10 +34,10 @@ function isThemeItem(x: unknown): x is ThemeItem {
   return typeof x === "object" && x !== null;
 }
 
-function toThemeItemArray(data: unknown): ThemeItem[] {
-  if (Array.isArray(data)) return data.filter(isThemeItem);
-  if (typeof data === "object" && data !== null) {
-    const results = (data as { results?: unknown }).results;
+function toThemeItems(x: unknown): ThemeItem[] {
+  if (Array.isArray(x)) return x.filter(isThemeItem);
+  if (typeof x === "object" && x !== null) {
+    const results = (x as { results?: unknown }).results;
     return Array.isArray(results) ? results.filter(isThemeItem) : [];
   }
   return [];
@@ -49,8 +49,7 @@ async function fetchThemes(): Promise<string[]> {
     if (!res.ok) return [];
     const data: unknown = await res.json();
 
-    const arr = toThemeItemArray(data);
-    return arr
+    return toThemeItems(data)
       .map((t) => String(t.theme ?? t.name ?? "").trim())
       .filter(Boolean);
   } catch {
@@ -75,14 +74,13 @@ export async function GET(req: NextRequest) {
   const base = siteUrl(req);
   const now = isoDate();
 
-  // Static pages you want indexed (adjust as needed)
   const staticPaths = [
-    "/", // home
-    "/search", // if you have it
+    "/",
+    "/search",
     "/login",
     "/signup",
-    "/lists", // if exists
-    "/me", // if exists
+    "/lists",
+    "/me",
   ];
 
   const themes = await fetchThemes();

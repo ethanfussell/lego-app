@@ -8,6 +8,9 @@ import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 
+// ✅ Use the component's prop type, so we can't mismatch.
+type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
+
 type ReviewRow = {
   set_num?: string | null;
   set_name?: string | null;
@@ -16,7 +19,6 @@ type ReviewRow = {
   created_at?: string | null;
   updated_at?: string | null;
 
-  // image fields we may see from various endpoints
   image_url?: string | null;
   imageUrl?: string | null;
   set_image_url?: string | null;
@@ -25,14 +27,12 @@ type ReviewRow = {
   setImage?: string | null;
 };
 
-type RatingHistogramData = unknown;
-
-type ReviewStats = {
+type ReviewStatsApi = {
   total_reviews?: number | null;
   rated_reviews?: number | null;
   avg_rating?: number | null;
-  rating_histogram?: RatingHistogramData;
-  recent?: ReviewRow[] | null;
+  rating_histogram?: unknown;
+  recent?: unknown;
 };
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
@@ -53,6 +53,49 @@ function formatDate(iso: unknown) {
   } catch {
     return "";
   }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function asNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ✅ Normalize API unknown -> exact HistogramProp type expected by RatingHistogram
+function normalizeHistogram(v: unknown): HistogramProp | null {
+  // Most histogram components accept either:
+  // - a record like { "5": 10, "4": 3 }
+  // - or an array like [{ rating: 5, count: 10 }, ...]
+  // But since we don't want a mismatched named type, we just build a compatible shape.
+
+  if (Array.isArray(v)) {
+    const arr = v
+      .map((x) => {
+        if (!isRecord(x)) return null;
+        const rating = Number(x.rating);
+        const count = Number(x.count);
+        if (!Number.isFinite(rating) || !Number.isFinite(count)) return null;
+        return { rating, count };
+      })
+      .filter((x): x is { rating: number; count: number } => Boolean(x));
+
+    return (arr.length ? (arr as unknown as HistogramProp) : null);
+  }
+
+  if (isRecord(v)) {
+    const out: Record<string, number> = {};
+    for (const [k, val] of Object.entries(v)) {
+      const n = Number(val);
+      if (Number.isFinite(n)) out[String(k)] = n;
+    }
+    return (Object.keys(out).length ? (out as unknown as HistogramProp) : null);
+  }
+
+  return null;
 }
 
 function clampStyle(lines: number): React.CSSProperties {
@@ -100,13 +143,7 @@ function MiniSetReviewCard({ r }: { r: ReviewRow }) {
   const when = formatDate(r.updated_at ?? r.created_at);
 
   const imageUrl =
-    r.image_url ??
-    r.imageUrl ??
-    r.set_image_url ??
-    r.setImageUrl ??
-    r.set_image ??
-    r.setImage ??
-    null;
+    r.image_url ?? r.imageUrl ?? r.set_image_url ?? r.setImageUrl ?? r.set_image ?? r.setImage ?? null;
 
   return (
     <Link
@@ -159,7 +196,6 @@ export default function MyReviewsClient() {
   const isLoggedIn = hydrated && !!token;
 
   const username = useMemo(() => {
-    // We only *need* username for display; keep it safe and simple.
     return me?.username ? String(me.username) : "Account";
   }, [me?.username]);
 
@@ -190,7 +226,7 @@ export default function MyReviewsClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const [stats, setStats] = useState<ReviewStats | null>(null);
+  const [stats, setStats] = useState<ReviewStatsApi | null>(null);
   const [statsErr, setStatsErr] = useState("");
 
   useEffect(() => {
@@ -213,14 +249,14 @@ export default function MyReviewsClient() {
 
       try {
         const [reviewsData, statsData] = await Promise.all([
-          apiFetch<ReviewRow[]>("/sets/reviews/me?limit=200", { token, cache: "no-store" }),
-          apiFetch<ReviewStats>("/reviews/me/stats", { token, cache: "no-store" }),
+          apiFetch<unknown>("/sets/reviews/me?limit=200", { token, cache: "no-store" }),
+          apiFetch<unknown>("/reviews/me/stats", { token, cache: "no-store" }),
         ]);
 
         if (cancelled) return;
 
-        setRows(Array.isArray(reviewsData) ? reviewsData : []);
-        setStats(statsData || null);
+        setRows(Array.isArray(reviewsData) ? (reviewsData as ReviewRow[]) : []);
+        setStats(isRecord(statsData) ? (statsData as ReviewStatsApi) : null);
       } catch (e: unknown) {
         if (cancelled) return;
         const msg = errorMessage(e, "Failed to load reviews");
@@ -246,9 +282,11 @@ export default function MyReviewsClient() {
     });
   }, [rows, onlyRated, onlyWithText]);
 
-  const totalReviews = stats?.total_reviews ?? rows.length ?? 0;
-  const ratedReviews = stats?.rated_reviews ?? null;
-  const avgRating = stats?.avg_rating ?? null;
+  const totalReviews = asNumber(stats?.total_reviews) ?? rows.length ?? 0;
+  const ratedReviews = asNumber(stats?.rated_reviews);
+  const avgRating = asNumber(stats?.avg_rating);
+
+  const histogram = useMemo(() => normalizeHistogram(stats?.rating_histogram), [stats?.rating_histogram]);
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
@@ -289,7 +327,6 @@ export default function MyReviewsClient() {
         </div>
       ) : (
         <>
-          {/* Mini stats + breakdown */}
           <section className="mt-6">
             <div className="flex flex-wrap items-stretch gap-3">
               <div className="min-w-[220px] flex-1">
@@ -323,9 +360,9 @@ export default function MyReviewsClient() {
                   <div className="flex items-center justify-center">
                     {statsErr ? (
                       <div className="text-sm text-red-600">Error loading</div>
-                    ) : stats?.rating_histogram ? (
+                    ) : histogram ? (
                       <RatingHistogram
-                        histogram={stats.rating_histogram}
+                        histogram={histogram}
                         height={52}
                         barWidth={18}
                         gap={8}
@@ -341,7 +378,6 @@ export default function MyReviewsClient() {
             </div>
           </section>
 
-          {/* Filters */}
           <section className="mt-4 flex flex-wrap items-center gap-4">
             <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
               <input

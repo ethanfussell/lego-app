@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import ThemesClient from "./ThemesClient";
+import ThemesClient from "../ThemesClient";
 
 type SetSummary = {
   set_num: string;

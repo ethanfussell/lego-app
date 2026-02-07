@@ -9,6 +9,17 @@ import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 import { readSavedListIds, savedListsEventName } from "@/lib/savedLists";
 
+/** ✅ Use the EXACT prop type expected by RatingHistogram (avoids "two Histograms" issue) */
+type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
+
+type ReviewStats = {
+  total_reviews?: number;
+  rated_reviews?: number;
+  avg_rating?: number | null;
+  rating_histogram?: unknown; // API can be unknown → we validate before passing to RatingHistogram
+  recent?: unknown;
+};
+
 type OwnedSet = {
   set_num?: string;
   name?: string;
@@ -40,14 +51,6 @@ type ReviewRecent = {
   setImageUrl?: string | null;
   set_image?: string | null;
   setImage?: string | null;
-};
-
-type ReviewStats = {
-  total_reviews?: number;
-  rated_reviews?: number;
-  avg_rating?: number;
-  rating_histogram?: unknown;
-  recent?: unknown;
 };
 
 function formatRating(rating: unknown): string {
@@ -107,8 +110,8 @@ function asOwnedSetArray(v: unknown): OwnedSet[] {
     out.push({
       set_num: asString(item.set_num),
       name: asString(item.name) || undefined,
-      theme: typeof item.theme === "string" ? item.theme : (item.theme === null ? null : undefined),
-      pieces: typeof item.pieces === "number" ? item.pieces : (item.pieces === null ? null : undefined),
+      theme: typeof item.theme === "string" ? item.theme : item.theme === null ? null : undefined,
+      pieces: typeof item.pieces === "number" ? item.pieces : item.pieces === null ? null : undefined,
     });
   }
 
@@ -122,10 +125,7 @@ function asListLiteArray(v: unknown): ListLite[] {
   for (const item of v) {
     if (!isRecord(item)) continue;
     out.push({
-      id:
-        typeof item.id === "string" || typeof item.id === "number"
-          ? item.id
-          : undefined,
+      id: typeof item.id === "string" || typeof item.id === "number" ? item.id : undefined,
       title: asString(item.title) || undefined,
       name: asString(item.name) || undefined,
       items_count: typeof item.items_count === "number" ? item.items_count : undefined,
@@ -134,6 +134,35 @@ function asListLiteArray(v: unknown): ListLite[] {
   }
 
   return out;
+}
+
+/**
+ * ✅ Validate unknown into EXACT HistogramProp used by RatingHistogram
+ * We accept either:
+ * - Record<string, number>
+ * - Array<{rating:number; count:number}>
+ */
+function isHistogramProp(x: unknown): x is HistogramProp {
+  if (!x) return false;
+
+  if (Array.isArray(x)) {
+    return x.every((it) => {
+      if (!it || typeof it !== "object") return false;
+      const r = (it as { rating?: unknown }).rating;
+      const c = (it as { count?: unknown }).count;
+      return typeof r === "number" && Number.isFinite(r) && typeof c === "number" && Number.isFinite(c);
+    });
+  }
+
+  if (typeof x === "object") {
+    return Object.values(x as Record<string, unknown>).every((v) => typeof v === "number" && Number.isFinite(v));
+  }
+
+  return false;
+}
+
+function toHistogramProp(x: unknown): HistogramProp | null {
+  return isHistogramProp(x) ? x : null;
 }
 
 function CardShell({ children }: { children: React.ReactNode }) {
@@ -171,9 +200,7 @@ function StatCard({
       {children ? (
         <div className="mt-2">{children}</div>
       ) : (
-        <div className="mt-2 text-3xl font-extrabold leading-none text-zinc-900 dark:text-zinc-50">
-          {value}
-        </div>
+        <div className="mt-2 text-3xl font-extrabold leading-none text-zinc-900 dark:text-zinc-50">{value}</div>
       )}
 
       {sub ? <div className="mt-1 text-sm text-zinc-500">{sub}</div> : null}
@@ -220,13 +247,7 @@ function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
   const text = String(r?.text || "").trim();
 
   const imageUrl =
-    r?.image_url ||
-    r?.imageUrl ||
-    r?.set_image_url ||
-    r?.setImageUrl ||
-    r?.set_image ||
-    r?.setImage ||
-    null;
+    r?.image_url || r?.imageUrl || r?.set_image_url || r?.setImageUrl || r?.set_image || r?.setImage || null;
 
   return (
     <Link
@@ -294,16 +315,13 @@ export default function AccountClient() {
 
   const [recentEnriched, setRecentEnriched] = useState<ReviewRecent[]>([]);
 
-  // ---- Saved lists count (storage + same-tab custom event) ----
   const [savedCount, setSavedCount] = useState<number>(() => {
     if (typeof window === "undefined") return 0;
     return readSavedListIds().length;
   });
 
   useEffect(() => {
-    const refresh = () => {
-      setSavedCount(readSavedListIds().length);
-    };
+    const refresh = () => setSavedCount(readSavedListIds().length);
 
     refresh();
 
@@ -320,16 +338,12 @@ export default function AccountClient() {
     };
   }, []);
 
-  // ---- Derived stats ----
   const totalReviews = reviewStats?.total_reviews ?? null;
   const ratedReviews = reviewStats?.rated_reviews ?? null;
   const avgRating = reviewStats?.avg_rating ?? null;
 
-  // IMPORTANT: memoize to keep a stable reference for effect deps
   const recentReviewsRaw = useMemo<ReviewRecent[]>(() => {
-    const raw = reviewStats?.recent;
-    const arr = asReviewRecentArray(raw);
-    return arr.slice(0, 6);
+    return asReviewRecentArray(reviewStats?.recent).slice(0, 6);
   }, [reviewStats]);
 
   const ownedCount = owned.length;
@@ -353,7 +367,6 @@ export default function AccountClient() {
       .slice(0, 3);
   }, [owned]);
 
-  // ---- Load account data ----
   useEffect(() => {
     let cancelled = false;
 
@@ -364,7 +377,6 @@ export default function AccountClient() {
         setOwned([]);
         setWishlist([]);
         setCustomLists([]);
-        setPublicLists([]);
         setReviewStats(null);
         setReviewStatsErr("");
         setErr("");
@@ -390,14 +402,12 @@ export default function AccountClient() {
         setOwned(asOwnedSetArray(ownedData));
         setWishlist(asOwnedSetArray(wishlistData));
         setCustomLists(asListLiteArray(custom));
-        setPublicLists(asListLiteArray(pub));
 
-        // stats can be an object; we’ll keep it permissive but non-any
         if (isRecord(stats)) {
           setReviewStats({
             total_reviews: asNumber(stats.total_reviews) ?? undefined,
             rated_reviews: asNumber(stats.rated_reviews) ?? undefined,
-            avg_rating: asNumber(stats.avg_rating) ?? undefined,
+            avg_rating: asNumber(stats.avg_rating),
             rating_histogram: stats.rating_histogram,
             recent: stats.recent,
           });
@@ -421,9 +431,8 @@ export default function AccountClient() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, isLoggedIn, token, username]);
+  }, [hydrated, isLoggedIn, token]);
 
-  // ---- Enrich recent review cards with images if needed ----
   useEffect(() => {
     let cancelled = false;
 
@@ -456,6 +465,7 @@ export default function AccountClient() {
 
         const setsArr = Array.isArray(setsRaw) ? setsRaw : [];
         const byNum = new Map<string, Record<string, unknown>>();
+
         for (const s of setsArr) {
           if (!isRecord(s)) continue;
           const sn = asString(s.set_num);
@@ -475,13 +485,7 @@ export default function AccountClient() {
 
           return {
             ...r,
-            image_url:
-              r?.image_url ||
-              r?.imageUrl ||
-              r?.set_image_url ||
-              r?.setImageUrl ||
-              imageFromSet ||
-              null,
+            image_url: r.image_url || r.imageUrl || r.set_image_url || r.setImageUrl || imageFromSet || null,
           };
         });
 
@@ -499,8 +503,9 @@ export default function AccountClient() {
 
   const recentToShow = recentEnriched.length ? recentEnriched : recentReviewsRaw;
 
-  // Make review-stat tiles match the top stat tiles, without changing the top tiles.
-  // Adjust once if needed (try 96 / 104 / 112).
+  /** ✅ FIX: this is now HistogramProp (the exact prop type) */
+  const histogram = useMemo<HistogramProp | null>(() => toHistogramProp(reviewStats?.rating_histogram), [reviewStats]);
+
   const REVIEW_TILE_H = "h-[96px]";
 
   return (
@@ -563,7 +568,6 @@ export default function AccountClient() {
             {err ? <p className="m-0 text-sm text-red-600">Error: {err}</p> : null}
           </div>
 
-          {/* SUMMARY STATS */}
           <section className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
             <StatCard label="Owned sets" value={ownedCount} href="/collection/owned" />
             <StatCard label="Wishlist" value={wishlistCount} href="/collection/wishlist" />
@@ -575,7 +579,6 @@ export default function AccountClient() {
             <StatCard label="Following" value="0" sub="Coming soon" />
           </section>
 
-          {/* REVIEW STATS */}
           <section className="mt-10">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <div>
@@ -629,16 +632,20 @@ export default function AccountClient() {
                     </div>
 
                     <div className="mt-2 flex flex-1 items-end justify-center overflow-hidden">
-                      <RatingHistogram
-                        histogram={reviewStats.rating_histogram}
-                        height={40}
-                        barWidth={16}
-                        gap={10}
-                        showLabels={false}
-                        maxWidth={420}
-                        paddingY={0}
-                        paddingX={0}
-                      />
+                      {histogram ? (
+                        <RatingHistogram
+                          histogram={histogram}
+                          height={40}
+                          barWidth={16}
+                          gap={10}
+                          showLabels={false}
+                          maxWidth={420}
+                          paddingY={0}
+                          paddingX={0}
+                        />
+                      ) : (
+                        <div className="text-sm text-zinc-500">No rating data yet.</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -659,7 +666,6 @@ export default function AccountClient() {
             ) : null}
           </section>
 
-          {/* TOP THEMES */}
           <section className="mt-10">
             <div className="font-semibold">Top themes (owned)</div>
 
@@ -679,7 +685,6 @@ export default function AccountClient() {
             )}
           </section>
 
-          {/* QUICK ACTIONS */}
           <section className="mt-10">
             <div className="font-semibold">Quick actions</div>
             <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
