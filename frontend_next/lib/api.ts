@@ -36,14 +36,21 @@ function normalizeLocalhostBase(raw: string): string {
 }
 
 function originForServer(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || "";
-  if (explicit) return stripTrailingSlashes(explicit);
+  // Local dev
+  if (process.env.NODE_ENV !== "production") {
+    const port = process.env.PORT || "3000";
+    return `http://localhost:${port}`;
+  }
 
+  // ✅ On Vercel, always prefer the *current deployment* URL for internal fetches
   const vercel = process.env.VERCEL_URL || "";
-  if (vercel) return stripTrailingSlashes(`https://${vercel}`);
+  if (vercel) return `https://${vercel}`.replace(/\/+$/, "");
 
-  const port = process.env.PORT || "3000";
-  return `http://localhost:${port}`;
+  // Canonical site URL fallback (useful outside Vercel)
+  const explicit = process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  return "http://localhost:3000";
 }
 
 function apiBase(): string {
