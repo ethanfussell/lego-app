@@ -36,37 +36,26 @@ function normalizeLocalhostBase(raw: string): string {
 }
 
 function originForServer(): string {
-  // Local dev
-  if (process.env.NODE_ENV !== "production") {
-    const port = process.env.PORT || "3000";
-    return `http://localhost:${port}`;
-  }
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || "";
+  if (explicit) return stripTrailingSlashes(explicit);
 
-  // ✅ On Vercel, always prefer the *current deployment* URL for internal fetches
   const vercel = process.env.VERCEL_URL || "";
-  if (vercel) return `https://${vercel}`.replace(/\/+$/, "");
+  if (vercel) return stripTrailingSlashes(`https://${vercel}`);
 
-  // Canonical site URL fallback (useful outside Vercel)
-  const explicit = process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
-  if (explicit) return explicit.replace(/\/+$/, "");
-
-  return "http://localhost:3000";
+  const port = process.env.PORT || "3000";
+  return `http://localhost:${port}`;
 }
 
 function apiBase(): string {
-  const useDirect = process.env.USE_DIRECT_BACKEND === "1" || process.env.USE_DIRECT_BACKEND === "true";
+  const direct =
+    process.env.API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://127.0.0.1:8000";
 
-  if (useDirect) {
-    const raw =
-      process.env.API_BASE_URL ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://127.0.0.1:8000";
+  // ✅ Server-side (RSC / route handlers): go straight to backend
+  if (typeof window === "undefined") return direct.replace(/\/+$/, "");
 
-    return normalizeLocalhostBase(raw);
-  }
-
-  // If not direct, always go through the Next proxy route.
-  if (typeof window === "undefined") return `${originForServer()}/api`;
+  // ✅ Browser: use Next proxy to avoid CORS
   return "/api";
 }
 
