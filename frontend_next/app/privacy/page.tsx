@@ -1,11 +1,11 @@
 // frontend_next/app/privacy/page.tsx
 import type { Metadata } from "next";
 
-const SITE_NAME = "LEGO App";
+const SITE_NAME = "BrickTrack";
 
 export const metadata: Metadata = {
   title: `Privacy Policy | ${SITE_NAME}`,
-  description: "Privacy policy for LEGO App.",
+  description: "Privacy policy for BrickTrack.",
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

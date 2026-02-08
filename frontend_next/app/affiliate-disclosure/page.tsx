@@ -1,11 +1,11 @@
 // frontend_next/app/affiliate-disclosure/page.tsx
 import type { Metadata } from "next";
 
-const SITE_NAME = "LEGO App";
+const SITE_NAME = "BrickTrack";
 
 export const metadata: Metadata = {
   title: `Affiliate Disclosure | ${SITE_NAME}`,
-  description: "Affiliate disclosure for LEGO App.",
+  description: "Affiliate disclosure for BrickTrack.",
 };
 
 export default function Page() {
