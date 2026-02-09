@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import SetDetailClient from "./SetDetailClient";
 
-const SITE_NAME = "YourSite";
+const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 type LegoSet = {
   set_num: string;
