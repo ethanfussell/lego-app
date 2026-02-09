@@ -1,7 +1,7 @@
 // frontend_next/app/robots.txt/route.ts
 import type { NextRequest } from "next/server";
 
-export const runtime = "nodejs"; // fine either way; explicit is nice
+export const runtime = "nodejs";
 
 function siteUrl(req: NextRequest) {
   const env = process.env.NEXT_PUBLIC_SITE_URL;
@@ -16,6 +16,13 @@ export function GET(req: NextRequest) {
   const body = [
     "User-agent: *",
     "Allow: /",
+    "",
+    // Crawl hygiene (noindex still handled by metadata)
+    "Disallow: /account",
+    "Disallow: /login",
+    "Disallow: /signup",
+    "Disallow: /collection",
+    "Disallow: /me",
     "",
     `Sitemap: ${base}/sitemap.xml`,
     "",

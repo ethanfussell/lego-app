@@ -10,9 +10,14 @@ function siteUrl(req: NextRequest) {
   return `${url.protocol}//${url.host}`;
 }
 
-function apiBase() {
-  // Use your backend directly for sitemap generation
-  return process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+function apiBase(): string {
+  // Sitemap should NEVER fall back to localhost.
+  // Require an env var in production deployments.
+  const base = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (!base) {
+    throw new Error("Missing API_BASE_URL / NEXT_PUBLIC_API_BASE_URL for sitemap generation.");
+  }
+  return base.replace(/\/+$/, "");
 }
 
 function isoDate(d = new Date()) {
@@ -45,7 +50,11 @@ function toThemeItems(x: unknown): ThemeItem[] {
 
 async function fetchThemes(): Promise<string[]> {
   try {
-    const res = await fetch(`${apiBase()}/themes`, { cache: "no-store" });
+    const res = await fetch(`${apiBase()}/themes`, {
+      // If your backend is stable, you can change to:
+      // next: { revalidate: 3600 }
+      cache: "no-store",
+    });
     if (!res.ok) return [];
     const data: unknown = await res.json();
 
@@ -74,13 +83,23 @@ export async function GET(req: NextRequest) {
   const base = siteUrl(req);
   const now = isoDate();
 
-  const staticPaths = [
-    "/",
-    "/search",
-    "/login",
-    "/signup",
-    "/lists",
-    "/me",
+  // ONLY indexable static routes here
+  const staticPaths: Array<{ path: string; changefreq: string; priority: number }> = [
+    { path: "/", changefreq: "daily", priority: 1.0 },
+
+    // Hubs / discovery
+    { path: "/themes", changefreq: "daily", priority: 0.8 },
+    { path: "/lists/public", changefreq: "daily", priority: 0.7 },
+
+    // Browse feeds (if you want them indexed)
+    { path: "/sale", changefreq: "daily", priority: 0.6 },
+    { path: "/retiring-soon", changefreq: "daily", priority: 0.6 },
+    { path: "/new", changefreq: "daily", priority: 0.5 },
+
+    // Legal (fine to index)
+    { path: "/privacy", changefreq: "yearly", priority: 0.2 },
+    { path: "/terms", changefreq: "yearly", priority: 0.2 },
+    { path: "/affiliate-disclosure", changefreq: "yearly", priority: 0.2 },
   ];
 
   const themes = await fetchThemes();
@@ -88,9 +107,10 @@ export async function GET(req: NextRequest) {
   const urls: string[] = [];
 
   for (const p of staticPaths) {
-    urls.push(urlEntry(`${base}${p}`, now, "daily", p === "/" ? 1.0 : 0.6));
+    urls.push(urlEntry(`${base}${p.path}`, now, p.changefreq, p.priority));
   }
 
+  // Theme pages
   for (const t of themes) {
     urls.push(urlEntry(`${base}/themes/${encodeURIComponent(t)}`, now, "weekly", 0.5));
   }
