@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/api";
 import NewSetsClient from "./NewSetsClient";
 
 export const metadata: Metadata = {
-  title: "New sets | LEGO App",
+  title: "New sets",
 };
 
 type SetLite = {

@@ -26,7 +26,7 @@ type FeedResponse =
     };
 
 export const metadata: Metadata = {
-  title: "Deals & price drops | LEGO App",
+  title: "Deals & price drops",
 };
 
 function errorMessage(e: unknown) {
@@ -90,7 +90,7 @@ export default async function Page() {
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       {/* ✅ ensures GA page_view has a title immediately */}
-      <AnalyticsClient title="Deals & price drops | LEGO App" />
+      <AnalyticsClient title="Deals & price drops" />
 
       <section className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">Deals &amp; price drops</h1>
