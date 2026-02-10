@@ -1,3 +1,4 @@
+// frontend_next/app/not-found.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -14,6 +15,7 @@ export default function NotFound() {
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
           That page doesn’t exist (or the link is outdated).
         </p>
+
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/search"
