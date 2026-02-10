@@ -12,10 +12,10 @@ function siteBase(): string {
 const DESCRIPTION = "Browse LEGO themes and jump to set pages.";
 
 export const metadata: Metadata = {
-  title: "Home", // layout template turns this into "LEGO App | Home"
-  description: DESCRIPTION,
-  metadataBase: new URL(siteBase()),
+  title: "Home",
+  description: "Browse LEGO themes and jump to set pages.",
   alternates: { canonical: "/" },
+  metadataBase: new URL(siteBase()),
   openGraph: {
     title: `Home | ${SITE_NAME}`,
     description: DESCRIPTION,

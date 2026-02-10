@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteBase()),
   title: {
     default: SITE_NAME,
-    template: `${SITE_NAME} | %s`,
+    template: `%s | ${SITE_NAME}`,
   },
   description: "Track LEGO sets, collections, lists, ratings, and reviews.",
 };
