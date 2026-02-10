@@ -11,14 +11,17 @@ const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
+
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
 type PromiseLikeValue<T> = { then: (onFulfilled: (value: T) => unknown) => unknown };
+
 function isPromiseLike<T>(v: unknown): v is PromiseLikeValue<T> {
   return typeof v === "object" && v !== null && "then" in v && typeof (v as { then?: unknown }).then === "function";
 }
+
 async function unwrap<T>(p: T | Promise<T>): Promise<T> {
   return isPromiseLike<T>(p) ? await (p as Promise<T>) : (p as T);
 }
@@ -28,18 +31,28 @@ function first(sp: SP, key: string): string {
   const v = Array.isArray(raw) ? raw[0] : raw;
   return String(v ?? "").trim();
 }
+
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-// Preflight fetch: if API returns [] we treat it as not found.
-const fetchThemeSetsFirstPage = cache(async (themeSlug: string): Promise<unknown[]> => {
-  const url = `${apiBase()}/themes/${encodeURIComponent(themeSlug)}/sets?limit=1`;
+function normalizeTheme(t: string) {
+  return decodeURIComponent(t).trim();
+}
+
+// Returns true if the theme has at least 1 set.
+// (MVP assumption: real themes always have sets; empty => invalid theme slug)
+const themeHasAnySets = cache(async (themeSlug: string): Promise<boolean> => {
+  const theme = normalizeTheme(themeSlug);
+  if (!theme) return false;
+
+  const url = `${apiBase()}/themes/${encodeURIComponent(theme)}/sets?limit=1`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) return false;
+
   const data: unknown = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) && data.length > 0;
 });
 
 export async function generateMetadata({
@@ -52,18 +65,18 @@ export async function generateMetadata({
   const { themeSlug } = await unwrap(params);
   const sp = searchParams ? await unwrap(searchParams) : ({} as SP);
 
-  const theme = decodeURIComponent(themeSlug);
-  const page = toInt(first(sp, "page") || "1", 1);
-
-  // If first page has no items, we don’t want this indexed.
-  const firstPageItems = await fetchThemeSetsFirstPage(themeSlug);
-  if (firstPageItems.length === 0) {
+  // If invalid theme, we want a real 404 and no indexing
+  const ok = await themeHasAnySets(themeSlug);
+  if (!ok) {
     return {
-      title: `Theme not found`,
+      title: "Page not found",
+      robots: { index: false, follow: false },
       metadataBase: new URL(siteBase()),
-      robots: { index: false, follow: true },
     };
   }
+
+  const theme = normalizeTheme(themeSlug);
+  const page = toInt(first(sp, "page") || "1", 1);
 
   const canonical = `/themes/${encodeURIComponent(themeSlug)}` + (page > 1 ? `?page=${page}` : "");
   const title = `${theme} sets`;
@@ -87,8 +100,8 @@ export default async function ThemeSetsPage({
 }) {
   const { themeSlug } = await unwrap(params);
 
-  const firstPageItems = await fetchThemeSetsFirstPage(themeSlug);
-  if (firstPageItems.length === 0) notFound();
+  const ok = await themeHasAnySets(themeSlug);
+  if (!ok) notFound();
 
   return <ThemeDetailClient themeSlug={themeSlug} />;
 }
