@@ -38,7 +38,7 @@ export async function generateMetadata({
   const sp = await unwrapSearchParams(searchParams);
   const q = first(sp, "q");
 
-  const title = q ? `Search “${q}” | ${SITE_NAME}` : `Search | ${SITE_NAME}`;
+  const title = q ? `Search “${q}”` : `Search`;
   const description = q ? `Search results for “${q}”.` : "Search LEGO sets by name, theme, year, and more.";
   const canonicalPath = "/search";
 

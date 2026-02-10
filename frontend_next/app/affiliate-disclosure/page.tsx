@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 const SITE_NAME = "BrickTrack";
 
 export const metadata: Metadata = {
-  title: `Affiliate Disclosure | ${SITE_NAME}`,
+  title: "Affiliate Disclosure",
   description: "Affiliate disclosure for BrickTrack.",
 };
 

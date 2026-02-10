@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 const SITE_NAME = "BrickTrack";
 
 export const metadata: Metadata = {
-  title: `Terms of Service | ${SITE_NAME}`,
+  title: "Terms of Service",
   description: `Terms of service for ${SITE_NAME}.`,
 };
 

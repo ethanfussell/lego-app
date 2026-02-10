@@ -114,12 +114,12 @@ export async function generateMetadata({
   const canonicalPath = `/sets/${encodeURIComponent(decoded)}`;
 
   return {
-    title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
+    title: `LEGO ${decoded} — ${name}`,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
     openGraph: {
-      title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
+      title: `LEGO ${decoded} — ${name}`,
       description,
       url: canonicalPath,
       type: "website",
@@ -127,7 +127,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: data?.image_url ? "summary_large_image" : "summary",
-      title: `LEGO ${decoded} — ${name} | ${SITE_NAME}`,
+      title: `LEGO ${decoded} — ${name}`,
       description,
       images: data?.image_url ? [data.image_url] : undefined,
     },

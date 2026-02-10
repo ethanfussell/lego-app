@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 const SITE_NAME = "BrickTrack";
 
 export const metadata: Metadata = {
-  title: `Privacy Policy | ${SITE_NAME}`,
+  title: "Privacy Policy",
   description: "Privacy policy for BrickTrack.",
 };
 

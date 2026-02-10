@@ -52,7 +52,7 @@ export async function generateMetadata({
   const decoded = decodeURIComponent(username);
 
   const canonical = `/users/${encodeURIComponent(decoded)}`;
-  const title = `@${decoded} | ${SITE_NAME}`;
+  const title = `@${decoded}`;
   const description = `Public profile for @${decoded} on ${SITE_NAME}.`;
 
   return {

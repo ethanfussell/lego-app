@@ -48,8 +48,8 @@ export async function generateMetadata({
 
   const canonical = `/themes/${encodeURIComponent(themeSlug)}` + (page > 1 ? `?page=${page}` : "");
 
-  const title = `${theme} sets | ${SITE_NAME}`;
-  const description =
+  const title = `${theme} sets`;
+    const description =
     page > 1 ? `Browse LEGO sets in the ${theme} theme. Page ${page}.` : `Browse LEGO sets in the ${theme} theme.`;
 
   return {

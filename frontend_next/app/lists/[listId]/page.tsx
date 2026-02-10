@@ -42,7 +42,7 @@ export async function generateMetadata({
   // If invalid, still return something sane; page will notFound().
   const safe = normalized ?? "list";
 
-  const title = `List ${safe} | ${SITE_NAME}`;
+  const title = `List ${safe}`;
   const description = `View LEGO list ${safe}.`;
   const canonicalPath = `/lists/${encodeURIComponent(safe)}`;
 
