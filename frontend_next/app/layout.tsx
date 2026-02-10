@@ -7,12 +7,19 @@ import Footer from "@/app/components/Footer";
 import { AuthProvider } from "@/app/providers";
 import AnalyticsClient from "@/app/components/AnalyticsClient";
 
+const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteBase()),
+  title: {
+    default: SITE_NAME,
+    template: `${SITE_NAME} | %s`,
+  },
+  description: "Track LEGO sets, collections, lists, ratings, and reviews.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
