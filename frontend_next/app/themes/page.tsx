@@ -9,7 +9,7 @@ function siteBase() {
 }
 
 export const metadata: Metadata = {
-  title: `Themes | ${SITE_NAME}`,
+  title: "Themes",
   description: `Browse LEGO themes on ${SITE_NAME}.`,
   metadataBase: new URL(siteBase()),
   alternates: { canonical: "/themes" },

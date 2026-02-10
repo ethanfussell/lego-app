@@ -3,23 +3,20 @@ import type { Metadata } from "next";
 import HomeClient from "./HomeClient";
 import QuickJump from "./components/QuickJump";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-const DESC = "Browse LEGO themes and jump to set pages.";
-
 export const metadata: Metadata = {
-  title: { absolute: `Home | ${SITE_NAME}` },
-  description: DESC,
+  title: "Home",
+  description: "Browse LEGO themes and jump to set pages.",
   alternates: { canonical: "/" },
   openGraph: {
-    title: `Home | ${SITE_NAME}`,
-    description: DESC,
+    title: "Home",
+    description: "Browse LEGO themes and jump to set pages.",
     url: "/",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: `Home | ${SITE_NAME}`,
-    description: DESC,
+    title: "Home",
+    description: "Browse LEGO themes and jump to set pages.",
   },
 };
 
