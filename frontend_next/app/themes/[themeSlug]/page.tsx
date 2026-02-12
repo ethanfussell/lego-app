@@ -1,16 +1,9 @@
-// frontend_next/app/themes/[themeSlug]/page.tsx
-import type { Metadata } from "next";
+// app/themes/[themeSlug]/page.tsx
 import { notFound } from "next/navigation";
-import { cache } from "react";
 import ThemeDetailClient from "./ThemeDetailClient";
 
 type SP = Record<string, string | string[] | undefined>;
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
@@ -20,60 +13,56 @@ function first(sp: SP, key: string): string {
   const v = Array.isArray(raw) ? raw[0] : raw;
   return String(v ?? "").trim();
 }
+
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-const themeHasAnySets = cache(async (theme: string): Promise<boolean> => {
-  // API expects raw theme name (can include spaces); encode for URL
-  const url = `${apiBase()}/themes/${encodeURIComponent(theme)}/sets?limit=1`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return false;
-
-  const data: unknown = await res.json();
-  return Array.isArray(data) && data.length > 0;
-});
-
-export async function generateMetadata({
+export default async function ThemeSetsPage({
   params,
   searchParams,
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
   searchParams?: SP | Promise<SP>;
-}): Promise<Metadata> {
+}) {
   const { themeSlug } = await params;
   const sp = (await searchParams) ?? ({} as SP);
 
   const theme = decodeURIComponent(themeSlug);
+
   const page = toInt(first(sp, "page") || "1", 1);
 
-  const canonical = `/themes/${encodeURIComponent(themeSlug)}` + (page > 1 ? `?page=${page}` : "");
-  const title = `${theme} sets`;
-  const description =
-    page > 1 ? `Browse LEGO sets in the ${theme} theme. Page ${page}.` : `Browse LEGO sets in the ${theme} theme.`;
+  const limitRaw = toInt(first(sp, "limit") || "36", 36);
+  const limit = clampInt(limitRaw, 1, 72);
+  function clampInt(n: number, lo: number, hi: number) {
+    return Math.max(lo, Math.min(hi, n));
+  }
+  
+  const sort = first(sp, "sort") || "relevance";
+  const order = first(sp, "order") || "desc";
+  
+  const q = new URLSearchParams();
+  q.set("page", String(page));
+  q.set("limit", String(limit));
+  
+  // only send sort if not default
+  if (sort && sort !== "relevance") q.set("sort", sort);
+  
+  // only send order if not default for the sort
+  const defaultOrder = sort === "name" ? "asc" : "desc";
+  if (order && order !== defaultOrder) q.set("order", order);
+  
+  const url = `${apiBase()}/themes/${encodeURIComponent(theme)}/sets?${q.toString()}`;
 
-  return {
-    title, // layout template will make it: `${title} | LEGO App`
-    description,
-    metadataBase: new URL(siteBase()),
-    alternates: { canonical },
-    openGraph: { title, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title, description },
-  };
-}
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) notFound();
 
-export default async function ThemeSetsPage({
-  params,
-}: {
-  params: { themeSlug: string } | Promise<{ themeSlug: string }>;
-}) {
-  const { themeSlug } = await params;
-  const theme = decodeURIComponent(themeSlug);
+  const data: unknown = await res.json();
+  const initialSets = Array.isArray(data) ? data : [];
 
-  // If the theme has no sets, treat as invalid and 404
-  const ok = await themeHasAnySets(theme);
-  if (!ok) notFound();
+  // If theme doesn't exist / returns empty on page 1, treat as invalid
+  if (page === 1 && initialSets.length === 0) notFound();
 
-  return <ThemeDetailClient themeSlug={themeSlug} />;
+  return <ThemeDetailClient themeSlug={themeSlug} initialSets={initialSets} />;
 }

@@ -79,7 +79,13 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
   return [];
 }
 
-export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) {
+export default function ThemeDetailClient({
+  themeSlug,
+  initialSets = [],
+}: {
+  themeSlug: string;
+  initialSets?: SetSummary[];
+}) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -101,8 +107,8 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sets, setSets] = useState<SetSummary[]>([]);
-  const [hasNext, setHasNext] = useState(false);
+  const [sets, setSets] = useState<SetSummary[]>(initialSets);
+  const [hasNext, setHasNext] = useState(initialSets.length === limit);
 
   function pushUrl(next: { page?: number; limit?: number; sort?: SortKey; order?: "asc" | "desc" | "" }) {
     const params = new URLSearchParams(sp?.toString?.() || "");
@@ -151,6 +157,8 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
       try {
         setLoading(true);
         setErr(null);
+        setSets([]);
+        setHasNext(false);
 
         const params = new URLSearchParams();
         params.set("page", String(page));
