@@ -1,80 +1,64 @@
 // frontend_next/app/api/[...path]/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+const UPSTREAM = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
 
-// Prefer server-only env var if you have it; fall back to public env var.
-function apiBase(): string {
-  return (
-    process.env.API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    "http://localhost:8000"
-  ).replace(/\/+$/, "");
+function buildUpstreamUrl(req: NextRequest, pathParts: string[]) {
+  const upstreamPath = "/" + pathParts.map(encodeURIComponent).join("/");
+  const url = new URL(req.url);
+  const qs = url.search ? url.search : "";
+  return `${UPSTREAM}${upstreamPath}${qs}`;
 }
 
-async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
-  const { path = [] } = await ctx.params;
-  const upstreamPath = "/" + path.map((p) => encodeURIComponent(p)).join("/");
+async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  if (!UPSTREAM) {
+    return new Response(JSON.stringify({ detail: "Missing NEXT_PUBLIC_API_BASE_URL" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
 
-  const upstreamUrl = new URL(apiBase() + upstreamPath);
+  const { path } = await ctx.params;
+  const upstreamUrl = buildUpstreamUrl(req, path || []);
 
-  // copy query string (?x=y)
-  const reqUrl = new URL(req.url);
-  reqUrl.searchParams.forEach((v, k) => upstreamUrl.searchParams.append(k, v));
-
-  // forward headers (but remove hop-by-hop / problematic ones)
+  // Copy headers (esp Authorization)
   const headers = new Headers(req.headers);
   headers.delete("host");
-  headers.delete("connection");
-  headers.delete("content-length");
 
-  // Only send a body for methods that can have one
+  // Only pass a body for methods that can have one
   const method = req.method.toUpperCase();
   const hasBody = !["GET", "HEAD"].includes(method);
-  const body = hasBody ? await req.arrayBuffer() : undefined;
 
-  const upstreamRes = await fetch(upstreamUrl.toString(), {
+  const upstreamRes = await fetch(upstreamUrl, {
     method,
     headers,
-    body,
+    body: hasBody ? await req.arrayBuffer() : undefined,
     redirect: "manual",
-    cache: "no-store",
   });
 
-  // Pass through response body + status
-  const resBody = await upstreamRes.arrayBuffer();
+  // IMPORTANT: 204/205 MUST NOT read body
+  if (upstreamRes.status === 204 || upstreamRes.status === 205) {
+    return new Response(null, { status: upstreamRes.status });
+  }
 
-  const resHeaders = new Headers(upstreamRes.headers);
-  // avoid Next/Vercel compression/header weirdness
-  resHeaders.delete("content-encoding");
-  resHeaders.delete("content-length");
+  // Passthrough body bytes (works for JSON + non-JSON)
+  const buf = await upstreamRes.arrayBuffer();
 
-  // Helpful debug header to confirm which upstream we hit
-  resHeaders.set("x-upstream-url", upstreamUrl.toString());
+  // Copy response headers, but avoid problematic ones
+  const outHeaders = new Headers(upstreamRes.headers);
+  outHeaders.delete("content-encoding");
+  outHeaders.delete("content-length");
 
-  return new NextResponse(resBody, {
+  return new Response(buf, {
     status: upstreamRes.status,
-    headers: resHeaders,
+    headers: outHeaders,
   });
 }
 
-// Export ALL common verbs so Next doesn't 405 them.
-export function GET(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export function POST(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export function PUT(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export function PATCH(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export function DELETE(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
-export function OPTIONS(req: NextRequest, ctx: any) {
-  return proxy(req, ctx);
-}
+// Export handlers for the methods you use
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;
+export const PATCH = proxy;
+export const DELETE = proxy;
+export const OPTIONS = proxy;
