@@ -1,3 +1,4 @@
+// frontend_next/app/(authed)/collection/wishlist/CollectionWishlistClient.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -41,6 +42,10 @@ function toSetNums(detail: ListDetail | null | undefined): string[] {
   return items.map((x) => String(x?.set_num || "").trim()).filter(Boolean);
 }
 
+function toPlain(n: string): string {
+  return n.replace(/-\d+$/, "");
+}
+
 async function fetchSetsBulk(setNums: string[], token: string): Promise<SetLite[]> {
   const nums = Array.from(new Set(setNums.map((x) => String(x || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
@@ -59,7 +64,6 @@ async function fetchSetsBulk(setNums: string[], token: string): Promise<SetLite[
       })
     : [];
 
-  // keep original order
   const byNum = new Map(arr.map((s) => [s.set_num, s] as const));
   return nums.map((n) => byNum.get(n)).filter((x): x is SetLite => !!x);
 }
@@ -73,6 +77,7 @@ export default function CollectionWishlistClient() {
 
   const [wishlistDetail, setWishlistDetail] = useState<ListDetail | null>(null);
   const [sets, setSets] = useState<SetLite[]>([]);
+  const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
   const wishlistSetNums = useMemo(() => new Set(toSetNums(wishlistDetail)), [wishlistDetail]);
 
@@ -100,6 +105,40 @@ export default function CollectionWishlistClient() {
     const bulk = await fetchSetsBulk(nums, token);
     setSets(bulk);
   }, [token]);
+
+  const removeWishlist = useCallback(
+    async (setNum: string) => {
+      if (!token) return;
+
+      const plain = toPlain(String(setNum || "").trim());
+      if (!plain) return;
+
+      try {
+        setErr(null);
+        setRemoving((m) => ({ ...m, [plain]: true }));
+
+        // optimistic
+        setSets((prev) => prev.filter((s) => toPlain(s.set_num) !== plain));
+
+        await apiFetch(`/collections/wishlist/${encodeURIComponent(plain)}`, {
+          token,
+          method: "DELETE",
+        });
+
+        await refresh();
+      } catch (e: unknown) {
+        setErr(errorMessage(e, "Failed to remove from wishlist"));
+        await refresh();
+      } finally {
+        setRemoving((m) => {
+          const next = { ...m };
+          delete next[plain];
+          return next;
+        });
+      }
+    },
+    [token, refresh]
+  );
 
   useEffect(() => {
     if (!token) {
@@ -151,22 +190,33 @@ export default function CollectionWishlistClient() {
         <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">No sets yet.</p>
       ) : (
         <ul className="mt-6 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
-          {sets.map((s) => (
-            <li key={s.set_num}>
-              <SetCard
-                set={s as unknown as React.ComponentProps<typeof SetCard>["set"]}
-                footer={
-                  token ? (
-                    <AddToListMenu
-                      token={token}
-                      setNum={s.set_num}
-                      initialWishlistSelected={wishlistSetNums.has(s.set_num)}
-                    />
-                  ) : null
-                }
-              />
-            </li>
-          ))}
+          {sets.map((s) => {
+            const plain = toPlain(s.set_num);
+            return (
+              <li key={s.set_num} className="space-y-2">
+                <SetCard
+                  set={s as unknown as React.ComponentProps<typeof SetCard>["set"]}
+                  footer={
+                    token ? (
+                      <AddToListMenu
+                        token={token}
+                        setNum={s.set_num}
+                        initialWishlistSelected={wishlistSetNums.has(s.set_num)}
+                      />
+                    ) : null
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => void removeWishlist(s.set_num)}
+                  disabled={!!removing[plain]}
+                  className="w-full rounded-full border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                >
+                  {removing[plain] ? "Removing…" : "Remove from wishlist"}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

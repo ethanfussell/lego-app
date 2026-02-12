@@ -46,6 +46,7 @@ function toSetNums(detail: ListDetail | null | undefined): string[] {
 function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
 }
+
 function toDash1(n: string): string {
   return /-\d+$/.test(n) ? n : `${n}-1`;
 }
@@ -60,8 +61,6 @@ function asSetLiteArray(v: unknown): SetLite[] {
     const set_num = typeof raw.set_num === "string" ? raw.set_num.trim() : "";
     if (!set_num) continue;
 
-    const base: SetLite = { set_num };
-
     const maybeName = raw.name;
     const maybeYear = raw.year;
     const maybeParts = raw.num_parts;
@@ -69,7 +68,7 @@ function asSetLiteArray(v: unknown): SetLite[] {
 
     // IMPORTANT: with exactOptionalPropertyTypes, do not assign undefined; omit instead
     out.push({
-      ...base,
+      set_num,
       ...(typeof maybeName === "string" ? { name: maybeName } : {}),
       ...(typeof maybeYear === "number" ? { year: maybeYear } : {}),
       ...(typeof maybeParts === "number" ? { num_parts: maybeParts } : {}),
@@ -119,6 +118,7 @@ export default function CollectionOwnedClient() {
 
   const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
   const [sets, setSets] = useState<SetLite[]>([]);
+  const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -144,6 +144,40 @@ export default function CollectionOwnedClient() {
     const bulk = await fetchSetsBulk(nums, token);
     setSets(bulk);
   }, [token]);
+
+  const removeOwned = useCallback(
+    async (setNum: string) => {
+      if (!token) return;
+
+      const plain = toPlain(String(setNum || "").trim());
+      if (!plain) return;
+
+      try {
+        setErr(null);
+        setRemoving((m) => ({ ...m, [plain]: true }));
+
+        // optimistic
+        setSets((prev) => prev.filter((s) => toPlain(s.set_num) !== plain));
+
+        await apiFetch(`/collections/owned/${encodeURIComponent(plain)}`, {
+          token,
+          method: "DELETE",
+        });
+
+        await refresh();
+      } catch (e: unknown) {
+        setErr(errorMessage(e, "Failed to remove from owned"));
+        await refresh();
+      } finally {
+        setRemoving((m) => {
+          const next = { ...m };
+          delete next[plain];
+          return next;
+        });
+      }
+    },
+    [token, refresh]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -195,11 +229,22 @@ export default function CollectionOwnedClient() {
         <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">No sets yet.</p>
       ) : (
         <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 list-none p-0">
-          {sets.map((s) => (
-            <li key={s.set_num}>
-              <SetCard set={s} variant="owned" token={token} />
-            </li>
-          ))}
+          {sets.map((s) => {
+            const plain = toPlain(s.set_num);
+            return (
+              <li key={s.set_num} className="space-y-2">
+                <SetCard set={s} variant="owned" token={token} />
+                <button
+                  type="button"
+                  onClick={() => void removeOwned(s.set_num)}
+                  disabled={!!removing[plain]}
+                  className="w-full rounded-full border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                >
+                  {removing[plain] ? "Removing…" : "Remove from owned"}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
