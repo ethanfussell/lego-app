@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 
 type ListSummary = {
   id: number | string;
@@ -233,7 +234,11 @@ export default function CollectionOwnedClient() {
             const plain = toPlain(s.set_num);
             return (
               <li key={s.set_num} className="space-y-2">
-                <SetCard set={s} variant="owned" token={token} />
+                <SetCard
+                  set={s}
+                  variant="owned"
+                  footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : null}
+                />
                 <button
                   type="button"
                   onClick={() => void removeOwned(s.set_num)}
