@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import ReviewsClient from "./ReviewsClient";
 
 export const metadata: Metadata = {
-  title: "Account reviews",
+  title: "My reviews",
 };
 
 export default function Page() {
