@@ -1,10 +1,11 @@
-import { Suspense } from "react";
+// frontend_next/app/(authed)/collection/owned/page.tsx
+import type { Metadata } from "next";
 import CollectionOwnedClient from "./CollectionOwnedClient";
 
-export default function OwnedPage() {
-  return (
-    <Suspense fallback={<div className="p-6 text-sm">Loading…</div>}>
-      <CollectionOwnedClient />
-    </Suspense>
-  );
+export const metadata: Metadata = {
+  title: "Owned sets",
+};
+
+export default function Page() {
+  return <CollectionOwnedClient />;
 }
