@@ -2,76 +2,79 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type Ctx = {
-  params: Promise<{ path: string[] }>;
-};
-
+// Prefer server-only env var if you have it; fall back to public env var.
 function apiBase(): string {
   return (
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.API_BASE_URL ||
-    "http://127.0.0.1:8000"
-  );
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://localhost:8000"
+  ).replace(/\/+$/, "");
 }
 
-async function proxy(req: NextRequest, pathParts: string[]) {
-  const base = apiBase().replace(/\/+$/, "");
-  const path = pathParts.map(encodeURIComponent).join("/");
-  const url = `${base}/${path}${req.nextUrl.search}`;
+async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
+  const { path = [] } = await ctx.params;
+  const upstreamPath = "/" + path.map((p) => encodeURIComponent(p)).join("/");
 
-  // Clone headers so we can safely adjust a few
+  const upstreamUrl = new URL(apiBase() + upstreamPath);
+
+  // copy query string (?x=y)
+  const reqUrl = new URL(req.url);
+  reqUrl.searchParams.forEach((v, k) => upstreamUrl.searchParams.append(k, v));
+
+  // forward headers (but remove hop-by-hop / problematic ones)
   const headers = new Headers(req.headers);
   headers.delete("host");
+  headers.delete("connection");
   headers.delete("content-length");
 
-  const body =
-    req.method === "GET" || req.method === "HEAD"
-      ? undefined
-      : await req.arrayBuffer();
+  // Only send a body for methods that can have one
+  const method = req.method.toUpperCase();
+  const hasBody = !["GET", "HEAD"].includes(method);
+  const body = hasBody ? await req.arrayBuffer() : undefined;
 
-  const upstream = await fetch(url, {
-    method: req.method,
+  const upstreamRes = await fetch(upstreamUrl.toString(), {
+    method,
     headers,
     body,
-    cache: "no-store",
     redirect: "manual",
+    cache: "no-store",
   });
 
-  const contentType = upstream.headers.get("content-type") || "application/json";
-  const buf = await upstream.arrayBuffer();
+  // Pass through response body + status
+  const resBody = await upstreamRes.arrayBuffer();
 
-  return new NextResponse(buf, {
-    status: upstream.status,
-    headers: {
-      "content-type": contentType,
-      // Optional but nice for debugging/proxies:
-      "x-proxied-by": "next-route",
-    },
+  const resHeaders = new Headers(upstreamRes.headers);
+  // avoid Next/Vercel compression/header weirdness
+  resHeaders.delete("content-encoding");
+  resHeaders.delete("content-length");
+
+  // Helpful debug header to confirm which upstream we hit
+  resHeaders.set("x-upstream-url", upstreamUrl.toString());
+
+  return new NextResponse(resBody, {
+    status: upstreamRes.status,
+    headers: resHeaders,
   });
 }
 
-export async function GET(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+// Export ALL common verbs so Next doesn't 405 them.
+export function GET(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
-export async function POST(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+export function POST(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
-export async function PUT(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+export function PUT(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
-export async function PATCH(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+export function PATCH(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
-export async function DELETE(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+export function DELETE(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
-export async function OPTIONS(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return proxy(req, path);
+export function OPTIONS(req: NextRequest, ctx: any) {
+  return proxy(req, ctx);
 }
