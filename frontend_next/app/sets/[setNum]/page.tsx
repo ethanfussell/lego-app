@@ -12,12 +12,14 @@ type LegoSet = {
   year?: number;
   pieces?: number;
   theme?: string;
-  image_url?: string;
+  image_url?: string | null;
   average_rating?: number | null;
   rating_avg?: number | null;
-  rating_count?: number;
+  rating_count?: number | null;
   description?: string | null;
 };
+
+type JsonLdObject = Record<string, unknown>;
 
 function siteBase(): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -27,14 +29,21 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function isLegoSet(x: unknown): x is LegoSet {
-  if (typeof x !== "object" || x === null) return false;
-  const sn = (x as { set_num?: unknown }).set_num;
-  return typeof sn === "string" && sn.trim() !== "";
+  if (!isRecord(x)) return false;
+  const sn = x.set_num;
+  return typeof sn === "string" && sn.trim().length > 0;
 }
 
 const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
-  const url = `${apiBase()}/sets/${encodeURIComponent(setNum)}`;
+  const s = String(setNum ?? "").trim();
+  if (!s) return null;
+
+  const url = `${apiBase()}/sets/${encodeURIComponent(s)}`;
   const res = await fetch(url, { cache: "no-store" });
 
   if (res.status === 404) return null;
@@ -44,24 +53,36 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   return isLegoSet(data) ? data : null;
 });
 
-type JsonLdObject = Record<string, unknown>;
-
-function buildJsonLd(setDetail: LegoSet): JsonLdObject {
-  const avg =
+function pickAvgRating(setDetail: LegoSet): number | null {
+  const v =
     typeof setDetail.average_rating === "number"
       ? setDetail.average_rating
       : typeof setDetail.rating_avg === "number"
         ? setDetail.rating_avg
         : null;
 
-  const count = typeof setDetail.rating_count === "number" ? setDetail.rating_count : 0;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function pickRatingCount(setDetail: LegoSet): number {
+  const v = setDetail.rating_count;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+function buildJsonLd(setDetail: LegoSet): JsonLdObject {
+  const avg = pickAvgRating(setDetail);
+  const count = pickRatingCount(setDetail);
 
   const additionalProperty: JsonLdObject[] = [
-    ...(setDetail.pieces
+    ...(typeof setDetail.pieces === "number"
       ? [{ "@type": "PropertyValue", name: "Pieces", value: String(setDetail.pieces) }]
       : []),
-    ...(setDetail.theme ? [{ "@type": "PropertyValue", name: "Theme", value: String(setDetail.theme) }] : []),
-    ...(setDetail.year ? [{ "@type": "PropertyValue", name: "Year", value: String(setDetail.year) }] : []),
+    ...(typeof setDetail.theme === "string" && setDetail.theme.trim()
+      ? [{ "@type": "PropertyValue", name: "Theme", value: setDetail.theme.trim() }]
+      : []),
+    ...(typeof setDetail.year === "number"
+      ? [{ "@type": "PropertyValue", name: "Year", value: String(setDetail.year) }]
+      : []),
   ];
 
   const jsonLd: JsonLdObject = {
@@ -70,12 +91,12 @@ function buildJsonLd(setDetail: LegoSet): JsonLdObject {
     name: setDetail.name || setDetail.set_num || "LEGO set",
     sku: setDetail.set_num,
     brand: { "@type": "Brand", name: "LEGO" },
-    image: setDetail.image_url ? [setDetail.image_url] : undefined,
     category: "LEGO Sets",
     additionalProperty,
+    ...(setDetail.image_url ? { image: [setDetail.image_url] } : {}),
   };
 
-  if (count > 0 && typeof avg === "number") {
+  if (count > 0 && avg != null) {
     jsonLd.aggregateRating = {
       "@type": "AggregateRating",
       ratingValue: avg,
@@ -88,15 +109,23 @@ function buildJsonLd(setDetail: LegoSet): JsonLdObject {
   return jsonLd;
 }
 
-function buildDescription(decodedSetNum: string, data: LegoSet | null): string {
+function buildDescription(setNum: string, data: LegoSet | null): string {
+  const decodedSetNum = String(setNum ?? "").trim();
   const name = data?.name || "LEGO Set";
-  const pieces = data?.pieces ? `${data.pieces} pieces` : null;
-  const year = data?.year ? `from ${data.year}` : null;
 
-  const descParts = [pieces, year].filter(Boolean).join(" · ");
-  return descParts
-    ? `Details for LEGO set ${decodedSetNum}: ${name}. ${descParts}.`
+  const pieces = typeof data?.pieces === "number" ? `${data.pieces} pieces` : null;
+  const year = typeof data?.year === "number" ? `from ${data.year}` : null;
+  const theme = typeof data?.theme === "string" && data.theme.trim() ? `Theme: ${data.theme.trim()}` : null;
+
+  const facts = [pieces, year, theme].filter(Boolean).join(" · ");
+  return facts
+    ? `Details for LEGO set ${decodedSetNum}: ${name}. ${facts}.`
     : `Details for LEGO set ${decodedSetNum}: ${name}.`;
+}
+
+function canonicalForSet(setNum: string): string {
+  const decoded = String(setNum ?? "").trim();
+  return `/sets/${encodeURIComponent(decoded)}`;
 }
 
 export async function generateMetadata({
@@ -104,32 +133,33 @@ export async function generateMetadata({
 }: {
   params: { setNum: string } | Promise<{ setNum: string }>;
 }): Promise<Metadata> {
-  const { setNum } = await params; // await works for both value and Promise
-  const decoded = decodeURIComponent(setNum);
+  const { setNum } = await params;
+  const decoded = decodeURIComponent(String(setNum ?? "").trim());
 
   const data = await fetchSet(decoded);
   const name = data?.name || "LEGO Set";
   const description = buildDescription(decoded, data);
 
-  const canonicalPath = `/sets/${encodeURIComponent(decoded)}`;
+  const canonicalPath = canonicalForSet(decoded);
+  const title = `LEGO ${decoded} — ${name}`;
 
   return {
-    title: `LEGO ${decoded} — ${name}`,
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
     openGraph: {
-      title: `LEGO ${decoded} — ${name}`,
+      title,
       description,
       url: canonicalPath,
       type: "website",
-      images: data?.image_url ? [{ url: data.image_url, alt: name }] : undefined,
+      ...(data?.image_url ? { images: [{ url: data.image_url, alt: name }] } : {}),
     },
     twitter: {
       card: data?.image_url ? "summary_large_image" : "summary",
-      title: `LEGO ${decoded} — ${name}`,
+      title,
       description,
-      images: data?.image_url ? [data.image_url] : undefined,
+      ...(data?.image_url ? { images: [data.image_url] } : {}),
     },
   };
 }
@@ -140,14 +170,18 @@ export default async function Page({
   params: { setNum: string } | Promise<{ setNum: string }>;
 }) {
   const { setNum } = await params;
-  const decoded = decodeURIComponent(setNum);
+  const decoded = decodeURIComponent(String(setNum ?? "").trim());
 
   const data = await fetchSet(decoded);
   if (!data) notFound();
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }} />
+      <script
+        type="application/ld+json"
+        // ok: schema.org Product JSON-LD
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
+      />
       <SetDetailClient setNum={decoded} initialData={data} />
     </>
   );

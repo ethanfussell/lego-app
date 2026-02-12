@@ -25,6 +25,7 @@ from app.routers import reviews as reviews_router
 from app.routers import sets as sets_router
 from app.routers import users as users_router
 from app.routers.offers import router as offers_router
+from app.routers import themes as themes_router
 
 app = FastAPI(title="LEGO API")
 
@@ -178,3 +179,8 @@ app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["re
 @app.get("/db/ping", tags=["debug"])
 def db_ping(db: Session = Depends(get_db)):
     return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
+
+# ---------------------------
+# Themes
+# ---------------------------
+app.include_router(themes_router.router, tags=["themes"])

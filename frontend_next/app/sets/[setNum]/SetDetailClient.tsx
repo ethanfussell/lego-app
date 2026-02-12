@@ -4,7 +4,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Head from "next/head";
 
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
@@ -95,14 +94,14 @@ function isSetLite(x: unknown): x is SetLite {
   return typeof sn === "string" && sn.trim() !== "";
 }
 
-type SetsResponse = SetLite[] | { results?: unknown };
-
-function normalizeSetsResponse(data: unknown): SetLite[] {
+function normalizeSetLiteArray(data: unknown): SetLite[] {
   if (Array.isArray(data)) return data.filter(isSetLite);
+
   if (typeof data === "object" && data !== null) {
     const results = (data as { results?: unknown }).results;
     return Array.isArray(results) ? results.filter(isSetLite) : [];
   }
+
   return [];
 }
 
@@ -160,7 +159,7 @@ export default function SetDetailClient(props: Props) {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState<string | null>(null);
 
-  // Similar sets
+  // Similar sets (same theme)
   const [similarSets, setSimilarSets] = useState<SetLite[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState<string | null>(null);
@@ -176,30 +175,7 @@ export default function SetDetailClient(props: Props) {
     return reviews.filter((r) => r.text && String(r.text).trim() !== "");
   }, [reviews]);
 
-  // Head fallback (server metadata is primary)
-  const headFallback = useMemo(() => {
-    const base = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/+$/, "");
-    const url = base ? `${base}/sets/${encodeURIComponent(setNum)}` : `/sets/${encodeURIComponent(setNum)}`;
-
-    const title =
-      setDetail?.name && setNum
-        ? `LEGO ${setNum} — ${setDetail.name} | YourSite`
-        : setNum
-          ? `LEGO ${setNum} — LEGO Set | YourSite`
-          : `LEGO Set | YourSite`;
-
-    const desc =
-      setDetail?.name && setDetail?.year && (setDetail?.pieces ?? setDetail?.num_parts)
-        ? `Details for LEGO set ${setNum}: ${setDetail.name}. ${setDetail.pieces ?? setDetail.num_parts} pieces · from ${setDetail.year}.`
-        : setDetail?.name
-          ? `Details for LEGO set ${setNum}: ${setDetail.name}.`
-          : setNum
-            ? `Details for LEGO set ${setNum}.`
-            : `LEGO set details.`;
-
-    const image = setDetail?.image_url || undefined;
-    return { url, title, desc, image };
-  }, [setNum, setDetail]);
+[setNum, setDetail];
 
   // Load /users/me (only when logged in)
   useEffect(() => {
@@ -351,54 +327,53 @@ export default function SetDetailClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-// -------------------------------
-// Similar sets (by theme)
-// -------------------------------
-useEffect(() => {
-  const theme = String(setDetail?.theme ?? "").trim();
+  // -------------------------------
+  // Similar sets (by theme) — ✅ uses /themes/{theme}/sets
+  // -------------------------------
+  useEffect(() => {
+    const theme = String(setDetail?.theme ?? "").trim();
 
-  if (!theme) {
-    setSimilarSets([]);
-    return;
-  }
-
-  let cancelled = false;
-
-  async function fetchSimilar() {
-    try {
-      setSimilarLoading(true);
-      setSimilarError(null);
-
-      const p = new URLSearchParams();
-      p.set("q", theme);
-      p.set("sort", "rating");
-      p.set("order", "desc");
-      p.set("page", "1");
-      p.set("limit", "24");
-
-      const data = await apiFetch<unknown>(`/sets?${p.toString()}`, { cache: "no-store" });
-
-      const items: SetLite[] = Array.isArray(data)
-        ? (data as SetLite[])
-        : Array.isArray((data as { results?: unknown })?.results)
-        ? ((data as { results: SetLite[] }).results as SetLite[])
-        : [];
-
-      const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
-      if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
-    } catch (e: unknown) {
-      if (!cancelled) setSimilarError(e instanceof Error ? e.message : String(e));
-    } finally {
-      if (!cancelled) setSimilarLoading(false);
+    if (!theme) {
+      setSimilarSets([]);
+      return;
     }
-  }
 
-  void fetchSimilar();
+    let cancelled = false;
 
-  return () => {
-    cancelled = true;
-  };
-}, [setDetail?.theme, setNum]);
+    async function fetchSimilar() {
+      try {
+        setSimilarLoading(true);
+        setSimilarError(null);
+
+        const p = new URLSearchParams();
+        p.set("page", "1");
+        p.set("limit", "24");
+        p.set("sort", "relevance"); // default is relevance; keep explicit
+        p.set("order", "desc");
+
+        const data = await apiFetch<unknown>(
+          `/themes/${encodeURIComponent(theme)}/sets?${p.toString()}`,
+          { cache: "no-store" }
+        );
+
+        const items = normalizeSetLiteArray(data);
+
+        // remove current set + cap
+        const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
+        if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
+      } catch (e: unknown) {
+        if (!cancelled) setSimilarError(errorMessage(e));
+      } finally {
+        if (!cancelled) setSimilarLoading(false);
+      }
+    }
+
+    void fetchSimilar();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setDetail?.theme, setNum]);
 
   // Reviews: create/update
   async function upsertMyReview(payload: { rating: number | null; text: string | null }) {
@@ -592,17 +567,6 @@ useEffect(() => {
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
-      <Head>
-        <link rel="canonical" href={headFallback.url} />
-        <meta property="og:url" content={headFallback.url} />
-        <meta property="og:title" content={headFallback.title} />
-        <meta property="og:description" content={headFallback.desc} />
-        {headFallback.image ? <meta property="og:image" content={headFallback.image} /> : null}
-        <meta name="twitter:card" content={headFallback.image ? "summary_large_image" : "summary"} />
-        <meta name="twitter:title" content={headFallback.title} />
-        <meta name="twitter:description" content={headFallback.desc} />
-        {headFallback.image ? <meta name="twitter:image" content={headFallback.image} /> : null}
-      </Head>
 
       <button
         onClick={() => router.back()}
@@ -642,9 +606,13 @@ useEffect(() => {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
+          {typeof parts === "number" ? (
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p>
+          ) : null}
 
-          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
+          {isRetired ? (
+            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
+          ) : null}
 
           {ratingSummaryLoading || ratingSummaryError || ratingCount > 0 ? (
             <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
@@ -665,6 +633,7 @@ useEffect(() => {
           <section className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-[220px]">
+                {/* if you want: swap this to a login CTA when !token */}
                 <AddToListMenu token={token || ""} setNum={setNum} />
               </div>
             </div>
@@ -698,7 +667,9 @@ useEffect(() => {
                 </div>
               </div>
 
-              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
+              {userRating != null ? (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
+              ) : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 

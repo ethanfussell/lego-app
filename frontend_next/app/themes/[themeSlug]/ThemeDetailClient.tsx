@@ -14,24 +14,16 @@ type SetSummary = {
   pieces?: number;
   image_url?: string | null;
   rating_count?: number | null;
+  rating_avg?: number | null;
+  average_rating?: number | null;
 };
 
-type SetsResponse =
-  | SetSummary[]
-  | {
-      results?: SetSummary[];
-      total?: number;
-      total_results?: number;
-      count?: number;
-      page?: number;
-      total_pages?: number;
-      pages?: number;
-    };
+const DEFAULT_LIMIT = 36;
+const MAX_LIMIT = 72;
 
-const DEFAULT_LIMIT = 30;
-
-const ALLOWED_SORTS = new Set(["rating", "year", "pieces", "name"] as const);
-type SortKey = "rating" | "year" | "pieces" | "name";
+// Match API (default is "relevance")
+const ALLOWED_SORTS = new Set(["relevance", "year", "pieces", "name", "rating"] as const);
+type SortKey = "relevance" | "year" | "pieces" | "name" | "rating";
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -46,13 +38,17 @@ function toInt(raw: string, fallback: number) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function clampInt(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 function sanitizeSort(raw: string): SortKey {
   const s = (raw || "").trim();
-  return (ALLOWED_SORTS.has(s as SortKey) ? (s as SortKey) : "rating") as SortKey;
+  return (ALLOWED_SORTS.has(s as SortKey) ? (s as SortKey) : "relevance") as SortKey;
 }
 
 function defaultOrderForSort(sort: SortKey): "asc" | "desc" {
-  // good defaults:
+  // relevance: high -> low (desc)
   // rating: high -> low
   // year: new -> old
   // pieces: high -> low
@@ -76,44 +72,29 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
   if (Array.isArray(x)) return x.filter(isSetSummary);
 
   if (typeof x === "object" && x !== null) {
-    const results = (x as { results?: unknown }).results;
-    return Array.isArray(results) ? results.filter(isSetSummary) : [];
+    const r = (x as { results?: unknown }).results;
+    return Array.isArray(r) ? r.filter(isSetSummary) : [];
   }
 
   return [];
-}
-
-function normalizeResponse(data: unknown): { results: SetSummary[]; totalPages: number } {
-  // If API returns array
-  if (Array.isArray(data)) return { results: toSetSummaryArray(data), totalPages: 1 };
-
-  // If API returns object with results + total_pages/pages
-  const obj = (typeof data === "object" && data !== null ? (data as SetsResponse) : null) as SetsResponse | null;
-
-  const results = toSetSummaryArray(obj);
-
-  const pages =
-    typeof (obj as { total_pages?: unknown })?.total_pages === "number"
-      ? (obj as { total_pages: number }).total_pages
-      : typeof (obj as { pages?: unknown })?.pages === "number"
-      ? (obj as { pages: number }).pages
-      : 1;
-
-  const totalPages = Number.isFinite(pages) && pages > 0 ? Math.floor(pages) : 1;
-
-  return { results, totalPages };
 }
 
 export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) {
   const router = useRouter();
   const sp = useSearchParams();
 
+  // IMPORTANT: themeSlug is the URL segment; decode it to get raw theme string for the API
   const theme = useMemo(() => decodeURIComponent(String(themeSlug || "").trim()), [themeSlug]);
 
   // URL -> state
   const page = useMemo(() => toInt(first(sp, "page") || "1", 1), [sp]);
-  const limit = useMemo(() => toInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT), [sp]);
-  const sort = useMemo(() => sanitizeSort(first(sp, "sort") || "rating"), [sp]);
+
+  const limit = useMemo(() => {
+    const raw = toInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
+    return clampInt(raw, 1, MAX_LIMIT);
+  }, [sp]);
+
+  const sort = useMemo(() => sanitizeSort(first(sp, "sort") || "relevance"), [sp]);
   const order = useMemo(() => sanitizeOrder(first(sp, "order") || ""), [sp]);
 
   const effectiveOrder = order || defaultOrderForSort(sort);
@@ -121,9 +102,8 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sets, setSets] = useState<SetSummary[]>([]);
-  const [totalPages, setTotalPages] = useState<number>(1);
+  const [hasNext, setHasNext] = useState(false);
 
-  // keep URL writer small + consistent
   function pushUrl(next: { page?: number; limit?: number; sort?: SortKey; order?: "asc" | "desc" | "" }) {
     const params = new URLSearchParams(sp?.toString?.() || "");
 
@@ -134,29 +114,31 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
     }
 
     if (typeof next.limit === "number") {
-      const l = Number.isFinite(next.limit) ? Math.floor(next.limit) : DEFAULT_LIMIT;
+      const l0 = Number.isFinite(next.limit) ? Math.floor(next.limit) : DEFAULT_LIMIT;
+      const l = clampInt(l0, 1, MAX_LIMIT);
       if (l === DEFAULT_LIMIT) params.delete("limit");
       else params.set("limit", String(l));
     }
 
     if (typeof next.sort === "string") {
       const s = sanitizeSort(next.sort);
-      if (s === "rating") params.delete("sort"); // keep URL clean (default)
+      if (s === "relevance") params.delete("sort"); // default
       else params.set("sort", s);
     }
 
     if (typeof next.order === "string") {
       const o = sanitizeOrder(next.order);
-      const currentSort = sanitizeSort(params.get("sort") || "rating");
+      const currentSort = sanitizeSort(params.get("sort") || "relevance");
       const def = defaultOrderForSort(currentSort);
 
-      // keep URL clean: drop order if it matches default
-      if (!o || o === def) params.delete("order");
+      if (!o || o === def) params.delete("order"); // default
       else params.set("order", o);
     }
 
     const qs = params.toString();
-    const url = qs ? `/themes/${encodeURIComponent(themeSlug)}?${qs}` : `/themes/${encodeURIComponent(themeSlug)}`;
+
+    // ✅ DO NOT re-encode themeSlug (it may already be encoded)
+    const url = qs ? `/themes/${themeSlug}?${qs}` : `/themes/${themeSlug}`;
     router.push(url, { scroll: false });
   }
 
@@ -171,27 +153,32 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
         setErr(null);
 
         const params = new URLSearchParams();
-        params.set("q", theme);
         params.set("page", String(page));
         params.set("limit", String(limit));
-        params.set("sort", sort);
-        params.set("order", effectiveOrder);
 
-        const data = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+        // ✅ only send sort/order when needed
+        if (sort !== "relevance") params.set("sort", sort);
+
+        const def = defaultOrderForSort(sort);
+        if (effectiveOrder !== def) params.set("order", effectiveOrder);
+
+        // ✅ USE THE THEME ENDPOINT (theme is decoded; encode for path)
+        const data = await apiFetch<unknown>(
+          `/themes/${encodeURIComponent(theme)}/sets?${params.toString()}`,
+          { cache: "no-store" }
+        );
+
         if (cancelled) return;
 
-        const norm = normalizeResponse(data);
-        setSets(norm.results);
-        setTotalPages(norm.totalPages);
+        const results = toSetSummaryArray(data);
+        setSets(results);
 
-        // snap back if page too large
-        if (page > norm.totalPages && norm.totalPages >= 1) {
-          pushUrl({ page: norm.totalPages });
-        }
+        // No total_pages from API → infer "next" by whether we filled the page.
+        setHasNext(results.length === limit);
       } catch (e: unknown) {
         if (!cancelled) {
           setSets([]);
-          setTotalPages(1);
+          setHasNext(false);
           setErr(errorMessage(e));
         }
       } finally {
@@ -204,18 +191,16 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, page, limit, sort, effectiveOrder, themeSlug]);
+  }, [theme, page, limit, sort, effectiveOrder]);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{theme || "Theme"}</h1>
+
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
-            <span>
-              Page {page}
-              {totalPages > 1 ? ` / ${totalPages}` : ""}
-            </span>
+            <span>Page {page}</span>
 
             <label className="flex items-center gap-2">
               <span className="text-zinc-500">Sort</span>
@@ -230,6 +215,8 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
                 }}
                 className="h-10 rounded-2xl border border-black/[.10] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-zinc-950"
               >
+                <option value={`relevance:desc`}>Relevance</option>
+
                 <option value={`rating:desc`}>Rating (high → low)</option>
                 <option value={`rating:asc`}>Rating (low → high)</option>
 
@@ -258,12 +245,10 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
         <p className="mt-6 text-sm text-zinc-500">No sets found for this theme yet.</p>
       ) : null}
 
-      {!err && sets.length > 0 ? (
-        <ThemesClient theme={theme} sets={sets} page={page} limit={limit} sort={`${sort}:${effectiveOrder}`} />
-      ) : null}
+      {!err && sets.length > 0 ? <ThemesClient sets={sets} /> : null}
 
-      {/* Pagination (kept simple + consistent with your ThemesClient URLs) */}
-      {!err && totalPages > 1 ? (
+      {/* Pagination */}
+      {!err ? (
         <div className="mt-10 flex items-center justify-between">
           <div>
             {page > 1 ? (
@@ -280,7 +265,7 @@ export default function ThemeDetailClient({ themeSlug }: { themeSlug: string }) 
           </div>
 
           <div>
-            {page < totalPages ? (
+            {hasNext ? (
               <button
                 type="button"
                 onClick={() => pushUrl({ page: page + 1 })}
