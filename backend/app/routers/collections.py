@@ -1,7 +1,7 @@
 # backend/app/routers/collections.py
 from __future__ import annotations
 
-from typing import Any, Dict, List as TypingList, Optional
+from typing import Any, Dict, List as TypingList
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -56,7 +56,6 @@ def _canonicalize_and_ensure_set(db: Session, raw: str) -> str:
     if not canonical:
         raise HTTPException(status_code=404, detail="set_not_found")
 
-    # ensure SetModel row exists
     row = db.execute(
         select(SetModel).where(SetModel.set_num == canonical).limit(1)
     ).scalar_one_or_none()
@@ -76,7 +75,6 @@ def _canonicalize_and_ensure_set(db: Session, raw: str) -> str:
         except IntegrityError:
             db.rollback()
     else:
-        # light backfill if missing
         changed = False
         if not (row.name or "").strip() and s.get("name"):
             row.name = str(s.get("name") or "")
@@ -270,9 +268,7 @@ def add_owned(
     if not _already_in_list(db, int(owned_list.id), canonical):
         _append_item(db, int(owned_list.id), canonical)
 
-    # enforce "owned OR wishlist"
     _remove_item_idempotent_by_base_or_exact(db, int(wishlist_list.id), base_set_num(canonical))
-
     return {"ok": True, "set_num": canonical, "type": "owned"}
 
 
@@ -311,9 +307,7 @@ def add_wishlist(
     if not _already_in_list(db, int(wishlist_list.id), canonical):
         _append_item(db, int(wishlist_list.id), canonical)
 
-    # enforce "owned OR wishlist"
     _remove_item_idempotent_by_base_or_exact(db, int(owned_list.id), base_set_num(canonical))
-
     return {"ok": True, "set_num": canonical, "type": "wishlist"}
 
 
@@ -336,3 +330,16 @@ def list_my_wishlist(
     wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
     rows = db.execute(_system_list_sets_query(int(wishlist_list.id))).all()
     return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+
+
+# ✅ FIX: add PUT endpoint expected by tests
+@router.put("/wishlist/order", status_code=status.HTTP_200_OK)
+@router.post("/wishlist/order", status_code=status.HTTP_200_OK)  # optional alias
+def reorder_my_wishlist(
+    payload: CollectionOrderUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
+    _reorder_list_items_exact(db, list_id=int(wishlist_list.id), set_nums=payload.set_nums or [])
+    return {"ok": True}

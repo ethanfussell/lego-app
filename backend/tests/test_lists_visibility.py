@@ -1,8 +1,7 @@
 # backend/tests/test_lists_visibility.py
 from sqlalchemy.orm import Session
 
-from backend.app.models import User, List  # adjust if your models module differs
-
+from app.models import User, List
 
 def create_user(db: Session, username: str) -> User:
     u = User(username=username, password_hash=None)

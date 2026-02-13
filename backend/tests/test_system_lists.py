@@ -2,7 +2,7 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from backend.app.models import User, List
+from app.models import User, List
 
 
 def create_user(db: Session, username: str) -> User:

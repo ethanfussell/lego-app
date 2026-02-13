@@ -1,5 +1,5 @@
 # tests/test_lists_public.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from fastapi.testclient import TestClient
 
@@ -15,7 +15,7 @@ def _reset_lists():
 
 def test_public_lists_only_public():
     _reset_lists()
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     # public list
     lists_data.LISTS.append({
@@ -53,7 +53,7 @@ def test_public_lists_only_public():
 
 def test_public_lists_sorted_by_updated_desc():
     _reset_lists()
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     lists_data.LISTS.append({
         "id": 1,
@@ -90,7 +90,7 @@ def test_public_lists_sorted_by_updated_desc():
 
 def test_public_lists_owner_filter():
     _reset_lists()
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     lists_data.LISTS.append({
         "id": 1,

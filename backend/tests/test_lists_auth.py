@@ -1,5 +1,5 @@
 # tests/test_lists_auth.py
-from datetime import datetime
+from datetime import datetime, UTC
 
 from fastapi.testclient import TestClient
 
@@ -79,7 +79,7 @@ def test_update_list_for_wrong_owner_forbidden():
     LISTS.clear()
 
     # Manually insert a list with a different owner.
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     LISTS.append({
         "id": 1,
         "owner": "someone_else",
@@ -109,7 +109,7 @@ def test_add_item_requires_auth():
     LISTS.clear()
 
     # Create a list owned by ethan
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     LISTS.append({
         "id": 1,
         "owner": "ethan",

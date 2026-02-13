@@ -221,6 +221,12 @@ def _user_rating_for_set(
 def list_sets(
     response: Response,
     q: Optional[str] = Query(None),
+
+    # year filtering
+    year: Optional[int] = Query(None, ge=1900, le=2100),
+    min_year: Optional[int] = Query(None, ge=1900, le=2100),
+    max_year: Optional[int] = Query(None, ge=1900, le=2100),
+
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("relevance"),
@@ -230,28 +236,47 @@ def list_sets(
     all_sets = load_cached_sets()
     sets = all_sets
 
-    if q:
-        sets = [s for s in sets if _matches_query(s, q)]
-        if not sets:
+    q_clean = (q or "").strip()
+
+    # ---------------- query filtering ----------------
+    if q_clean:
+        direct = [s for s in all_sets if _matches_query(s, q_clean)]
+        if direct:
+            sets = direct
+        else:
             scored: List[Tuple[float, Dict[str, Any]]] = []
             for s in all_sets:
-                score = _fuzzy_score_for_set(s, q)
+                score = _fuzzy_score_for_set(s, q_clean)
                 if score >= 0.55:
                     scored.append((score, s))
             scored.sort(key=lambda t: t[0], reverse=True)
             sets = [s for _, s in scored[:100]]
 
+    # ---------------- year filtering ----------------
+    if year is not None:
+        y = int(year)
+        sets = [s for s in sets if int(s.get("year") or 0) == y]
+    else:
+        if min_year is not None:
+            y0 = int(min_year)
+            sets = [s for s in sets if int(s.get("year") or 0) >= y0]
+        if max_year is not None:
+            y1 = int(max_year)
+            sets = [s for s in sets if int(s.get("year") or 0) <= y1]
+
+    # ---------------- rating enrichment ----------------
     ratings = _ratings_map(db)
 
     enriched: List[Dict[str, Any]] = []
     for s in sets:
         canonical = s.get("set_num") or ""
         avg, cnt = ratings.get(canonical, (None, 0))
-        s2 = dict(s)
-        s2["_avg_rating"] = avg
-        s2["_rating_count"] = cnt
-        enriched.append(s2)
+        r = dict(s)
+        r["_avg_rating"] = avg
+        r["_rating_count"] = cnt
+        enriched.append(r)
 
+    # ---------------- sorting ----------------
     allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
     if sort not in allowed_sorts:
         raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
@@ -261,9 +286,9 @@ def list_sets(
     reverse = (order == "desc")
 
     if sort == "relevance":
-        if q:
+        if q_clean:
             for r in enriched:
-                r["_relevance"] = _relevance_score(r, q)
+                r["_relevance"] = _relevance_score(r, q_clean)
             enriched.sort(
                 key=lambda r: (
                     r.get("_relevance") or 0,
@@ -277,6 +302,7 @@ def list_sets(
     else:
         enriched.sort(key=_sort_key(sort), reverse=reverse)
 
+    # ---------------- pagination + response shaping ----------------
     total = len(enriched)
     start = (page - 1) * limit
     end = start + limit
@@ -389,7 +415,11 @@ def get_set_offers(set_num: str):
     ),
 )
 def bulk_get_sets(
-    set_nums: str = Query(..., description="Comma-separated set numbers like 10305-1,21357-1", example="10305-1,21357-1"),
+    set_nums: str = Query(
+    ...,
+    description="Comma-separated set numbers like 10305-1,21357-1",
+    examples=["10305-1,21357-1"],
+),
     db: Session = Depends(get_db),
     current_user: Optional[UserModel] = Depends(get_current_user_optional),
 ):

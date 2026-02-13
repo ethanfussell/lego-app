@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.api import themes
+from app.api import themes  # if this exists and defines routes, keep it; otherwise remove
 from app.core import auth as auth_router
 from app.db import get_db
 from app.models import List as ListModel
@@ -29,9 +29,7 @@ from app.routers import themes as themes_router
 
 app = FastAPI(title="LEGO API")
 
-# ---------------------------
-# Debug headers (safe)
-# ---------------------------
+
 @app.middleware("http")
 async def add_debug_headers(request: Request, call_next):
     resp = await call_next(request)
@@ -45,9 +43,6 @@ async def add_debug_headers(request: Request, call_next):
     return resp
 
 
-# ---------------------------
-# CORS
-# ---------------------------
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -64,32 +59,30 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
-# ---------------------------
-# Basic routes
-# ---------------------------
+
 @app.get("/", tags=["meta"])
 def root():
     return {"status": "ok", "message": "LEGO API is running"}
+
 
 @app.get("/health", tags=["meta"])
 def health():
     return {"ok": True}
 
 
-# ---------------------------
-# SEO basics
-# ---------------------------
 def _public_base_url(request: Request) -> str:
     env = (os.getenv("PUBLIC_BASE_URL") or "").strip()
     if env:
         return env.rstrip("/")
     return str(request.base_url).rstrip("/")
 
+
 @app.get("/robots.txt", include_in_schema=False)
 def robots_txt(request: Request):
     base = _public_base_url(request)
     body = f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n"
     return PlainTextResponse(content=body, media_type="text/plain")
+
 
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request, db: Session = Depends(get_db)):
@@ -157,30 +150,24 @@ app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
 
 app.include_router(collections_router.router, prefix="/collections", tags=["collections"])
 app.include_router(users_router.router, tags=["users"])
-app.include_router(themes.router, tags=["themes"])
+
+# ✅ IMPORTANT: include themes ONLY ONCE.
+# themes_router already has prefix="/themes"
+app.include_router(themes_router.router)
 
 # lists router already has prefix="/lists"
 app.include_router(lists_router.router)
 
-# ✅ FIX: mount review stats under /sets too so frontend /api/sets/reviews/me/stats works
-# (keeps existing /reviews/me/stats working as well)
+# review stats
 app.include_router(review_stats_router.router)
 app.include_router(review_stats_router.router, prefix="/sets", tags=["reviews"])
+app.include_router(review_stats_router.router, prefix="/reviews", tags=["reviews"])
+app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["reviews"])
 
 app.include_router(ratings.router)
 app.include_router(offers_router)
 
-app.include_router(review_stats_router.router, prefix="/reviews", tags=["reviews"])
-app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["reviews"])
 
-# ---------------------------
-# Debug
-# ---------------------------
 @app.get("/db/ping", tags=["debug"])
 def db_ping(db: Session = Depends(get_db)):
     return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
-
-# ---------------------------
-# Themes
-# ---------------------------
-app.include_router(themes_router.router, tags=["themes"])
