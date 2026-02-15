@@ -24,6 +24,18 @@ type SetSummary = {
   average_rating?: number | null;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getArrayField(v: unknown, key: string): unknown[] | null {
+  if (!isRecord(v)) return null;
+  const val = v[key];
+  return Array.isArray(val) ? val : null;
+}
+
 function first(sp: SP, key: string): string {
   const raw = sp[key];
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -66,12 +78,29 @@ function qsBase(year: number, p: number) {
   return qs ? `/years/${year}?${qs}` : `/years/${year}`;
 }
 
+function isSetSummary(x: unknown): x is SetSummary {
+  if (!isRecord(x)) return false;
+
+  const sn = x["set_num"];
+  const name = x["name"];
+
+  if (typeof sn !== "string" || !sn.trim()) return false;
+  if (typeof name !== "string" || !name.trim()) return false;
+
+  return true;
+}
+
+function normalizeSetSummaryArray(data: unknown): SetSummary[] {
+  const arr = Array.isArray(data) ? data : getArrayField(data, "results") ?? [];
+  return arr.filter(isSetSummary);
+}
+
 function topThemesFromRows(rows: SetSummary[], max = 3) {
   const seen = new Set<string>();
   const out: string[] = [];
 
   for (const r of rows) {
-    const t = String((r as any)?.theme ?? "").trim();
+    const t = String(r.theme ?? "").trim();
     if (!t) continue;
     if (seen.has(t)) continue;
     seen.add(t);
@@ -93,12 +122,7 @@ async function fetchSetsByYear(year: number, page: number, limit: number) {
   if (!res.ok) return { rows: [] as SetSummary[], totalCount: null as number | null };
 
   const data: unknown = await res.json();
-
-  const rows = Array.isArray(data)
-    ? (data as SetSummary[])
-    : typeof data === "object" && data !== null && Array.isArray((data as any).results)
-      ? ((data as any).results as SetSummary[])
-      : [];
+  const rows = normalizeSetSummaryArray(data);
 
   const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
   const parsed = header ? Number(header) : NaN;
@@ -118,7 +142,7 @@ export async function generateMetadata({
   const sp = (await searchParams) ?? ({} as SP);
 
   const { min, max } = yearBounds();
-  const y = toInt(String(year), NaN as any);
+  const y = toInt(String(year), NaN);
 
   const rawPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
   const page = rawPage; // metadata can’t know totalPages without fetching; keep it as requested
@@ -166,7 +190,7 @@ export default async function YearPage({
   const sp = (await searchParams) ?? ({} as SP);
 
   const { min, max } = yearBounds();
-  const y = toInt(String(year), NaN as any);
+  const y = toInt(String(year), NaN);
 
   // Invalid year
   if (!Number.isFinite(y) || y < min || y > max) {

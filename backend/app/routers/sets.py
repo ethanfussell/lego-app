@@ -125,6 +125,36 @@ def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], i
         return (None, 0)
     return (round(float(avg), 2), cnt_i)
 
+def _review_count_for_set(db: Session, set_num: str) -> int:
+    """
+    Count written reviews (non-empty text) for a set.
+    This is intentionally separate from rating_count (which counts ratings).
+    """
+    if _use_memory_reviews():
+        cnt = 0
+        for r in (reviews_data.REVIEWS or []):
+            if str(r.get("set_num")) != str(set_num):
+                continue
+            text = r.get("text")
+            if text is None:
+                continue
+            if str(text).strip() == "":
+                continue
+            cnt += 1
+        return cnt
+
+    cnt = db.execute(
+        select(func.count())
+        .select_from(ReviewModel)
+        .where(
+            ReviewModel.set_num == set_num,
+            ReviewModel.text.is_not(None),
+            func.length(func.trim(ReviewModel.text)) > 0,
+        )
+    ).scalar_one()
+
+    return int(cnt or 0)
+
 
 def _review_stats_for_set(db: Session, set_num: str) -> int:
     """
@@ -631,7 +661,7 @@ def get_set(
     plain = s.get("set_num_plain")
 
     avg, cnt = _rating_stats_for_set(db, canonical)
-    review_count = _review_stats_for_set(db, canonical)
+    review_cnt = _review_count_for_set(db, canonical)
 
     user_rating = None
     if current_user:
@@ -640,7 +670,7 @@ def get_set(
     out = dict(s)
     out["average_rating"] = avg
     out["rating_avg"] = avg
-    out["rating_count"] = int(cnt or 0)
-    out["review_count"] = int(review_count or 0)
+    out["rating_count"] = cnt
+    out["review_count"] = review_cnt
     out["user_rating"] = user_rating
     return out
