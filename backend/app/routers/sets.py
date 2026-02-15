@@ -95,11 +95,15 @@ def _sort_key(sort: str):
     if sort == "pieces":
         return lambda r: (r.get("pieces") or 0)
     if sort == "rating":
+        # sort by avg rating, then rating count
         return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
     return lambda r: (r.get("name") or "").lower()
 
 
 def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], int]:
+    """
+    Returns (avg_rating, rating_count) where rating_count counts ONLY non-null ratings.
+    """
     if _use_memory_reviews():
         vals = [
             float(r["rating"])
@@ -122,7 +126,37 @@ def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], i
     return (round(float(avg), 2), cnt_i)
 
 
+def _review_stats_for_set(db: Session, set_num: str) -> int:
+    """
+    Returns review_count = count of reviews with NON-EMPTY text (trimmed).
+    """
+    if _use_memory_reviews():
+        vals = [
+            r
+            for r in (reviews_data.REVIEWS or [])
+            if str(r.get("set_num")) == str(set_num)
+            and r.get("text") is not None
+            and str(r.get("text")).strip() != ""
+        ]
+        return int(len(vals))
+
+    row = db.execute(
+        select(func.count(ReviewModel.id))
+        .where(
+            ReviewModel.set_num == set_num,
+            ReviewModel.text.is_not(None),
+            func.length(func.trim(ReviewModel.text)) > 0,
+        )
+    ).one()
+
+    (cnt,) = row
+    return int(cnt or 0)
+
+
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
+    """
+    Map set_num -> (avg_rating, rating_count) where rating_count counts only non-null ratings.
+    """
     if _use_memory_reviews():
         buckets: Dict[str, List[float]] = {}
         for r in (reviews_data.REVIEWS or []):
@@ -151,6 +185,35 @@ def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
         cnt_i = int(cnt or 0)
         avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
         out[str(set_num)] = (avg_f, cnt_i)
+    return out
+
+
+def _review_counts_map(db: Session) -> Dict[str, int]:
+    """
+    Map set_num -> review_count where review_count counts only non-empty text reviews.
+    """
+    if _use_memory_reviews():
+        counts: Dict[str, int] = {}
+        for r in (reviews_data.REVIEWS or []):
+            txt = r.get("text")
+            if txt is None or str(txt).strip() == "":
+                continue
+            key = str(r.get("set_num"))
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    rows = db.execute(
+        select(ReviewModel.set_num, func.count(ReviewModel.id))
+        .where(
+            ReviewModel.text.is_not(None),
+            func.length(func.trim(ReviewModel.text)) > 0,
+        )
+        .group_by(ReviewModel.set_num)
+    ).all()
+
+    out: Dict[str, int] = {}
+    for set_num, cnt in rows:
+        out[str(set_num)] = int(cnt or 0)
     return out
 
 
@@ -264,16 +327,20 @@ def list_sets(
             y1 = int(max_year)
             sets = [s for s in sets if int(s.get("year") or 0) <= y1]
 
-    # ---------------- rating enrichment ----------------
-    ratings = _ratings_map(db)
+    # ---------------- rating + review enrichment ----------------
+    ratings = _ratings_map(db)              # set_num -> (avg, rating_count)
+    review_counts = _review_counts_map(db)  # set_num -> review_count (text)
 
     enriched: List[Dict[str, Any]] = []
     for s in sets:
         canonical = s.get("set_num") or ""
         avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = int(review_counts.get(canonical, 0))
+
         r = dict(s)
         r["_avg_rating"] = avg
         r["_rating_count"] = cnt
+        r["_review_count"] = rev_cnt
         enriched.append(r)
 
     # ---------------- sorting ----------------
@@ -311,11 +378,13 @@ def list_sets(
     for r in page_rows:
         avg = r.pop("_avg_rating", None)
         cnt = r.pop("_rating_count", 0)
+        rev_cnt = r.pop("_review_count", 0)
         r.pop("_relevance", None)
 
         r["average_rating"] = avg
         r["rating_avg"] = avg
-        r["rating_count"] = cnt
+        r["rating_count"] = int(cnt or 0)
+        r["review_count"] = int(rev_cnt or 0)
 
     response.headers["X-Total-Count"] = str(total)
     return page_rows
@@ -391,6 +460,9 @@ def get_set_rating_summary(set_num: str, db: Session = Depends(get_db)):
 
     canonical = s.get("set_num") or set_num
     avg, cnt = _rating_stats_for_set(db, canonical)
+
+    # This endpoint is intentionally rating-focused.
+    # If you want review_count here too, tell me and I’ll add it.
     return {"set_num": canonical, "average": avg, "count": cnt}
 
 
@@ -411,15 +483,15 @@ def get_set_offers(set_num: str):
     summary="Bulk fetch sets",
     description=(
         "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
-        "(average_rating, rating_count). If authenticated, includes user_rating."
+        "(average_rating, rating_count) and review_count (non-empty text). If authenticated, includes user_rating."
     ),
 )
 def bulk_get_sets(
     set_nums: str = Query(
-    ...,
-    description="Comma-separated set numbers like 10305-1,21357-1",
-    examples=["10305-1,21357-1"],
-),
+        ...,
+        description="Comma-separated set numbers like 10305-1,21357-1",
+        examples=["10305-1,21357-1"],
+    ),
     db: Session = Depends(get_db),
     current_user: Optional[UserModel] = Depends(get_current_user_optional),
 ):
@@ -447,6 +519,7 @@ def bulk_get_sets(
     if not canonicals:
         return []
 
+    # rating_count: non-null rating
     rows = db.execute(
         select(
             ReviewModel.set_num,
@@ -466,12 +539,31 @@ def bulk_get_sets(
         avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
         ratings[str(set_num)] = (avg_f, cnt_i)
 
+    # review_count: non-empty text
+    review_rows = db.execute(
+        select(
+            ReviewModel.set_num,
+            func.count(ReviewModel.id),
+        )
+        .where(
+            ReviewModel.set_num.in_(canonicals),
+            ReviewModel.text.is_not(None),
+            func.length(func.trim(ReviewModel.text)) > 0,
+        )
+        .group_by(ReviewModel.set_num)
+    ).all()
+
+    review_counts: Dict[str, int] = {}
+    for set_num, cnt in review_rows:
+        review_counts[str(set_num)] = int(cnt or 0)
+
     username: Optional[str] = current_user.username if current_user else None
 
     out: List[Dict[str, Any]] = []
     for s in found:
         canonical = s.get("set_num") or ""
         avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = review_counts.get(canonical, 0)
 
         user_rating = None
         if username:
@@ -480,7 +572,8 @@ def bulk_get_sets(
         r = dict(s)
         r["average_rating"] = avg
         r["rating_avg"] = avg
-        r["rating_count"] = cnt
+        r["rating_count"] = int(cnt or 0)
+        r["review_count"] = int(rev_cnt or 0)
         r["user_rating"] = user_rating
         out.append(r)
 
@@ -538,6 +631,7 @@ def get_set(
     plain = s.get("set_num_plain")
 
     avg, cnt = _rating_stats_for_set(db, canonical)
+    review_count = _review_stats_for_set(db, canonical)
 
     user_rating = None
     if current_user:
@@ -546,6 +640,7 @@ def get_set(
     out = dict(s)
     out["average_rating"] = avg
     out["rating_avg"] = avg
-    out["rating_count"] = cnt
+    out["rating_count"] = int(cnt or 0)
+    out["review_count"] = int(review_count or 0)
     out["user_rating"] = user_rating
     return out

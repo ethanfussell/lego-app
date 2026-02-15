@@ -672,21 +672,36 @@ export default function SetDetailClient(props: Props) {
 
           {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
-          {ratingSummaryLoading || ratingSummaryError || ratingCount > 0 ? (
-            <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
-              ⭐{" "}
-              <span className="font-semibold">
-                {ratingSummaryLoading ? "Loading…" : avgRating !== null ? avgRating.toFixed(1) : "—"}
-              </span>{" "}
-              {ratingSummaryError ? (
-                <span className="text-red-600">(error loading ratings)</span>
-              ) : (
-                <span className="text-zinc-500">
-                  ({ratingCount === 0 ? "no ratings yet" : `${ratingCount} rating${ratingCount === 1 ? "" : "s"}`})
-                </span>
-              )}
-            </p>
-          ) : null}
+          {(() => {
+            const reviewCount = visibleReviews.length;
+
+            // Show the line when:
+            // - rating summary is loading/errored
+            // - OR we have ratings
+            // - OR we have reviews (text)
+            const shouldShow = ratingSummaryLoading || !!ratingSummaryError || ratingCount > 0 || reviewCount > 0;
+            if (!shouldShow) return null;
+
+            return (
+              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
+                ⭐{" "}
+                <span className="font-semibold">
+                  {ratingSummaryLoading ? "Loading…" : avgRating !== null ? avgRating.toFixed(1) : "—"}
+                </span>{" "}
+                {ratingSummaryError ? (
+                  <span className="text-red-600">(error loading ratings)</span>
+                ) : (
+                  <span className="text-zinc-500">
+                    (
+                    {ratingCount === 0 ? "no ratings yet" : `${ratingCount} rating${ratingCount === 1 ? "" : "s"}`}
+                    {" • "}
+                    {reviewCount === 0 ? "no reviews yet" : `${reviewCount} review${reviewCount === 1 ? "" : "s"}`}
+                    )
+                  </span>
+                )}
+              </p>
+            );
+          })()}
 
           <section className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
             <div className="flex flex-wrap items-center gap-3">

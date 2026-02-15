@@ -17,6 +17,7 @@ type LegoSet = {
   rating_avg?: number | null;
   rating_count?: number | null;
   description?: string | null;
+  review_count?: number | null; // ✅ text reviews only (backend)
 };
 
 type JsonLdObject = Record<string, unknown>;
@@ -69,9 +70,27 @@ function pickRatingCount(setDetail: LegoSet): number {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
 }
 
-function buildJsonLd(setDetail: LegoSet): JsonLdObject {
+function pickReviewCount(setDetail: LegoSet): number | null {
+  // Keep separate from ratings:
+  // - If backend provides review_count, use it
+  // - Otherwise: null (don’t guess)
+  const v = setDetail.review_count;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+}
+
+function canonicalForSet(setNum: string): string {
+  const decoded = String(setNum ?? "").trim();
+  return `/sets/${encodeURIComponent(decoded)}`;
+}
+
+function buildProductJsonLd(setDetail: LegoSet): JsonLdObject {
   const avg = pickAvgRating(setDetail);
-  const count = pickRatingCount(setDetail);
+  const ratingCount = pickRatingCount(setDetail);
+  const reviewCount = pickReviewCount(setDetail);
+
+  const base = siteBase();
+  const url = new URL(canonicalForSet(setDetail.set_num), base).toString();
+  const id = `${url}#product`;
 
   const additionalProperty: JsonLdObject[] = [
     ...(typeof setDetail.pieces === "number"
@@ -88,25 +107,44 @@ function buildJsonLd(setDetail: LegoSet): JsonLdObject {
   const jsonLd: JsonLdObject = {
     "@context": "https://schema.org",
     "@type": "Product",
+    "@id": id,
+    url,
     name: setDetail.name || setDetail.set_num || "LEGO set",
     sku: setDetail.set_num,
     brand: { "@type": "Brand", name: "LEGO" },
     category: "LEGO Sets",
     additionalProperty,
+    ...(setDetail.description ? { description: setDetail.description } : {}),
     ...(setDetail.image_url ? { image: [setDetail.image_url] } : {}),
   };
 
-  if (count > 0 && avg != null) {
+  // ✅ AggregateRating only when real rating info exists
+  if (ratingCount > 0 && avg != null) {
     jsonLd.aggregateRating = {
       "@type": "AggregateRating",
-      ratingValue: avg,
-      ratingCount: count,
+      ratingValue: Number(avg.toFixed(2)),
+      ratingCount,
+      ...(reviewCount != null ? { reviewCount } : {}), // ✅ separate; only include if provided
       bestRating: 5,
       worstRating: 0,
     };
   }
 
   return jsonLd;
+}
+
+function buildWebPageJsonLd(setDetail: LegoSet): JsonLdObject {
+  const base = siteBase();
+  const url = new URL(canonicalForSet(setDetail.set_num), base).toString();
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": `${url}#webpage`,
+    url,
+    name: setDetail.name ? `${setDetail.name} (${setDetail.set_num})` : setDetail.set_num,
+    mainEntity: { "@id": `${url}#product` },
+  };
 }
 
 function buildDescription(setNum: string, data: LegoSet | null): string {
@@ -121,11 +159,6 @@ function buildDescription(setNum: string, data: LegoSet | null): string {
   return facts
     ? `Details for LEGO set ${decodedSetNum}: ${name}. ${facts}.`
     : `Details for LEGO set ${decodedSetNum}: ${name}.`;
-}
-
-function canonicalForSet(setNum: string): string {
-  const decoded = String(setNum ?? "").trim();
-  return `/sets/${encodeURIComponent(decoded)}`;
 }
 
 export async function generateMetadata({
@@ -175,13 +208,13 @@ export default async function Page({
   const data = await fetchSet(decoded);
   if (!data) notFound();
 
+  const productLd = buildProductJsonLd(data);
+  const pageLd = buildWebPageJsonLd(data);
+
   return (
     <>
-      <script
-        type="application/ld+json"
-        // ok: schema.org Product JSON-LD
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(data)) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productLd) }} />
       <SetDetailClient setNum={decoded} initialData={data} />
     </>
   );
