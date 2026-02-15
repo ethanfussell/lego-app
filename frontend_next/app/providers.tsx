@@ -26,11 +26,10 @@ function normalizeToken(t: unknown): string {
   return typeof t === "string" ? t.trim() : "";
 }
 
-function isStatus(err: unknown, status: number): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  if (!("status" in err)) return false;
+function getStatus(err: unknown): number | null {
+  if (typeof err !== "object" || err === null) return null;
   const v = (err as { status?: unknown }).status;
-  return typeof v === "number" && v === status;
+  return typeof v === "number" ? v : null;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -72,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       setLoadingMe(true);
+
       try {
         const data = await apiFetch<Me>("/users/me", { token, cache: "no-store" });
 
@@ -83,15 +83,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         if (reqId !== meReqId.current) return;
 
-        const unauthorized = isStatus(e, 401) || isStatus(e, 403);
+        const status = getStatus(e);
+        const unauthorized = status === 401 || status === 403;
 
-        // IMPORTANT: do NOT auto-clear the token on 401 right now.
-        // This avoids “login briefly then logout” loops if proxy/header forwarding is the issue.
+        // Expected when token is missing/expired/invalid:
+        // clear `me` and (optionally) clear token so we don't keep re-trying
         setMe(null);
 
-        // If you later want auto-logout:
-        // if (unauthorized) setToken("");
-        void unauthorized;
+        if (unauthorized) {
+          // Clear token + storage to stop noisy retries and "bad response" logs.
+          persistToken("");
+          setToken("");
+        }
       } finally {
         if (!cancelled && reqId === meReqId.current) setLoadingMe(false);
       }

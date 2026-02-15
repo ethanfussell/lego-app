@@ -1,7 +1,11 @@
 // frontend_next/app/api/[...path]/route.ts
 import { NextRequest } from "next/server";
 
-const UPSTREAM = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+const UPSTREAM = (
+  process.env.API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  ""
+).replace(/\/+$/, "");
 
 function buildUpstreamUrl(req: NextRequest, pathParts: string[]) {
   const upstreamPath = "/" + pathParts.map(encodeURIComponent).join("/");

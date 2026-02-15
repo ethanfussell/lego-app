@@ -35,27 +35,19 @@ function normalizeLocalhostBase(raw: string): string {
   return s;
 }
 
-function originForServer(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || "";
-  if (explicit) return stripTrailingSlashes(explicit);
-
-  const vercel = process.env.VERCEL_URL || "";
-  if (vercel) return stripTrailingSlashes(`https://${vercel}`);
-
-  const port = process.env.PORT || "3000";
-  return `http://localhost:${port}`;
-}
-
+/**
+ * Server-side (RSC / route handlers): go straight to backend.
+ * Browser: use Next proxy (/api) to avoid CORS.
+ */
 function apiBase(): string {
-  const direct =
+  const raw =
     process.env.API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     "http://127.0.0.1:8000";
 
-  // ✅ Server-side (RSC / route handlers): go straight to backend
-  if (typeof window === "undefined") return direct.replace(/\/+$/, "");
+  const direct = normalizeLocalhostBase(raw);
 
-  // ✅ Browser: use Next proxy to avoid CORS
+  if (typeof window === "undefined") return stripTrailingSlashes(direct);
   return "/api";
 }
 
@@ -113,7 +105,9 @@ function errorDetailFromBody(body: unknown): string {
 
 function logIfHtmlOrError(resp: Response, body: unknown) {
   const ct = resp.headers.get("content-type") || "";
-  const isHtml = ct.includes("text/html") || (typeof body === "string" && body.trim().startsWith("<!DOCTYPE html"));
+  const isHtml =
+    ct.includes("text/html") ||
+    (typeof body === "string" && body.trim().startsWith("<!DOCTYPE html"));
 
   if (resp.ok && !isHtml) return;
 
@@ -137,9 +131,7 @@ function logIfHtmlOrError(resp: Response, body: unknown) {
   });
 }
 
-export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions = {}): Promise<T> {
-  const url = buildUrl(path);
-
+function buildInit(opts: ApiFetchOptions): RequestInit {
   const { method = "GET", token, body, headers = {}, ...rest } = opts;
 
   const finalHeaders: Record<string, string> = {
@@ -156,20 +148,52 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions 
 
   const isJson = (finalHeaders["Content-Type"] || "").includes("application/json");
 
-  const init: RequestInit = {
+  return {
     method: upper,
     headers: finalHeaders,
     cache: "no-store",
     ...rest,
     ...(hasBody ? { body: isJson ? JSON.stringify(body) : String(body) } : {}),
   };
+}
 
-  const resp = await fetch(url, init);
+/**
+ * Standard JSON fetch. Existing callers keep working.
+ */
+export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions = {}): Promise<T> {
+  const url = buildUrl(path);
+  const resp = await fetch(url, buildInit(opts));
   const data = await readBody(resp);
 
   logIfHtmlOrError(resp, data);
 
   if (!resp.ok) throw new APIError(resp.status, errorDetailFromBody(data));
-
   return data as T;
+}
+
+/**
+ * JSON fetch + return response headers (useful for pagination: X-Total-Count).
+ */
+export async function apiFetchWithHeaders<T = unknown>(
+  path: string,
+  opts: ApiFetchOptions = {}
+): Promise<{ data: T; headers: Headers }> {
+  const url = buildUrl(path);
+  const resp = await fetch(url, buildInit(opts));
+  const data = await readBody(resp);
+
+  logIfHtmlOrError(resp, data);
+
+  if (!resp.ok) throw new APIError(resp.status, errorDetailFromBody(data));
+  return { data: data as T, headers: resp.headers };
+}
+
+/**
+ * Small helper for the common pattern.
+ */
+export function getTotalCount(headers: Headers): number | null {
+  const raw = headers.get("x-total-count") ?? headers.get("X-Total-Count");
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }

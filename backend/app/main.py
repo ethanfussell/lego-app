@@ -12,7 +12,6 @@ from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.api import themes  # if this exists and defines routes, keep it; otherwise remove
 from app.core import auth as auth_router
 from app.db import get_db
 from app.models import List as ListModel
@@ -23,13 +22,16 @@ from app.routers import ratings
 from app.routers import review_stats as review_stats_router
 from app.routers import reviews as reviews_router
 from app.routers import sets as sets_router
+from app.routers import themes as themes_router
 from app.routers import users as users_router
 from app.routers.offers import router as offers_router
-from app.routers import themes as themes_router
 
 app = FastAPI(title="LEGO API")
 
 
+# ---------------------------
+# Debug headers (safe)
+# ---------------------------
 @app.middleware("http")
 async def add_debug_headers(request: Request, call_next):
     resp = await call_next(request)
@@ -43,6 +45,9 @@ async def add_debug_headers(request: Request, call_next):
     return resp
 
 
+# ---------------------------
+# CORS
+# ---------------------------
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -60,6 +65,9 @@ app.add_middleware(
 )
 
 
+# ---------------------------
+# Basic routes
+# ---------------------------
 @app.get("/", tags=["meta"])
 def root():
     return {"status": "ok", "message": "LEGO API is running"}
@@ -70,6 +78,9 @@ def health():
     return {"ok": True}
 
 
+# ---------------------------
+# SEO basics
+# ---------------------------
 def _public_base_url(request: Request) -> str:
     env = (os.getenv("PUBLIC_BASE_URL") or "").strip()
     if env:
@@ -95,7 +106,7 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
     theme_rows = (
         db.execute(
             select(SetModel.theme)
-            .where(SetModel.theme.isnot(None), SetModel.theme != "")
+            .where(SetModel.theme.is_not(None), func.length(func.trim(SetModel.theme)) > 0)
             .group_by(SetModel.theme)
             .order_by(SetModel.theme.asc())
             .limit(5000)
@@ -145,22 +156,22 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
 # ---------------------------
 app.include_router(auth_router.router, tags=["auth"])
 
+# sets + reviews (reviews router is mounted under /sets)
 app.include_router(sets_router.router, prefix="/sets", tags=["sets"])
 app.include_router(reviews_router.router, prefix="/sets", tags=["reviews"])
 
 app.include_router(collections_router.router, prefix="/collections", tags=["collections"])
 app.include_router(users_router.router, tags=["users"])
 
-# ✅ IMPORTANT: include themes ONLY ONCE.
-# themes_router already has prefix="/themes"
+# themes router already has prefix="/themes" inside it
 app.include_router(themes_router.router)
 
 # lists router already has prefix="/lists"
 app.include_router(lists_router.router)
 
-# review stats
-app.include_router(review_stats_router.router)
-app.include_router(review_stats_router.router, prefix="/sets", tags=["reviews"])
+# review stats (keeps multiple mount points working)
+app.include_router(review_stats_router.router)  # /reviews/me/stats (etc)
+app.include_router(review_stats_router.router, prefix="/sets", tags=["reviews"])  # /sets/reviews/me/stats
 app.include_router(review_stats_router.router, prefix="/reviews", tags=["reviews"])
 app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["reviews"])
 
@@ -168,6 +179,9 @@ app.include_router(ratings.router)
 app.include_router(offers_router)
 
 
+# ---------------------------
+# Debug
+# ---------------------------
 @app.get("/db/ping", tags=["debug"])
 def db_ping(db: Session = Depends(get_db)):
     return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
