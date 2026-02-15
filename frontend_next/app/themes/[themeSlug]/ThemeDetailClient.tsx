@@ -4,7 +4,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiFetch } from "@/lib/api";
 import ThemesClient from "../ThemesClient";
 
 type SetSummary = {
@@ -79,6 +78,38 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
   return [];
 }
 
+function totalPagesFrom(totalCount: number | null, limit: number) {
+  if (!totalCount || totalCount <= 0) return null;
+  return Math.max(1, Math.ceil(totalCount / Math.max(1, limit)));
+}
+
+/**
+ * Build a compact pager like:
+ * 1 … 6 7 [8] 9 10 … 42
+ */
+function buildPageList(current: number, totalPages: number) {
+  const out: Array<number | "..."> = [];
+  const add = (x: number | "...") => {
+    if (out.length === 0 || out[out.length - 1] !== x) out.push(x);
+  };
+
+  const window = 2; // pages around current
+  const start = Math.max(2, current - window);
+  const end = Math.min(totalPages - 1, current + window);
+
+  add(1);
+
+  if (start > 2) add("...");
+
+  for (let p = start; p <= end; p++) add(p);
+
+  if (end < totalPages - 1) add("...");
+
+  if (totalPages > 1) add(totalPages);
+
+  return out;
+}
+
 export default function ThemeDetailClient({
   themeSlug,
   initialSets = [],
@@ -93,7 +124,10 @@ export default function ThemeDetailClient({
   const theme = useMemo(() => decodeURIComponent(String(themeSlug || "").trim()), [themeSlug]);
 
   // URL -> state
-  const page = useMemo(() => toInt(first(sp, "page") || "1", 1), [sp]);
+  const page = useMemo(() => {
+    const p = toInt(first(sp, "page") || "1", 1);
+    return Math.max(1, p);
+  }, [sp]);
 
   const limit = useMemo(() => {
     const raw = toInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
@@ -107,8 +141,18 @@ export default function ThemeDetailClient({
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
   const [sets, setSets] = useState<SetSummary[]>(initialSets);
-  const [hasNext, setHasNext] = useState(initialSets.length === limit);
+
+  // total count + pages (from X-Total-Count)
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const totalPages = useMemo(() => totalPagesFrom(totalCount, limit), [totalCount, limit]);
+
+  // fallback if header missing: infer next by “filled the page”
+  const [hasNextFallback, setHasNextFallback] = useState(initialSets.length === limit);
+
+  const hasPrev = page > 1;
+  const hasNext = totalPages != null ? page < totalPages : hasNextFallback;
 
   function pushUrl(next: { page?: number; limit?: number; sort?: SortKey; order?: "asc" | "desc" | "" }) {
     const params = new URLSearchParams(sp?.toString?.() || "");
@@ -157,36 +201,53 @@ export default function ThemeDetailClient({
       try {
         setLoading(true);
         setErr(null);
-        setSets([]);
-        setHasNext(false);
 
         const params = new URLSearchParams();
         params.set("page", String(page));
         params.set("limit", String(limit));
 
-        // ✅ only send sort/order when needed
+        // only send sort/order when needed
         if (sort !== "relevance") params.set("sort", sort);
 
         const def = defaultOrderForSort(sort);
         if (effectiveOrder !== def) params.set("order", effectiveOrder);
 
-        // ✅ USE THE THEME ENDPOINT (theme is decoded; encode for path)
-        const data = await apiFetch<unknown>(
-          `/themes/${encodeURIComponent(theme)}/sets?${params.toString()}`,
-          { cache: "no-store" }
-        );
+        // ✅ browser request via Next proxy so no CORS + we can read headers
+        const url = `/api/themes/${encodeURIComponent(theme)}/sets?${params.toString()}`;
+        const resp = await fetch(url, { cache: "no-store" });
+
+        if (resp.status === 404) {
+          // Theme not found (or backend says not found) — show empty + back
+          if (!cancelled) {
+            setSets([]);
+            setTotalCount(null);
+            setHasNextFallback(false);
+            setErr("Theme not found.");
+          }
+          return;
+        }
+
+        if (!resp.ok) {
+          throw new Error(`${resp.status} ${resp.statusText}`);
+        }
+
+        const raw: unknown = await resp.json();
+        const results = toSetSummaryArray(raw);
+
+        const header = resp.headers.get("x-total-count") || resp.headers.get("X-Total-Count");
+        const parsed = header ? Number(header) : NaN;
+        const total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 
         if (cancelled) return;
 
-        const results = toSetSummaryArray(data);
         setSets(results);
-
-        // No total_pages from API → infer "next" by whether we filled the page.
-        setHasNext(results.length === limit);
+        setTotalCount(total);
+        setHasNextFallback(results.length === limit);
       } catch (e: unknown) {
         if (!cancelled) {
           setSets([]);
-          setHasNext(false);
+          setTotalCount(null);
+          setHasNextFallback(false);
           setErr(errorMessage(e));
         }
       } finally {
@@ -201,6 +262,11 @@ export default function ThemeDetailClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, page, limit, sort, effectiveOrder]);
 
+  const pageList = useMemo(() => {
+    if (!totalPages || totalPages <= 1) return [];
+    return buildPageList(page, totalPages);
+  }, [page, totalPages]);
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -208,7 +274,11 @@ export default function ThemeDetailClient({
           <h1 className="text-2xl font-semibold tracking-tight">{theme || "Theme"}</h1>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
-            <span>Page {page}</span>
+            <span>
+              Page {page}
+              {totalPages ? <span className="ml-1">of {totalPages}</span> : null}
+              {typeof totalCount === "number" ? <span className="ml-2">• {totalCount} sets</span> : null}
+            </span>
 
             <label className="flex items-center gap-2">
               <span className="text-zinc-500">Sort</span>
@@ -247,8 +317,15 @@ export default function ThemeDetailClient({
       </div>
 
       {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
-      {err && !loading ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
-
+      {err && !loading ? (
+        <div className="mt-6">
+          <p className="text-sm text-red-600">Error: {err}</p>
+          <Link href="/themes" className="mt-3 inline-block text-sm font-semibold hover:underline">
+            ← Back to themes
+          </Link>
+        </div>
+      ) : null}
+      
       {!loading && !err && sets.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-500">No sets found for this theme yet.</p>
       ) : null}
@@ -257,34 +334,58 @@ export default function ThemeDetailClient({
 
       {/* Pagination */}
       {!err ? (
-        <div className="mt-10 flex items-center justify-between">
-          <div>
-            {page > 1 ? (
-              <button
-                type="button"
-                onClick={() => pushUrl({ page: page - 1 })}
-                className="rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-zinc-50 dark:border-white/[.2] dark:hover:bg-zinc-900"
-              >
-                ← Prev
-              </button>
-            ) : (
-              <span />
-            )}
+        <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => pushUrl({ page: page - 1 })}
+              disabled={!hasPrev}
+              className={`rounded-full border border-black/[.12] px-4 py-2 text-sm dark:border-white/[.2] ${
+                !hasPrev ? "cursor-not-allowed opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+              }`}
+            >
+              ← Prev
+            </button>
+
+            <button
+              type="button"
+              onClick={() => pushUrl({ page: page + 1 })}
+              disabled={!hasNext}
+              className={`rounded-full border border-black/[.12] px-4 py-2 text-sm dark:border-white/[.2] ${
+                !hasNext ? "cursor-not-allowed opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+              }`}
+            >
+              Next →
+            </button>
           </div>
 
-          <div>
-            {hasNext ? (
-              <button
-                type="button"
-                onClick={() => pushUrl({ page: page + 1 })}
-                className="rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-zinc-50 dark:border-white/[.2] dark:hover:bg-zinc-900"
-              >
-                Next →
-              </button>
-            ) : (
-              <span className="text-sm text-zinc-500">No more pages</span>
-            )}
-          </div>
+          {pageList.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {pageList.map((p, idx) =>
+                p === "..." ? (
+                  <span key={`dots-${idx}`} className="px-2 text-sm text-zinc-500">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => pushUrl({ page: p })}
+                    aria-current={p === page ? "page" : undefined}
+                    className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold dark:border-white/[.2] ${
+                      p === page
+                        ? "border-black/40 bg-black text-white dark:border-white/40 dark:bg-white dark:text-black"
+                        : "border-black/[.12] hover:bg-zinc-50 dark:border-white/[.2] dark:hover:bg-zinc-900"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-zinc-500">{hasNext ? "More pages available" : "No more pages"}</div>
+          )}
         </div>
       ) : null}
     </div>

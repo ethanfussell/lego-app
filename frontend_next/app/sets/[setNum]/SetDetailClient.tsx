@@ -5,12 +5,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import type { SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection from "@/app/components/OffersSection";
+import Breadcrumbs from "@/app/components/Breadcrumbs";
 
 type ReviewItem = {
   id: number;
@@ -175,8 +176,6 @@ export default function SetDetailClient(props: Props) {
     return reviews.filter((r) => r.text && String(r.text).trim() !== "");
   }, [reviews]);
 
-[setNum, setDetail];
-
   // Load /users/me (only when logged in)
   useEffect(() => {
     let cancelled = false;
@@ -196,7 +195,7 @@ export default function SetDetailClient(props: Props) {
       }
     }
 
-    loadMe();
+    void loadMe();
     return () => {
       cancelled = true;
     };
@@ -320,21 +319,21 @@ export default function SetDetailClient(props: Props) {
       }
     }
 
-    fetchData();
+    void fetchData();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-  // -------------------------------
-  // Similar sets (by theme) — ✅ uses /themes/{theme}/sets
-  // -------------------------------
+  // Similar sets (by theme) — uses /themes/{theme}/sets
   useEffect(() => {
     const theme = String(setDetail?.theme ?? "").trim();
 
     if (!theme) {
       setSimilarSets([]);
+      setSimilarError(null);
+      setSimilarLoading(false);
       return;
     }
 
@@ -348,20 +347,37 @@ export default function SetDetailClient(props: Props) {
         const p = new URLSearchParams();
         p.set("page", "1");
         p.set("limit", "24");
-        p.set("sort", "relevance"); // default is relevance; keep explicit
+        p.set("sort", "relevance");
         p.set("order", "desc");
 
-        const data = await apiFetch<unknown>(
-          `/themes/${encodeURIComponent(theme)}/sets?${p.toString()}`,
-          { cache: "no-store" }
-        );
+        const url = `/api/themes/${encodeURIComponent(theme)}/sets?${p.toString()}`;
+        const res = await fetch(url, { cache: "no-store" });
+
+        if (res.status === 404) {
+          if (!cancelled) {
+            setSimilarSets([]);
+            setSimilarError(null);
+          }
+          return;
+        }
+
+        if (!res.ok) throw new Error(`Failed to load similar sets (${res.status})`);
+
+        const data: unknown = await res.json();
 
         const items = normalizeSetLiteArray(data);
-
-        // remove current set + cap
         const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
+
         if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
       } catch (e: unknown) {
+        // Harmless mismatch/theme-not-found should not spam console.
+        if (e instanceof APIError && e.status === 404) {
+          if (!cancelled) {
+            setSimilarSets([]);
+            setSimilarError(null);
+          }
+          return;
+        }
         if (!cancelled) setSimilarError(errorMessage(e));
       } finally {
         if (!cancelled) setSimilarLoading(false);
@@ -397,7 +413,7 @@ export default function SetDetailClient(props: Props) {
     });
 
     setUserRating(typeof created.rating === "number" ? created.rating : null);
-    fetchRatingSummary(setNum).catch(() => {});
+    void fetchRatingSummary(setNum);
     return created;
   }
 
@@ -535,7 +551,19 @@ export default function SetDetailClient(props: Props) {
   if (error) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <p className="text-sm text-red-600">Error: {error}</p>
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Themes", href: "/themes" },
+            ...(setDetail?.theme
+              ? [{ label: String(setDetail.theme), href: `/themes/${encodeURIComponent(String(setDetail.theme))}` }]
+              : []),
+            { label: setNum || "Set" },
+          ]}
+        />
+
+        <p className="mt-4 text-sm text-red-600">Error: {error}</p>
+
         <button
           onClick={() => router.back()}
           className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
@@ -550,6 +578,14 @@ export default function SetDetailClient(props: Props) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
         <p className="text-sm">Set not found.</p>
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Themes", href: "/themes" },
+            ...(setDetail?.theme ? [{ label: String(setDetail.theme), href: `/themes/${toThemeSlug(setDetail.theme)}` }] : []),
+            { label: setNum || "Set not found" },
+          ]}
+        />
         <button
           onClick={() => router.back()}
           className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
@@ -567,10 +603,22 @@ export default function SetDetailClient(props: Props) {
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
+      <div className="pt-10">
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Themes", href: "/themes" },
+            ...(theme
+              ? [{ label: String(theme), href: `/themes/${toThemeSlug(theme)}` }]
+              : []),
+            { label: name || setNum },
+          ]}
+        />
+      </div>
 
       <button
         onClick={() => router.back()}
-        className="mt-8 rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+        className="mt-4 rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
       >
         ← Back
       </button>
@@ -594,25 +642,34 @@ export default function SetDetailClient(props: Props) {
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             <span className="font-semibold text-zinc-900 dark:text-zinc-100">{setNum}</span>
-            {year ? ` • ${year}` : ""}
+
+            {typeof year === "number" ? (
+              <>
+                {" "}
+                •{" "}
+                <Link
+                  href={`/years/${year}`}
+                  prefetch={false}
+                  className="font-semibold hover:underline"
+                >
+                  {year}
+                </Link>
+              </>
+            ) : null}
           </p>
 
           {theme ? (
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${toThemeSlug(theme)}`} className="font-semibold hover:underline">
+              <Link href={`/themes/${toThemeSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </p>
           ) : null}
 
-          {typeof parts === "number" ? (
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p>
-          ) : null}
+          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? (
-            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
-          ) : null}
+          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
           {ratingSummaryLoading || ratingSummaryError || ratingCount > 0 ? (
             <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
@@ -633,7 +690,6 @@ export default function SetDetailClient(props: Props) {
           <section className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-[220px]">
-                {/* if you want: swap this to a login CTA when !token */}
                 <AddToListMenu token={token || ""} setNum={setNum} />
               </div>
             </div>
@@ -667,9 +723,7 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
-              ) : null}
+              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -708,14 +762,17 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${toThemeSlug(theme)}`} className="font-semibold hover:underline">
+              <Link href={`/themes/${toThemeSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </li>
           ) : null}
-          {year ? (
+          {typeof year === "number" ? (
             <li>
-              <span className="font-semibold text-zinc-500">Year:</span> {year}
+              <span className="font-semibold text-zinc-500">Year:</span>{" "}
+              <Link href={`/years/${year}`} prefetch={false} className="font-semibold hover:underline">
+                {year}
+              </Link>
             </li>
           ) : null}
           {typeof parts === "number" ? (
@@ -837,16 +894,28 @@ export default function SetDetailClient(props: Props) {
         ) : null}
       </section>
 
-      {/* SIMILAR */}
-      {similarLoading || similarError || similarSets.length > 0 ? (
+      {/* MORE FROM THIS THEME */}
+      {(similarLoading || similarError || similarSets.length > 0) && (
         <section className="mt-12">
-          <h2 className="text-lg font-semibold">Similar sets you might like</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">More from {setDetail?.theme}</h2>
 
-          {similarLoading ? <p className="mt-3 text-sm">Loading similar sets…</p> : null}
-          {similarError ? <p className="mt-3 text-sm text-red-600">Error loading similar sets: {similarError}</p> : null}
+            {setDetail?.theme ? (
+              <Link
+                href={`/themes/${toThemeSlug(setDetail.theme)}`}
+                prefetch={false}
+                className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+              >
+                Browse all →
+              </Link>
+            ) : null}
+          </div>
+
+          {similarLoading ? <p className="mt-3 text-sm">Loading sets…</p> : null}
+          {similarError ? <p className="mt-3 text-sm text-red-600">Error loading sets: {similarError}</p> : null}
 
           {!similarLoading && !similarError && similarSets.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500">No similar sets found yet.</p>
+            <p className="mt-3 text-sm text-zinc-500">No other sets found for this theme yet.</p>
           ) : null}
 
           {!similarLoading && !similarError && similarSets.length > 0 ? (
@@ -864,6 +933,7 @@ export default function SetDetailClient(props: Props) {
               <button
                 type="button"
                 onClick={() => scrollSimilar(-1)}
+                aria-label="Scroll left"
                 className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold shadow-sm hover:bg-black/[.04] dark:border-white/[.16] dark:bg-zinc-950 dark:hover:bg-white/[.06]"
               >
                 ←
@@ -872,6 +942,7 @@ export default function SetDetailClient(props: Props) {
               <button
                 type="button"
                 onClick={() => scrollSimilar(1)}
+                aria-label="Scroll right"
                 className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold shadow-sm hover:bg-black/[.04] dark:border-white/[.16] dark:bg-zinc-950 dark:hover:bg-white/[.06]"
               >
                 →
@@ -879,7 +950,7 @@ export default function SetDetailClient(props: Props) {
             </div>
           ) : null}
         </section>
-      ) : null}
+      )}
     </div>
   );
 }
