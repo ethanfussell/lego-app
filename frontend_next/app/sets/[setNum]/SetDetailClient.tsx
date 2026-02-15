@@ -577,15 +577,16 @@ export default function SetDetailClient(props: Props) {
   if (!setDetail) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <p className="text-sm">Set not found.</p>
         <Breadcrumbs
           items={[
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
-            ...(setDetail?.theme ? [{ label: String(setDetail.theme), href: `/themes/${toThemeSlug(setDetail.theme)}` }] : []),
             { label: setNum || "Set not found" },
           ]}
         />
+
+        <p className="mt-4 text-sm">Set not found.</p>
+
         <button
           onClick={() => router.back()}
           className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
