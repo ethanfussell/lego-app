@@ -19,6 +19,35 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
+type SetSummary = {
+  set_num: string;
+  name: string;
+  year?: number;
+  pieces?: number;
+  theme?: string | null;
+  image_url?: string | null;
+  rating_count?: number | null;
+  rating_avg?: number | null;
+  average_rating?: number | null;
+};
+
+function isSetSummary(x: unknown): x is SetSummary {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as { set_num?: unknown; name?: unknown };
+  return typeof o.set_num === "string" && o.set_num.trim() !== "" && typeof o.name === "string";
+}
+
+function toSetSummaryArray(x: unknown): SetSummary[] {
+  if (Array.isArray(x)) return x.filter(isSetSummary);
+
+  if (typeof x === "object" && x !== null) {
+    const r = (x as { results?: unknown }).results;
+    return Array.isArray(r) ? r.filter(isSetSummary) : [];
+  }
+
+  return [];
+}
+
 function first(sp: SP, key: string): string {
   const raw = sp[key];
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -87,7 +116,7 @@ async function fetchThemeSetsWithCount(
   limit: number,
   sort: string,
   order: string
-): Promise<{ status: number; rows: unknown[]; totalCount: number | null }> {
+): Promise<{ status: number; rows: SetSummary[]; totalCount: number | null }> {
   const qs = new URLSearchParams();
   qs.set("page", String(page));
   qs.set("limit", String(limit));
@@ -101,11 +130,7 @@ async function fetchThemeSetsWithCount(
   if (!res.ok) return { status: res.status, rows: [], totalCount: null };
 
   const data: unknown = await res.json();
-  const rows = Array.isArray(data)
-    ? data
-    : typeof data === "object" && data !== null && Array.isArray((data as any).results)
-      ? ((data as any).results as unknown[])
-      : [];
+  const rows = toSetSummaryArray(data);
 
   const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
   const parsed = header ? Number(header) : NaN;
