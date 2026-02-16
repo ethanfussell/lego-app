@@ -147,6 +147,24 @@ function buildWebPageJsonLd(setDetail: LegoSet): JsonLdObject {
   };
 }
 
+function buildBreadcrumbJsonLd(
+  items: Array<{ label: string; href: string }>,
+  baseUrl: string
+): JsonLdObject {
+  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, idx) => ({
+      "@type": "ListItem",
+      position: idx + 1,
+      name: it.label,
+      item: new URL(it.href, normBase).toString(),
+    })),
+  };
+}
+
 function buildDescription(setNum: string, data: LegoSet | null): string {
   const decodedSetNum = String(setNum ?? "").trim();
   const name = data?.name || "LEGO Set";
@@ -208,11 +226,24 @@ export default async function Page({
   const data = await fetchSet(decoded);
   if (!data) notFound();
 
+  const canonicalPath = canonicalForSet(decoded);
+
+  const breadcrumbItems = [
+    { label: "Home", href: "/" },
+    { label: "Themes", href: "/themes" },
+    ...(data?.theme
+      ? [{ label: String(data.theme), href: `/themes/${encodeURIComponent(String(data.theme))}` }]
+      : []),
+    { label: decoded, href: canonicalPath },
+  ];
+
+  const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
   const productLd = buildProductJsonLd(data);
   const pageLd = buildWebPageJsonLd(data);
 
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productLd) }} />
       <SetDetailClient setNum={decoded} initialData={data} />

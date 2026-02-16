@@ -11,12 +11,32 @@ type SP = Record<string, string | string[] | undefined>;
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
 
+type JsonLdObject = Record<string, unknown>;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
+
+function buildBreadcrumbJsonLd(
+  items: Array<{ label: string; href: string }>,
+  baseUrl: string
+): JsonLdObject {
+  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, idx) => ({
+      "@type": "ListItem",
+      position: idx + 1,
+      name: it.label,
+      item: new URL(it.href, normBase).toString(),
+    })),
+  };
 }
 
 type SetSummary = {
@@ -185,8 +205,18 @@ export default async function ThemeSetsPage({
   // keep your "page 1 empty => notFound" behavior
   if (page === 1 && initialSets.length === 0) notFound();
 
+  const breadcrumbItems = [
+    { label: "Home", href: "/" },
+    { label: "Themes", href: "/themes" },
+    { label: themeName, href: `/themes/${themeSlug}` },
+  ];
+
+  const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
+
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+
       <div className="mx-auto max-w-5xl px-6 pt-10">
         <Breadcrumbs
           items={[
