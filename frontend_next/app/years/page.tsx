@@ -5,8 +5,25 @@ import Breadcrumbs from "@/app/components/Breadcrumbs";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
+type JsonLdObject = Record<string, unknown>;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
+function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
+  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, idx) => ({
+      "@type": "ListItem",
+      position: idx + 1,
+      name: it.label,
+      item: new URL(it.href, normBase).toString(),
+    })),
+  };
 }
 
 function yearBounds() {
@@ -34,12 +51,22 @@ export const metadata: Metadata = {
 export default function YearsPage() {
   const { min, max } = yearBounds();
 
+  const breadcrumbLd = buildBreadcrumbJsonLd(
+    [
+      { label: "Home", href: "/" },
+      { label: "Years", href: "/years" },
+    ],
+    siteBase()
+  );
+
   // newest -> oldest
   const years: number[] = [];
   for (let y = max; y >= min; y--) years.push(y);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years" }]} />
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">

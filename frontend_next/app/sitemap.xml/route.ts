@@ -1,30 +1,50 @@
-// frontend_next/app/sitemap.xml/route.ts
-import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-function siteUrl(req: NextRequest) {
-  const env = process.env.NEXT_PUBLIC_SITE_URL;
-  if (env) return env.replace(/\/+$/, "");
-  const url = new URL(req.url);
-  return `${url.protocol}//${url.host}`;
+function siteBase(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
 }
 
 function apiBase(): string {
-  // Sitemap should NEVER fall back to localhost.
-  // Require an env var in production deployments.
-  const base = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (!base) {
-    throw new Error("Missing API_BASE_URL / NEXT_PUBLIC_API_BASE_URL for sitemap generation.");
-  }
-  return base.replace(/\/+$/, "");
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
-function isoDate(d = new Date()) {
-  return d.toISOString();
+/**
+ * ✅ Adjust these if your backend paths differ.
+ * - SETS_INDEX: should return {results:[{set_num:string}]} or an array
+ * - THEMES_INDEX: should return {results:[{name:string}|string]} or an array
+ * - PUBLIC_LISTS_INDEX: should return {results:[{id:string|number}]} or an array
+ */
+const SETS_INDEX = "/sets";
+const THEMES_INDEX = "/themes";
+const PUBLIC_LISTS_INDEX = "/lists/public";
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function esc(s: string) {
+function pickResultsArray(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
+  return [];
+}
+
+async function fetchJsonWithCount(url: string): Promise<{ data: unknown; totalCount: number | null }> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) return { data: null, totalCount: null };
+
+  const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
+  const parsed = header ? Number(header) : NaN;
+  const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+
+  const data: unknown = await res.json().catch(() => null);
+  return { data, totalCount };
+}
+
+function xmlEscape(s: string): string {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -33,98 +53,214 @@ function esc(s: string) {
     .replaceAll("'", "&apos;");
 }
 
-type ThemeItem = { name?: string; theme?: string };
+type UrlEntry = {
+  loc: string;
+  lastmod?: string;
+  changefreq?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
+  priority?: number;
+};
 
-function isThemeItem(x: unknown): x is ThemeItem {
-  return typeof x === "object" && x !== null;
+function toSitemapXml(entries: UrlEntry[]) {
+  const body = entries
+    .map((e) => {
+      return [
+        "<url>",
+        `  <loc>${xmlEscape(e.loc)}</loc>`,
+        e.lastmod ? `  <lastmod>${xmlEscape(e.lastmod)}</lastmod>` : null,
+        e.changefreq ? `  <changefreq>${e.changefreq}</changefreq>` : null,
+        typeof e.priority === "number" ? `  <priority>${e.priority.toFixed(1)}</priority>` : null,
+        "</url>",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `${body}\n` +
+    `</urlset>\n`;
 }
 
-function toThemeItems(x: unknown): ThemeItem[] {
-  if (Array.isArray(x)) return x.filter(isThemeItem);
-  if (typeof x === "object" && x !== null) {
-    const results = (x as { results?: unknown }).results;
-    return Array.isArray(results) ? results.filter(isThemeItem) : [];
+async function collectSetUrls(): Promise<string[]> {
+  const limit = 500; // keep reasonable; backend should support this
+  const firstUrl = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=1`;
+
+  const first = await fetchJsonWithCount(firstUrl);
+  const firstRows = pickResultsArray(first.data);
+
+  // extract set_num
+  const setNums: string[] = [];
+  for (const r of firstRows) {
+    if (isRecord(r) && typeof r.set_num === "string" && r.set_num.trim()) setNums.push(r.set_num.trim());
   }
-  return [];
-}
 
-async function fetchThemes(): Promise<string[]> {
-  try {
-    const res = await fetch(`${apiBase()}/themes`, {
-      // If your backend is stable, you can change to:
-      // next: { revalidate: 3600 }
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const data: unknown = await res.json();
+  const totalPages =
+    first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
 
-    return toThemeItems(data)
-      .map((t) => String(t.theme ?? t.name ?? "").trim())
-      .filter(Boolean);
-  } catch {
-    return [];
+  // fetch remaining pages if we know totalPages (or if page 1 looked full)
+  const pagesToFetch =
+    totalPages > 1 ? totalPages : firstRows.length === limit ? 5 : 1; // fallback: try a few pages
+
+  for (let page = 2; page <= pagesToFetch; page++) {
+    const url = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=${page}`;
+    const { data } = await fetchJsonWithCount(url);
+    const rows = pickResultsArray(data);
+
+    let added = 0;
+    for (const r of rows) {
+      if (isRecord(r) && typeof r.set_num === "string" && r.set_num.trim()) {
+        setNums.push(r.set_num.trim());
+        added++;
+      }
+    }
+
+    // if fallback mode and a page returns empty, stop
+    if (totalPages === 1 && added === 0) break;
   }
+
+  // unique
+  return Array.from(new Set(setNums)).map((sn) => `/sets/${encodeURIComponent(sn)}`);
 }
 
-function urlEntry(loc: string, lastmod?: string, changefreq?: string, priority?: number) {
-  return [
-    "<url>",
-    `<loc>${esc(loc)}</loc>`,
-    lastmod ? `<lastmod>${esc(lastmod)}</lastmod>` : "",
-    changefreq ? `<changefreq>${esc(changefreq)}</changefreq>` : "",
-    typeof priority === "number" ? `<priority>${priority.toFixed(1)}</priority>` : "",
-    "</url>",
-  ]
-    .filter(Boolean)
-    .join("");
+async function collectThemeUrls(): Promise<string[]> {
+  const limit = 500;
+  const firstUrl = `${apiBase()}${THEMES_INDEX}?limit=${limit}&page=1`;
+
+  const first = await fetchJsonWithCount(firstUrl);
+  const rows = pickResultsArray(first.data);
+
+  const themes: string[] = [];
+  for (const r of rows) {
+    if (typeof r === "string" && r.trim()) themes.push(r.trim());
+    else if (isRecord(r) && typeof r.name === "string" && r.name.trim()) themes.push(r.name.trim());
+    else if (isRecord(r) && typeof r.theme === "string" && r.theme.trim()) themes.push(r.theme.trim());
+  }
+
+  // If your themes endpoint isn't paginated, this is enough.
+  // If it is, and it returns x-total-count, fetch remaining pages:
+  const totalPages =
+    first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
+
+  for (let page = 2; page <= totalPages; page++) {
+    const url = `${apiBase()}${THEMES_INDEX}?limit=${limit}&page=${page}`;
+    const { data } = await fetchJsonWithCount(url);
+    const more = pickResultsArray(data);
+    for (const r of more) {
+      if (typeof r === "string" && r.trim()) themes.push(r.trim());
+      else if (isRecord(r) && typeof r.name === "string" && r.name.trim()) themes.push(r.name.trim());
+      else if (isRecord(r) && typeof r.theme === "string" && r.theme.trim()) themes.push(r.theme.trim());
+    }
+  }
+
+  const uniq = Array.from(new Set(themes));
+  return uniq.map((t) => `/themes/${encodeURIComponent(t)}`);
 }
 
-export async function GET(req: NextRequest) {
-  const base = siteUrl(req);
-  const now = isoDate();
+async function collectPublicListUrls(): Promise<string[]> {
+  const limit = 200;
+  const firstUrl = `${apiBase()}${PUBLIC_LISTS_INDEX}?limit=${limit}&page=1`;
 
-  // ONLY indexable static routes here
-  const staticPaths: Array<{ path: string; changefreq: string; priority: number }> = [
-    { path: "/", changefreq: "daily", priority: 1.0 },
+  const first = await fetchJsonWithCount(firstUrl);
+  const rows = pickResultsArray(first.data);
 
-    // Hubs / discovery
-    { path: "/themes", changefreq: "daily", priority: 0.8 },
-    { path: "/lists/public", changefreq: "daily", priority: 0.7 },
+  const ids: Array<string> = [];
+  for (const r of rows) {
+    if (!isRecord(r)) continue;
+    const id = r.id;
+    if (typeof id === "string" && id.trim()) ids.push(id.trim());
+    if (typeof id === "number" && Number.isFinite(id)) ids.push(String(id));
+  }
 
-    // Browse feeds (if you want them indexed)
-    { path: "/sale", changefreq: "daily", priority: 0.6 },
-    { path: "/retiring-soon", changefreq: "daily", priority: 0.6 },
-    { path: "/new", changefreq: "daily", priority: 0.5 },
+  const totalPages =
+    first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
 
-    // Legal (fine to index)
-    { path: "/privacy", changefreq: "yearly", priority: 0.2 },
-    { path: "/terms", changefreq: "yearly", priority: 0.2 },
-    { path: "/affiliate-disclosure", changefreq: "yearly", priority: 0.2 },
+  // same fallback pattern
+  const pagesToFetch =
+    totalPages > 1 ? totalPages : rows.length === limit ? 5 : 1;
+
+  for (let page = 2; page <= pagesToFetch; page++) {
+    const url = `${apiBase()}${PUBLIC_LISTS_INDEX}?limit=${limit}&page=${page}`;
+    const { data } = await fetchJsonWithCount(url);
+    const more = pickResultsArray(data);
+
+    let added = 0;
+    for (const r of more) {
+      if (!isRecord(r)) continue;
+      const id = r.id;
+      if (typeof id === "string" && id.trim()) {
+        ids.push(id.trim());
+        added++;
+      } else if (typeof id === "number" && Number.isFinite(id)) {
+        ids.push(String(id));
+        added++;
+      }
+    }
+    if (totalPages === 1 && added === 0) break;
+  }
+
+  const uniq = Array.from(new Set(ids));
+  return uniq.map((id) => `/lists/${encodeURIComponent(id)}`);
+}
+
+export async function GET() {
+  const base = siteBase();
+  const now = new Date().toISOString();
+
+  // ✅ “SEO pages (as they appear)” — add/remove as you want
+  const staticPaths: UrlEntry[] = [
+    { loc: `${base}/`, changefreq: "daily", priority: 1.0, lastmod: now },
+    { loc: `${base}/themes`, changefreq: "weekly", priority: 0.8, lastmod: now },
+    { loc: `${base}/years`, changefreq: "weekly", priority: 0.7, lastmod: now },
+    { loc: `${base}/discover`, changefreq: "weekly", priority: 0.7, lastmod: now },
+    { loc: `${base}/sale`, changefreq: "daily", priority: 0.7, lastmod: now },
+    { loc: `${base}/new`, changefreq: "daily", priority: 0.7, lastmod: now },
+    { loc: `${base}/retiring-soon`, changefreq: "weekly", priority: 0.7, lastmod: now },
+    { loc: `${base}/lists/public`, changefreq: "weekly", priority: 0.6, lastmod: now },
+    { loc: `${base}/affiliate-disclosure`, changefreq: "yearly", priority: 0.2, lastmod: now },
+    { loc: `${base}/privacy`, changefreq: "yearly", priority: 0.2, lastmod: now },
+    { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
   ];
 
-  const themes = await fetchThemes();
+  // Dynamic pages (best-effort; don’t fail sitemap if API fails)
+  const [setPaths, themePaths, publicListPaths] = await Promise.all([
+    collectSetUrls().catch(() => []),
+    collectThemeUrls().catch(() => []),
+    collectPublicListUrls().catch(() => []),
+  ]);
 
-  const urls: string[] = [];
+  const dynamicEntries: UrlEntry[] = [
+    ...themePaths.map(
+      (p): UrlEntry => ({
+        loc: `${base}${p}`,
+        changefreq: "weekly",
+        priority: 0.6,
+      })
+    ),
+    ...setPaths.map(
+      (p): UrlEntry => ({
+        loc: `${base}${p}`,
+        changefreq: "monthly",
+        priority: 0.5,
+      })
+    ),
+    ...publicListPaths.map(
+      (p): UrlEntry => ({
+        loc: `${base}${p}`,
+        changefreq: "weekly",
+        priority: 0.4,
+      })
+    ),
+  ];
 
-  for (const p of staticPaths) {
-    urls.push(urlEntry(`${base}${p.path}`, now, p.changefreq, p.priority));
-  }
+  const xml = toSitemapXml([...staticPaths, ...dynamicEntries]);
 
-  // Theme pages
-  for (const t of themes) {
-    urls.push(urlEntry(`${base}/themes/${encodeURIComponent(t)}`, now, "weekly", 0.5));
-  }
-
-  const xml =
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` +
-    urls.join("") +
-    `</urlset>`;
-
-  return new Response(xml, {
+  return new NextResponse(xml, {
+    status: 200,
     headers: {
-      "content-type": "application/xml; charset=utf-8",
-      "cache-control": "public, max-age=3600, s-maxage=3600",
+      "Content-Type": "application/xml; charset=utf-8",
+      // cache if you want; safe default is no-store since it changes often
+      "Cache-Control": "no-store",
     },
   });
 }

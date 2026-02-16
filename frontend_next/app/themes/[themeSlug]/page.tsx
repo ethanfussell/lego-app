@@ -5,38 +5,37 @@ import { notFound, redirect } from "next/navigation";
 
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { slugToTheme, themeToSlug } from "@/lib/slug";
 
 type SP = Record<string, string | string[] | undefined>;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
 
-type JsonLdObject = Record<string, unknown>;
-
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
-
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-function buildBreadcrumbJsonLd(
-  items: Array<{ label: string; href: string }>,
-  baseUrl: string
-): JsonLdObject {
-  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+function first(sp: SP, key: string): string {
+  const raw = sp[key];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return String(v ?? "").trim();
+}
 
-  return {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: items.map((it, idx) => ({
-      "@type": "ListItem",
-      position: idx + 1,
-      name: it.label,
-      item: new URL(it.href, normBase).toString(),
-    })),
-  };
+function toInt(raw: string, fallback: number) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+function posInt(raw: string, fallback: number) {
+  const n = toInt(raw, fallback);
+  return n > 0 ? n : fallback;
+}
+
+function canonicalFor(themeSlug: string, page: number) {
+  return `/themes/${themeSlug}` + (page > 1 ? `?page=${page}` : "");
 }
 
 type SetSummary = {
@@ -59,33 +58,11 @@ function isSetSummary(x: unknown): x is SetSummary {
 
 function toSetSummaryArray(x: unknown): SetSummary[] {
   if (Array.isArray(x)) return x.filter(isSetSummary);
-
   if (typeof x === "object" && x !== null) {
     const r = (x as { results?: unknown }).results;
     return Array.isArray(r) ? r.filter(isSetSummary) : [];
   }
-
   return [];
-}
-
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
-}
-
-function toInt(raw: string, fallback: number) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.floor(n) : fallback;
-}
-
-function posInt(raw: string, fallback: number) {
-  const n = toInt(raw, fallback);
-  return n > 0 ? n : fallback;
-}
-
-function canonicalFor(themeSlug: string, page: number) {
-  return `/themes/${themeSlug}` + (page > 1 ? `?page=${page}` : "");
 }
 
 export async function generateMetadata({
@@ -98,12 +75,11 @@ export async function generateMetadata({
   const { themeSlug } = await params;
   const sp = (await searchParams) ?? ({} as SP);
 
-  const themeName = decodeURIComponent(themeSlug);
+  const themeName = slugToTheme(themeSlug); // ✅ IMPORTANT
   const page = posInt(first(sp, "page") || "1", 1);
 
   const baseTitle = `${themeName} sets`;
   const title = page > 1 ? `${baseTitle} (Page ${page})` : baseTitle;
-
   const description =
     page > 1
       ? `Browse LEGO sets in the ${themeName} theme. Page ${page}.`
@@ -116,17 +92,8 @@ export async function generateMetadata({
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: {
-      title: `${title} | ${SITE_NAME}`,
-      description,
-      url: canonical,
-      type: "website",
-    },
-    twitter: {
-      card: "summary",
-      title: `${title} | ${SITE_NAME}`,
-      description,
-    },
+    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
   };
 }
 
@@ -143,6 +110,7 @@ async function fetchThemeSetsWithCount(
   qs.set("sort", sort);
   qs.set("order", order);
 
+  // ✅ themeName MUST be the real theme string (with spaces)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
   const res = await fetch(url, { cache: "no-store" });
 
@@ -169,14 +137,13 @@ export default async function ThemeSetsPage({
   const { themeSlug } = await params;
   const sp = (await searchParams) ?? ({} as SP);
 
-  const themeName = decodeURIComponent(themeSlug);
+  const themeName = slugToTheme(themeSlug); // ✅ IMPORTANT
 
   const requestedPage = posInt(first(sp, "page") || "1", 1);
   const limit = posInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
   const sort = first(sp, "sort") || "relevance";
   const order = first(sp, "order") || "desc";
 
-  // Fetch requested page so we can read x-total-count and compute totalPages
   const firstPass = await fetchThemeSetsWithCount(themeName, requestedPage, limit, sort, order);
 
   if (firstPass.status === 404) notFound();
@@ -185,11 +152,8 @@ export default async function ThemeSetsPage({
   const totalPages =
     firstPass.totalCount != null ? Math.max(1, Math.ceil(firstPass.totalCount / limit)) : null;
 
-  // Option A: clamp to last page by redirecting
   if (totalPages != null && requestedPage > totalPages) {
     const qs = new URLSearchParams();
-
-    // keep URLs clean: only include non-defaults
     if (totalPages > 1) qs.set("page", String(totalPages));
     if (limit !== DEFAULT_LIMIT) qs.set("limit", String(limit));
     if (sort !== "relevance") qs.set("sort", sort);
@@ -199,24 +163,12 @@ export default async function ThemeSetsPage({
     redirect(dest);
   }
 
-  const page = requestedPage; // if we didn’t redirect, this is the real page
+  const page = requestedPage;
   const initialSets = firstPass.rows;
-
-  // keep your "page 1 empty => notFound" behavior
   if (page === 1 && initialSets.length === 0) notFound();
-
-  const breadcrumbItems = [
-    { label: "Home", href: "/" },
-    { label: "Themes", href: "/themes" },
-    { label: themeName, href: `/themes/${themeSlug}` },
-  ];
-
-  const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
-
       <div className="mx-auto max-w-5xl px-6 pt-10">
         <Breadcrumbs
           items={[
@@ -227,17 +179,10 @@ export default async function ThemeSetsPage({
         />
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Link
-            href="/themes"
-            className="inline-block text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-          >
+          <Link href="/themes" className="inline-block text-sm font-semibold hover:underline">
             ← Back to themes
           </Link>
-
-          <Link
-            href="/years"
-            className="inline-block text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-          >
+          <Link href="/years" className="inline-block text-sm font-semibold hover:underline">
             Browse by year →
           </Link>
         </div>

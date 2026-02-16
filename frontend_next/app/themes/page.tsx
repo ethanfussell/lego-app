@@ -3,11 +3,33 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
+type JsonLdObject = Record<string, unknown>;
+type ThemeRow = { theme: string; set_count: number };
+type SP = Record<string, string | string[] | undefined>;
+
+const DEFAULT_LIMIT = 60;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
+function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
+  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, idx) => ({
+      "@type": "ListItem",
+      position: idx + 1,
+      name: it.label,
+      item: new URL(it.href, normBase).toString(),
+    })),
+  };
 }
 
 export const metadata: Metadata = {
@@ -27,11 +49,6 @@ export const metadata: Metadata = {
     description: `Browse LEGO themes on ${SITE_NAME}.`,
   },
 };
-
-type ThemeRow = { theme: string; set_count: number };
-type SP = Record<string, string | string[] | undefined>;
-
-const DEFAULT_LIMIT = 60;
 
 function first(sp: SP, key: string): string {
   const raw = sp[key];
@@ -64,23 +81,15 @@ function buildPageList(current: number, totalPages: number) {
   const end = Math.min(totalPages - 1, current + window);
 
   add(1);
-
   if (start > 2) add("...");
-
   for (let p = start; p <= end; p++) add(p);
-
   if (end < totalPages - 1) add("...");
-
   if (totalPages > 1) add(totalPages);
 
   return out;
 }
 
-async function fetchThemes(
-  q: string,
-  page: number,
-  limit: number
-): Promise<{ rows: ThemeRow[]; totalCount: number | null }> {
+async function fetchThemes(q: string, page: number, limit: number): Promise<{ rows: ThemeRow[]; totalCount: number | null }> {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (page > 1) params.set("page", String(page));
@@ -103,11 +112,7 @@ async function fetchThemes(
   return { rows, totalCount };
 }
 
-export default async function ThemesIndexPage({
-  searchParams,
-}: {
-  searchParams?: SP | Promise<SP>;
-}) {
+export default async function ThemesIndexPage({ searchParams }: { searchParams?: SP | Promise<SP> }) {
   const sp = (await searchParams) ?? ({} as SP);
 
   const q = first(sp, "q");
@@ -133,8 +138,16 @@ export default async function ThemesIndexPage({
 
   const pageList = totalPages && totalPages > 1 ? buildPageList(page, totalPages) : [];
 
+  const breadcrumbItems = [
+    { label: "Home", href: "/" },
+    { label: "Themes", href: "/themes" },
+  ];
+  const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
+
   return (
     <div className="mx-auto max-w-4xl p-6">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Themes" }]} />
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
@@ -144,17 +157,11 @@ export default async function ThemesIndexPage({
         </div>
 
         <div className="flex items-center gap-4">
-          <Link
-            href="/years"
-            className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-          >
+          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
             Browse by year →
           </Link>
 
-          <Link
-            href="/"
-            className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-          >
+          <Link href="/" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
             ← Home
           </Link>
         </div>
@@ -177,7 +184,7 @@ export default async function ThemesIndexPage({
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((r) => {
-            const href = `/themes/${encodeURIComponent(r.theme)}`;
+            const href = `/themes/${themeToSlug(r.theme)}`;
             return (
               <Link
                 key={r.theme}
@@ -186,9 +193,7 @@ export default async function ThemesIndexPage({
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold">{r.theme}</div>
-                  <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                    {r.set_count} sets
-                  </div>
+                  <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">{r.set_count} sets</div>
                 </div>
                 <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View sets →</div>
               </Link>

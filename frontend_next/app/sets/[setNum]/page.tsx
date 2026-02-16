@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import SetDetailClient from "./SetDetailClient";
+import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -297,7 +298,7 @@ export default async function Page({
     { label: "Home", href: "/" },
     { label: "Themes", href: "/themes" },
     ...(data.theme
-      ? [{ label: String(data.theme), href: `/themes/${encodeURIComponent(String(data.theme))}` }]
+      ? [{ label: String(data.theme), href: `/themes/${themeToSlug(String(data.theme))}` }]
       : []),
     { label: decoded, href: canonicalPath },
   ];

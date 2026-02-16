@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ThemesClient from "../ThemesClient";
+import { slugToTheme } from "@/lib/slug";
 
 type SetSummary = {
   set_num: string;
@@ -121,8 +122,8 @@ export default function ThemeDetailClient({
   const sp = useSearchParams();
 
   // IMPORTANT: themeSlug is the URL segment; decode it to get raw theme string for the API
-  const theme = useMemo(() => decodeURIComponent(String(themeSlug || "").trim()), [themeSlug]);
-
+  const theme = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
+  
   // URL -> state
   const page = useMemo(() => {
     const p = toInt(first(sp, "page") || "1", 1);

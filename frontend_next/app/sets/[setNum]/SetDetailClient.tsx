@@ -12,6 +12,8 @@ import type { SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection from "@/app/components/OffersSection";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { themeToSlug } from "@/lib/slug";
+
 
 type ReviewItem = {
   id: number;
@@ -71,10 +73,6 @@ function formatReviewDate(value?: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(d);
-}
-
-function toThemeSlug(themeName: unknown) {
-  return encodeURIComponent(String(themeName || "").trim());
 }
 
 function computeStarsFromPointer(el: HTMLElement, clientX: number) {
@@ -556,8 +554,7 @@ export default function SetDetailClient(props: Props) {
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
             ...(setDetail?.theme
-              ? [{ label: String(setDetail.theme), href: `/themes/${encodeURIComponent(String(setDetail.theme))}` }]
-              : []),
+              ? [{ label: String(setDetail.theme), href: `/themes/${themeToSlug(setDetail.theme)}` }]              : []),
             { label: setNum || "Set" },
           ]}
         />
@@ -610,8 +607,7 @@ export default function SetDetailClient(props: Props) {
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
             ...(theme
-              ? [{ label: String(theme), href: `/themes/${toThemeSlug(theme)}` }]
-              : []),
+              ? [{ label: String(theme), href: `/themes/${themeToSlug(theme)}` }]              : []),
             { label: name || setNum },
           ]}
         />
@@ -662,7 +658,7 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${toThemeSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
+              <Link href={`/themes/${themeToSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </p>
@@ -761,7 +757,7 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${toThemeSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
+              <Link href={`/themes/${themeToSlug(setDetail.theme ?? "")}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </li>
@@ -901,7 +897,7 @@ export default function SetDetailClient(props: Props) {
 
             {setDetail?.theme ? (
               <Link
-                href={`/themes/${toThemeSlug(setDetail.theme)}`}
+                href={`/themes/${themeToSlug(setDetail.theme)}`}
                 prefetch={false}
                 className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
               >

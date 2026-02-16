@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ThemesClient from "@/app/themes/ThemesClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -321,7 +322,7 @@ export default async function YearPage({
         {topThemes.map((t) => (
           <Link
             key={t}
-            href={`/themes/${encodeURIComponent(t)}`}
+            href={`/themes/${themeToSlug(t)}`}
             className="text-zinc-900 hover:underline dark:text-zinc-50"
           >
             {t} →
