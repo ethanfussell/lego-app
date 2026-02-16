@@ -17,7 +17,17 @@ type LegoSet = {
   rating_avg?: number | null;
   rating_count?: number | null;
   description?: string | null;
-  review_count?: number | null; // ✅ text reviews only (backend)
+  review_count?: number | null; // text reviews only (backend)
+};
+
+type ReviewLite = {
+  id: number;
+  set_num: string;
+  user: string;
+  rating: number | null;
+  text: string | null;
+  created_at: string;
+  updated_at?: string | null;
 };
 
 type JsonLdObject = Record<string, unknown>;
@@ -40,6 +50,22 @@ function isLegoSet(x: unknown): x is LegoSet {
   return typeof sn === "string" && sn.trim().length > 0;
 }
 
+function isReviewLite(x: unknown): x is ReviewLite {
+  if (!isRecord(x)) return false;
+
+  const id = x.id;
+  const set_num = x.set_num;
+  const user = x.user;
+  const created_at = x.created_at;
+
+  if (typeof id !== "number" || !Number.isFinite(id)) return false;
+  if (typeof set_num !== "string" || !set_num.trim()) return false;
+  if (typeof user !== "string" || !user.trim()) return false;
+  if (typeof created_at !== "string" || !created_at.trim()) return false;
+
+  return true;
+}
+
 const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   const s = String(setNum ?? "").trim();
   if (!s) return null;
@@ -52,6 +78,23 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
 
   const data: unknown = await res.json();
   return isLegoSet(data) ? data : null;
+});
+
+const fetchTopTextReviews = cache(async (setNum: string, limit = 10): Promise<ReviewLite[]> => {
+  const s = String(setNum ?? "").trim();
+  if (!s) return [];
+
+  const url = `${apiBase()}/sets/${encodeURIComponent(s)}/reviews?limit=${encodeURIComponent(String(limit))}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) return [];
+
+  const data: unknown = await res.json();
+  const arr: unknown[] = Array.isArray(data) ? data : [];
+
+  return arr
+    .filter(isReviewLite)
+    .filter((r) => typeof r.text === "string" && r.text.trim().length > 0)
+    .slice(0, Math.max(0, Math.min(20, limit))); // safety cap
 });
 
 function pickAvgRating(setDetail: LegoSet): number | null {
@@ -71,9 +114,6 @@ function pickRatingCount(setDetail: LegoSet): number {
 }
 
 function pickReviewCount(setDetail: LegoSet): number | null {
-  // Keep separate from ratings:
-  // - If backend provides review_count, use it
-  // - Otherwise: null (don’t guess)
   const v = setDetail.review_count;
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
 }
@@ -83,7 +123,29 @@ function canonicalForSet(setNum: string): string {
   return `/sets/${encodeURIComponent(decoded)}`;
 }
 
-function buildProductJsonLd(setDetail: LegoSet): JsonLdObject {
+function buildReviewJsonLd(reviews: ReviewLite[]): JsonLdObject[] {
+  return reviews.map((r) => {
+    const base: JsonLdObject = {
+      "@type": "Review",
+      author: { "@type": "Person", name: r.user },
+      datePublished: r.created_at,
+      reviewBody: String(r.text || "").trim(),
+    };
+
+    if (typeof r.rating === "number" && Number.isFinite(r.rating)) {
+      base.reviewRating = {
+        "@type": "Rating",
+        ratingValue: Number(r.rating.toFixed(1)),
+        bestRating: 5,
+        worstRating: 1,
+      };
+    }
+
+    return base;
+  });
+}
+
+function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): JsonLdObject {
   const avg = pickAvgRating(setDetail);
   const ratingCount = pickRatingCount(setDetail);
   const reviewCount = pickReviewCount(setDetail);
@@ -118,16 +180,22 @@ function buildProductJsonLd(setDetail: LegoSet): JsonLdObject {
     ...(setDetail.image_url ? { image: [setDetail.image_url] } : {}),
   };
 
-  // ✅ AggregateRating only when real rating info exists
+  // AggregateRating only when real rating info exists
   if (ratingCount > 0 && avg != null) {
     jsonLd.aggregateRating = {
       "@type": "AggregateRating",
       ratingValue: Number(avg.toFixed(2)),
       ratingCount,
-      ...(reviewCount != null ? { reviewCount } : {}), // ✅ separate; only include if provided
+      ...(reviewCount != null ? { reviewCount } : {}),
       bestRating: 5,
       worstRating: 0,
     };
+  }
+
+  // Minimal Review JSON-LD: only real text reviews
+  const reviewLd = reviews.length > 0 ? buildReviewJsonLd(reviews) : [];
+  if (reviewLd.length > 0) {
+    jsonLd.review = reviewLd;
   }
 
   return jsonLd;
@@ -147,10 +215,7 @@ function buildWebPageJsonLd(setDetail: LegoSet): JsonLdObject {
   };
 }
 
-function buildBreadcrumbJsonLd(
-  items: Array<{ label: string; href: string }>,
-  baseUrl: string
-): JsonLdObject {
+function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
   const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
 
   return {
@@ -231,14 +296,16 @@ export default async function Page({
   const breadcrumbItems = [
     { label: "Home", href: "/" },
     { label: "Themes", href: "/themes" },
-    ...(data?.theme
+    ...(data.theme
       ? [{ label: String(data.theme), href: `/themes/${encodeURIComponent(String(data.theme))}` }]
       : []),
     { label: decoded, href: canonicalPath },
   ];
 
+  const [topTextReviews] = await Promise.all([fetchTopTextReviews(decoded, 10)]);
+
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
-  const productLd = buildProductJsonLd(data);
+  const productLd = buildProductJsonLd(data, topTextReviews);
   const pageLd = buildWebPageJsonLd(data);
 
   return (
