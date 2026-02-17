@@ -17,12 +17,14 @@ export function GET(req: NextRequest) {
     "User-agent: *",
     "Allow: /",
     "",
-    // Crawl hygiene (noindex still handled by metadata)
-    "Disallow: /account",
+    // Keep private/non-SEO sections out of crawl
+    "Disallow: /api/",
+    "Disallow: /account/",
+    "Disallow: /collection/",
     "Disallow: /login",
     "Disallow: /signup",
-    "Disallow: /collection",
     "Disallow: /me",
+    "Disallow: /new",
     "",
     `Sitemap: ${base}/sitemap.xml`,
     "",
