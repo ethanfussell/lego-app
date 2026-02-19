@@ -6,6 +6,8 @@ export const runtime = "nodejs";
 function siteUrl(req: NextRequest) {
   const env = process.env.NEXT_PUBLIC_SITE_URL;
   if (env) return env.replace(/\/+$/, "");
+
+  // Dev fallback: derive from request (works on localhost)
   const url = new URL(req.url);
   return `${url.protocol}//${url.host}`;
 }
@@ -17,14 +19,12 @@ export function GET(req: NextRequest) {
     "User-agent: *",
     "Allow: /",
     "",
-    // Keep private/non-SEO sections out of crawl
     "Disallow: /api/",
     "Disallow: /account/",
     "Disallow: /collection/",
     "Disallow: /login",
     "Disallow: /signup",
     "Disallow: /me",
-    "Disallow: /new",
     "",
     `Sitemap: ${base}/sitemap.xml`,
     "",
