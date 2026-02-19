@@ -272,7 +272,9 @@ export async function GET() {
     themePaths = themes.paths;
     themesRawCount = themes.rawThemes.length;
     themesBadSlugCount = themes.badSlugThemes.length;
-    themesBadSlugSample = themes.badSlugThemes[0] ? String(themes.badSlugThemes[0]).slice(0, 120) : "";
+    themesBadSlugSample = themes.badSlugThemes[0]
+      ? String(themes.badSlugThemes[0]).slice(0, 120)
+      : "";
   } catch {}
 
   try {
@@ -284,35 +286,37 @@ export async function GET() {
     ...themePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.6 })),
     ...setPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "monthly" as const, priority: 0.5 })),
     ...publicListPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.4 })),
-  ]
+  ];
 
   const xml = toSitemapXml([...staticEntries, ...dynamicEntries]);
 
-  return new NextResponse(xml, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
-      "X-Sitemap-Route": "v3",
-      "X-Sitemap-ApiBase": api,
+  const res = new NextResponse(xml, { status: 200 });
 
-      "X-Sitemap-ThemesURL": themesProbeUrl,
-      "X-Sitemap-ThemesStatus": String(themesProbe.status),
-      "X-Sitemap-ThemesProbeCount": String(themesProbeCount),
+  // Core headers
+  res.headers.set("Content-Type", "application/xml; charset=utf-8");
+  res.headers.set("Cache-Control", "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400");
 
-      "X-Sitemap-SetsURL": setsProbeUrl,
-      "X-Sitemap-SetsStatus": String(setsProbe.status),
-      "X-Sitemap-SetsProbeCount": String(setsProbeCount),
+  // Debug headers
+  res.headers.set("X-Sitemap-Route", "v3");
+  res.headers.set("X-Sitemap-ApiBase", api);
 
-      "X-Sitemap-Themes": String(themePaths.length),
-      "X-Sitemap-ThemesRaw": String(themesRawCount),
-      "X-Sitemap-ThemesBadSlug": String(themesBadSlugCount),
-      "X-Sitemap-ThemesBadSlugSample": themesBadSlugSample,
+  res.headers.set("X-Sitemap-ThemesURL", themesProbeUrl);
+  res.headers.set("X-Sitemap-ThemesStatus", String(themesProbe.status));
+  res.headers.set("X-Sitemap-ThemesProbeCount", String(themesProbeCount));
 
-      "X-Sitemap-Sets": String(setPaths.length),
-      "X-Sitemap-SetsRaw": String(setsRawCount),
+  res.headers.set("X-Sitemap-SetsURL", setsProbeUrl);
+  res.headers.set("X-Sitemap-SetsStatus", String(setsProbe.status));
+  res.headers.set("X-Sitemap-SetsProbeCount", String(setsProbeCount));
 
-      "X-Sitemap-PublicLists": String(publicListPaths.length),
-    },
-  });
+  res.headers.set("X-Sitemap-Themes", String(themePaths.length));
+  res.headers.set("X-Sitemap-ThemesRaw", String(themesRawCount));
+  res.headers.set("X-Sitemap-ThemesBadSlug", String(themesBadSlugCount));
+  res.headers.set("X-Sitemap-ThemesBadSlugSample", themesBadSlugSample);
+
+  res.headers.set("X-Sitemap-Sets", String(setPaths.length));
+  res.headers.set("X-Sitemap-SetsRaw", String(setsRawCount));
+
+  res.headers.set("X-Sitemap-PublicLists", String(publicListPaths.length));
+
+  return res;
 }
