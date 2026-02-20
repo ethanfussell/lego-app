@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 function siteBase(): string {
   const env = process.env.NEXT_PUBLIC_SITE_URL;
 
-  // Prevent localhost canonicals in production
   if (process.env.NODE_ENV === "production" && !env) {
     throw new Error("NEXT_PUBLIC_SITE_URL must be set in production");
   }
@@ -19,12 +18,6 @@ function apiBase(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
-/**
- * Backend endpoints
- * - /sets: returns {results:[{set_num:string}]} or an array
- * - /themes: returns an array like [{theme,set_count}] (per your curl)
- * - /lists/public: returns {results:[{id:string|number}]} or an array
- */
 const SETS_INDEX = "/sets";
 const THEMES_INDEX = "/themes";
 const PUBLIC_LISTS_INDEX = "/lists/public";
@@ -41,12 +34,34 @@ function pickArrayOrResults(data: unknown): unknown[] {
   return [];
 }
 
+// --- NEW: fetch with timeout (prevents hangs that cause "Couldn't fetch") ---
+async function fetchWithTimeout(
+  url: string,
+  opts: RequestInit & { timeoutMs?: number } = {}
+) {
+  const { timeoutMs = 8000, ...rest } = opts;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...rest, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function fetchJsonWithCount(
   url: string
 ): Promise<{ data: unknown; totalCount: number | null; status: number }> {
-  const res = await fetch(url, { cache: "no-store" });
-  const status = res.status;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url, { cache: "no-store", timeoutMs: 8000 });
+  } catch {
+    // Network error / timeout
+    return { data: null, totalCount: null, status: 0 };
+  }
 
+  const status = res.status;
   if (!res.ok) return { data: null, totalCount: null, status };
 
   const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
@@ -168,18 +183,14 @@ async function collectThemeUrls(): Promise<{
 
   const uniqThemes = Array.from(new Set(themes));
 
-  // ✅ Per-item safe slugging (one bad theme must NOT kill the whole sitemap)
   const badSlugThemes: string[] = [];
   const themePaths: string[] = [];
 
   for (const t of uniqThemes) {
     try {
       const slug = themeToSlug(t);
-      if (typeof slug === "string" && slug.trim()) {
-        themePaths.push(`/themes/${slug}`);
-      } else {
-        badSlugThemes.push(t);
-      }
+      if (typeof slug === "string" && slug.trim()) themePaths.push(`/themes/${slug}`);
+      else badSlugThemes.push(t);
     } catch {
       badSlugThemes.push(t);
     }
@@ -229,13 +240,26 @@ export async function GET() {
   const now = new Date().toISOString();
   const api = apiBase();
 
+  // --- Make probes best-effort (never block sitemap) ---
   const themesProbeUrl = `${api}${THEMES_INDEX}?limit=5&page=1`;
   const setsProbeUrl = `${api}${SETS_INDEX}?limit=5&page=1`;
-  const themesProbe = await fetchJsonWithCount(themesProbeUrl);
-  const setsProbe = await fetchJsonWithCount(setsProbeUrl);
 
-  const themesProbeCount = pickArrayOrResults(themesProbe.data).length;
-  const setsProbeCount = pickArrayOrResults(setsProbe.data).length;
+  let themesProbeStatus = 0;
+  let setsProbeStatus = 0;
+  let themesProbeCount = 0;
+  let setsProbeCount = 0;
+
+  try {
+    const themesProbe = await fetchJsonWithCount(themesProbeUrl);
+    themesProbeStatus = themesProbe.status;
+    themesProbeCount = pickArrayOrResults(themesProbe.data).length;
+  } catch {}
+
+  try {
+    const setsProbe = await fetchJsonWithCount(setsProbeUrl);
+    setsProbeStatus = setsProbe.status;
+    setsProbeCount = pickArrayOrResults(setsProbe.data).length;
+  } catch {}
 
   const staticEntries: UrlEntry[] = [
     { loc: `${base}/`, changefreq: "daily", priority: 1.0, lastmod: now },
@@ -251,7 +275,6 @@ export async function GET() {
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
   ];
 
-  // Dynamic pages (best-effort; do not fail sitemap if API fails)
   let setPaths: string[] = [];
   let themePaths: string[] = [];
   let publicListPaths: string[] = [];
@@ -290,33 +313,32 @@ export async function GET() {
 
   const xml = toSitemapXml([...staticEntries, ...dynamicEntries]);
 
-  const res = new NextResponse(xml, { status: 200 });
+  return new NextResponse(xml, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/xml; charset=utf-8",
+      "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-  // Core headers
-  res.headers.set("Content-Type", "application/xml; charset=utf-8");
-  res.headers.set("Cache-Control", "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400");
+      "X-Sitemap-Route": "v3",
+      "X-Sitemap-ApiBase": api,
 
-  // Debug headers
-  res.headers.set("X-Sitemap-Route", "v3");
-  res.headers.set("X-Sitemap-ApiBase", api);
+      "X-Sitemap-ThemesURL": themesProbeUrl,
+      "X-Sitemap-ThemesStatus": String(themesProbeStatus),
+      "X-Sitemap-ThemesProbeCount": String(themesProbeCount),
 
-  res.headers.set("X-Sitemap-ThemesURL", themesProbeUrl);
-  res.headers.set("X-Sitemap-ThemesStatus", String(themesProbe.status));
-  res.headers.set("X-Sitemap-ThemesProbeCount", String(themesProbeCount));
+      "X-Sitemap-SetsURL": setsProbeUrl,
+      "X-Sitemap-SetsStatus": String(setsProbeStatus),
+      "X-Sitemap-SetsProbeCount": String(setsProbeCount),
 
-  res.headers.set("X-Sitemap-SetsURL", setsProbeUrl);
-  res.headers.set("X-Sitemap-SetsStatus", String(setsProbe.status));
-  res.headers.set("X-Sitemap-SetsProbeCount", String(setsProbeCount));
+      "X-Sitemap-Themes": String(themePaths.length),
+      "X-Sitemap-ThemesRaw": String(themesRawCount),
+      "X-Sitemap-ThemesBadSlug": String(themesBadSlugCount),
+      "X-Sitemap-ThemesBadSlugSample": themesBadSlugSample,
 
-  res.headers.set("X-Sitemap-Themes", String(themePaths.length));
-  res.headers.set("X-Sitemap-ThemesRaw", String(themesRawCount));
-  res.headers.set("X-Sitemap-ThemesBadSlug", String(themesBadSlugCount));
-  res.headers.set("X-Sitemap-ThemesBadSlugSample", themesBadSlugSample);
+      "X-Sitemap-Sets": String(setPaths.length),
+      "X-Sitemap-SetsRaw": String(setsRawCount),
 
-  res.headers.set("X-Sitemap-Sets", String(setPaths.length));
-  res.headers.set("X-Sitemap-SetsRaw", String(setsRawCount));
-
-  res.headers.set("X-Sitemap-PublicLists", String(publicListPaths.length));
-
-  return res;
+      "X-Sitemap-PublicLists": String(publicListPaths.length),
+    },
+  });
 }
