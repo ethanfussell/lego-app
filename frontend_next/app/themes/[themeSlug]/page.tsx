@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
-import { slugToTheme, themeToSlug } from "@/lib/slug";
+import { slugToTheme } from "@/lib/slug";
 
 type SP = Record<string, string | string[] | undefined>;
 
@@ -75,7 +75,7 @@ export async function generateMetadata({
   const { themeSlug } = await params;
   const sp = (await searchParams) ?? ({} as SP);
 
-  const themeName = slugToTheme(themeSlug); // ✅ IMPORTANT
+  const themeName = slugToTheme(themeSlug);
   const page = posInt(first(sp, "page") || "1", 1);
 
   const baseTitle = `${themeName} sets`;
@@ -97,25 +97,31 @@ export async function generateMetadata({
   };
 }
 
-async function fetchThemeSetsWithCount(
-  themeName: string,
-  page: number,
-  limit: number,
-  sort: string,
-  order: string
-): Promise<{ status: number; rows: SetSummary[]; totalCount: number | null }> {
+type FetchOk = { kind: "ok"; rows: SetSummary[]; totalCount: number | null };
+type FetchNotFound = { kind: "notfound" };
+type FetchError = { kind: "error"; status: number };
+
+async function fetchThemeSetsWithCount(args: {
+  themeName: string;
+  page: number;
+  limit: number;
+  sort: string;
+  order: string;
+}): Promise<FetchOk | FetchNotFound | FetchError> {
+  const { themeName, page, limit, sort, order } = args;
+
   const qs = new URLSearchParams();
   qs.set("page", String(page));
   qs.set("limit", String(limit));
   qs.set("sort", sort);
   qs.set("order", order);
 
-  // ✅ themeName MUST be the real theme string (with spaces)
+  // themeName MUST be the real theme string (with spaces)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
   const res = await fetch(url, { cache: "no-store" });
 
-  if (res.status === 404) return { status: 404, rows: [], totalCount: null };
-  if (!res.ok) return { status: res.status, rows: [], totalCount: null };
+  if (res.status === 404) return { kind: "notfound" };
+  if (!res.ok) return { kind: "error", status: res.status };
 
   const data: unknown = await res.json();
   const rows = toSetSummaryArray(data);
@@ -124,7 +130,7 @@ async function fetchThemeSetsWithCount(
   const parsed = header ? Number(header) : NaN;
   const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 
-  return { status: 200, rows, totalCount };
+  return { kind: "ok", rows, totalCount };
 }
 
 export default async function ThemeSetsPage({
@@ -137,20 +143,32 @@ export default async function ThemeSetsPage({
   const { themeSlug } = await params;
   const sp = (await searchParams) ?? ({} as SP);
 
-  const themeName = slugToTheme(themeSlug); // ✅ IMPORTANT
+  const themeName = slugToTheme(themeSlug);
 
   const requestedPage = posInt(first(sp, "page") || "1", 1);
   const limit = posInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
   const sort = first(sp, "sort") || "relevance";
   const order = first(sp, "order") || "desc";
 
-  const firstPass = await fetchThemeSetsWithCount(themeName, requestedPage, limit, sort, order);
+  const result = await fetchThemeSetsWithCount({
+    themeName,
+    page: requestedPage,
+    limit,
+    sort,
+    order,
+  });
 
-  if (firstPass.status === 404) notFound();
-  if (firstPass.status !== 200) notFound();
+  // ✅ Only true invalid theme -> 404
+  if (result.kind === "notfound") notFound();
 
-  const totalPages =
-    firstPass.totalCount != null ? Math.max(1, Math.ceil(firstPass.totalCount / limit)) : null;
+  // ✅ API/server problems should NOT become 404 (avoid soft-404 classification)
+  if (result.kind === "error") {
+    throw new Error(`Theme sets fetch failed (${result.status}) for theme="${themeName}"`);
+  }
+
+  const { rows: initialSets, totalCount } = result;
+
+  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / limit)) : null;
 
   if (totalPages != null && requestedPage > totalPages) {
     const qs = new URLSearchParams();
@@ -163,9 +181,8 @@ export default async function ThemeSetsPage({
     redirect(dest);
   }
 
-  const page = requestedPage;
-  const initialSets = firstPass.rows;
-  if (page === 1 && initialSets.length === 0) notFound();
+  // ✅ IMPORTANT: Do NOT notFound just because there are 0 sets.
+  // Render the page; the client can show "No sets found" instead.
 
   return (
     <>
