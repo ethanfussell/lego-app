@@ -26,13 +26,15 @@ export function GET(req: NextRequest) {
     "Disallow: /signup",
     "Disallow: /me",
     "",
-    `Sitemap: ${base}/sitemap.xml`,
+    // Point Search Console to the index sitemap (recommended)
+    `Sitemap: ${base}/sitemap_index.xml`,
     "",
   ].join("\n");
 
   return new Response(body, {
     headers: {
       "content-type": "text/plain; charset=utf-8",
+      // Cache is fine for robots; keep it shortish so changes propagate
       "cache-control": "public, max-age=3600, s-maxage=3600",
     },
   });
