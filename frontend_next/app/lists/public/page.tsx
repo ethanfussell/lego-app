@@ -1,7 +1,7 @@
 // frontend_next/app/lists/public/page.tsx
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import Link from "next/link";
+import { Suspense } from "react";
 import PublicListsClient from "./PublicListsClient";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
@@ -39,6 +39,13 @@ type PublicListRow = {
   created_at?: string | null;
 };
 
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function first(sp: SearchParams, key: string): string {
+  const v = sp[key];
+  return (Array.isArray(v) ? v[0] : v || "").toString().trim();
+}
+
 function isPublicListRow(x: unknown): x is PublicListRow {
   if (typeof x !== "object" || x === null) return false;
   const o = x as any;
@@ -59,8 +66,10 @@ async function fetchPublicLists(owner: string): Promise<{ lists: PublicListRow[]
     const qs = new URLSearchParams();
     if (owner) qs.set("owner", owner);
 
-    // Hit same-origin Next route handler (no CORS, can be cached by ISR)
-    const res = await fetch(`https://lego-app-gules.vercel.app/api/lists/public?${qs.toString()}`, {
+    // ✅ Same-origin route handler (works on Vercel + locally)
+    const path = `/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`;
+
+    const res = await fetch(path, {
       next: { revalidate },
     });
 
@@ -73,9 +82,13 @@ async function fetchPublicLists(owner: string): Promise<{ lists: PublicListRow[]
   }
 }
 
-export default async function Page() {
-  // Default: show all public lists (owner filter happens client-side too)
-  const initialOwner = "";
+export default async function Page({
+  searchParams,
+}: {
+  searchParams?: SearchParams | Promise<SearchParams>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const initialOwner = first(sp, "owner"); // ✅ server-driven filter if present
 
   const { lists: initialLists, error: initialError } = await fetchPublicLists(initialOwner);
 
@@ -113,9 +126,9 @@ export default async function Page() {
 
       {/* Client experience */}
       <div className="mt-10">
-      <Suspense fallback={<p className="mt-6 text-sm text-zinc-500">Loading lists…</p>}>
-        <PublicListsClient initialOwner={initialOwner} initialLists={initialLists} initialError={initialError} />
-      </Suspense>
+        <Suspense fallback={<p className="mt-6 text-sm text-zinc-500">Loading lists…</p>}>
+          <PublicListsClient initialOwner={initialOwner} initialLists={initialLists} initialError={initialError} />
+        </Suspense>
       </div>
     </div>
   );
