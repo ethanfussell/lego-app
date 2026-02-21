@@ -1,6 +1,8 @@
 // frontend_next/app/years/[year]/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+
 import ThemesClient from "@/app/themes/ThemesClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
@@ -11,29 +13,6 @@ export const dynamic = "force-static";
 export const revalidate = 3600;
 
 type JsonLdObject = Record<string, unknown>;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function buildBreadcrumbJsonLd(
-  items: Array<{ label: string; href: string }>,
-  baseUrl: string
-): JsonLdObject {
-  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
-
-  return {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: items.map((it, idx) => ({
-      "@type": "ListItem",
-      position: idx + 1,
-      name: it.label,
-      item: new URL(it.href, normBase).toString(),
-    })),
-  };
-}
-
 type SP = Record<string, string | string[] | undefined>;
 
 type SetSummary = {
@@ -49,6 +28,28 @@ type SetSummary = {
 };
 
 type UnknownRecord = Record<string, unknown>;
+
+function siteBase() {
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
+function apiBase() {
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
+
+function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
+  const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, idx) => ({
+      "@type": "ListItem",
+      position: idx + 1,
+      name: it.label,
+      item: new URL(it.href, normBase).toString(),
+    })),
+  };
+}
 
 function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -75,6 +76,11 @@ function yearBounds() {
   return { min: 1980, max: new Date().getFullYear() };
 }
 
+function qsBase(year: number, p: number) {
+  const qs = new URLSearchParams(p > 1 ? { page: String(p) } : {}).toString();
+  return qs ? `/years/${year}?${qs}` : `/years/${year}`;
+}
+
 // numbered pagination with ellipses, e.g. 1 … 6 7 [8] 9 10 … 30
 function buildPageList(current: number, totalPages: number) {
   const out: Array<number | "..."> = [];
@@ -95,11 +101,6 @@ function buildPageList(current: number, totalPages: number) {
   add(totalPages);
 
   return out;
-}
-
-function qsBase(year: number, p: number) {
-  const qs = new URLSearchParams(p > 1 ? { page: String(p) } : {}).toString();
-  return qs ? `/years/${year}?${qs}` : `/years/${year}`;
 }
 
 function isSetSummary(x: unknown): x is SetSummary {
@@ -135,57 +136,68 @@ function topThemesFromRows(rows: SetSummary[], max = 3) {
   return out;
 }
 
-async function fetchSetsByYear(year: number, page: number, limit: number) {
+type FetchOk = { kind: "ok"; rows: SetSummary[]; totalCount: number | null };
+type FetchNotFound = { kind: "notfound" };
+type FetchDegraded = { kind: "degraded"; rows: SetSummary[]; totalCount: null };
+
+async function fetchSetsByYear(year: number, page: number, limit: number): Promise<FetchOk | FetchNotFound | FetchDegraded> {
   const params = new URLSearchParams();
   params.set("year", String(year));
   if (page > 1) params.set("page", String(page));
   params.set("limit", String(limit));
 
-  const url = new URL(`/api/sets?${params.toString()}`, siteBase()).toString();
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) return { rows: [] as SetSummary[], totalCount: null as number | null };
+  // Server component: go to backend directly (avoids proxy/cache surprises).
+  const url = `${apiBase()}/sets?${params.toString()}`;
 
-  const data: unknown = await res.json();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      next: { revalidate: 3600 },
+    });
+  } catch {
+    return { kind: "degraded", rows: [], totalCount: null };
+  }
+
+  if (res.status === 404) return { kind: "notfound" };
+  if (!res.ok) return { kind: "degraded", rows: [], totalCount: null };
+
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    return { kind: "degraded", rows: [], totalCount: null };
+  }
+
   const rows = normalizeSetSummaryArray(data);
 
   const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
   const parsed = header ? Number(header) : NaN;
   const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 
-  return { rows, totalCount };
+  return { kind: "ok", rows, totalCount };
 }
 
+// ✅ metadata depends ONLY on params (cache-friendly)
 export async function generateMetadata({
   params,
-  searchParams,
 }: {
   params: { year: string } | Promise<{ year: string }>;
-  searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
   const { year } = await params;
-  const sp = (await searchParams) ?? ({} as SP);
 
   const { min, max } = yearBounds();
   const y = toInt(String(year), NaN);
 
-  const rawPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
-  const page = rawPage; // metadata can’t know totalPages without fetching; keep it as requested
-
-  const baseTitle = Number.isFinite(y) ? `Sets from ${y}` : "Sets by year";
-
   const validYear = Number.isFinite(y) && y >= min && y <= max;
-  const title = validYear ? (page > 1 ? `${baseTitle} (Page ${page})` : baseTitle) : "Sets by year";
 
-  const canonical = validYear ? qsBase(y, page) : "/years";
-
+  const title = validYear ? `Sets from ${y}` : "Sets by year";
   const description = validYear
-    ? page > 1
-      ? `Browse LEGO sets released in ${y}. Page ${page}.`
-      : `Browse LEGO sets released in ${y}.`
+    ? `Browse LEGO sets released in ${y}.`
     : `Browse LEGO sets by release year on ${SITE_NAME}.`;
+
+  const canonical = validYear ? qsBase(y, 1) : "/years";
 
   return {
     title,
@@ -246,16 +258,64 @@ export default async function YearPage({
   const requestedPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
   const limit = 36;
 
-  // Fetch once using requestedPage
   const firstPass = await fetchSetsByYear(y, requestedPage, limit);
+
+  // Only true invalid year from backend -> 404
+  if (firstPass.kind === "notfound") notFound();
+
+  // Degraded: DO NOT crash, DO NOT soft-404. Render page with empty grid + hints.
+  if (firstPass.kind === "degraded") {
+    const breadcrumbItems = [
+      { label: "Home", href: "/" },
+      { label: "Years", href: "/years" },
+      { label: String(y), href: `/years/${y}` },
+    ];
+    const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
+
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-12">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+
+        <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: String(y) }]} />
+
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
+          <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
+            Browse themes →
+          </Link>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{y}</h1>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              We couldn’t load sets right now. Try refreshing in a bit.
+            </p>
+          </div>
+
+          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+            ← All years
+          </Link>
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
+          If this keeps happening, it usually means the backend is temporarily unavailable.
+        </div>
+      </div>
+    );
+  }
+
+  // Ok path
   const totalPages =
     firstPass.totalCount != null ? Math.max(1, Math.ceil(firstPass.totalCount / limit)) : null;
 
-  // Clamp to last page if user asks for something too big (only if we know totalPages)
-  const page = totalPages != null ? Math.min(requestedPage, totalPages) : requestedPage;
+  // If we know total pages and the user requested > last page, redirect to canonical last page
+  if (totalPages != null && requestedPage > totalPages) {
+    redirect(qsBase(y, totalPages));
+  }
 
-  // If we had to clamp, refetch for the real page (so results match the UI)
-  const { rows, totalCount } = page === requestedPage ? firstPass : await fetchSetsByYear(y, page, limit);
+  const page = requestedPage;
+  const rows = firstPass.rows;
+  const totalCount = firstPass.totalCount;
 
   const hasPrev = page > 1;
   const hasNext = totalPages != null ? page < totalPages : rows.length === limit;
@@ -265,20 +325,13 @@ export default async function YearPage({
   const firstHref = qsBase(y, 1);
   const lastHref = totalPages ? qsBase(y, totalPages) : qsBase(y, page);
 
-  // Internal links (Task 8)
   const topThemes = topThemesFromRows(rows, 3);
 
-  // No results
+  // No results (page 1 only)
   if (page === 1 && rows.length === 0) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <Breadcrumbs
-          items={[
-            { label: "Home", href: "/" },
-            { label: "Years", href: "/years" },
-            { label: String(y) },
-          ]}
-        />
+        <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: String(y) }]} />
 
         <div className="mt-4 flex items-end justify-between gap-3">
           <div>
@@ -311,26 +364,15 @@ export default async function YearPage({
     <div className="mx-auto max-w-5xl px-6 py-12">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
 
-      <Breadcrumbs
-        items={[
-          { label: "Home", href: "/" },
-          { label: "Years", href: "/years" },
-          { label: String(y) },
-        ]}
-      />
+      <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: String(y) }]} />
 
-      {/* Task 8: internal links */}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
         <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
           Browse themes →
         </Link>
 
         {topThemes.map((t) => (
-          <Link
-            key={t}
-            href={`/themes/${themeToSlug(t)}`}
-            className="text-zinc-900 hover:underline dark:text-zinc-50"
-          >
+          <Link key={t} href={`/themes/${themeToSlug(t)}`} className="text-zinc-900 hover:underline dark:text-zinc-50">
             {t} →
           </Link>
         ))}
@@ -353,10 +395,8 @@ export default async function YearPage({
 
       <ThemesClient sets={rows} />
 
-      {/* Pagination */}
       <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          {/* First */}
           <Link
             href={firstHref}
             aria-disabled={page <= 1}
@@ -367,7 +407,6 @@ export default async function YearPage({
             « First
           </Link>
 
-          {/* Prev */}
           <Link
             href={qsBase(y, Math.max(1, page - 1))}
             aria-disabled={!hasPrev}
@@ -378,7 +417,6 @@ export default async function YearPage({
             ← Prev
           </Link>
 
-          {/* Next */}
           <Link
             href={qsBase(y, page + 1)}
             aria-disabled={!hasNext}
@@ -389,7 +427,6 @@ export default async function YearPage({
             Next →
           </Link>
 
-          {/* Last */}
           <Link
             href={lastHref}
             aria-disabled={totalPages != null ? page >= totalPages : !hasNext}
