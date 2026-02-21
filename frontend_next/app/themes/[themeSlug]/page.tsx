@@ -13,6 +13,7 @@ const DEFAULT_LIMIT = 36;
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
+
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
@@ -29,6 +30,13 @@ type SetSummary = {
   pieces?: number;
   theme?: string | null;
   image_url?: string | null;
+};
+
+type Query = {
+  page: number;
+  limit: number;
+  sort: string;
+  order: string;
 };
 
 function isSetSummary(x: unknown): x is SetSummary {
@@ -78,16 +86,28 @@ async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfo
 
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    next: { revalidate: 3600 }, // ISR
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      next: { revalidate: 3600 }, // ISR
+    });
+  } catch {
+    // degraded: still render the page (not 404)
+    return [];
+  }
 
   if (res.status === 404) return "notfound";
   if (!res.ok) return []; // degraded: still render the page (not 404)
 
-  const data: unknown = await res.json().catch(() => null);
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
+  }
+
   return toSetSummaryArray(data);
 }
 
@@ -106,7 +126,7 @@ export default async function ThemeSetsPage({
   const rows = await fetchThemePage1(themeName);
   if (rows === "notfound") notFound();
 
-  const initialQuery = { page: 1, limit: DEFAULT_LIMIT, sort: "relevance", order: "desc" } as const;
+  const initialQuery: Query = { page: 1, limit: DEFAULT_LIMIT, sort: "relevance", order: "desc" };
 
   return (
     <>
