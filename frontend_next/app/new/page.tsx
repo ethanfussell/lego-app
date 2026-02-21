@@ -1,11 +1,12 @@
 // frontend_next/app/new/page.tsx
 import type { Metadata } from "next";
-import { apiFetch } from "@/lib/api";
 import NewSetsClient from "./NewSetsClient";
 
 export const metadata: Metadata = {
   title: "New sets",
 };
+
+export const revalidate = 3600; // ✅ ISR (1 hour)
 
 type SetLite = {
   set_num: string;
@@ -19,6 +20,10 @@ type SetLite = {
   rating_count?: number;
 };
 
+function apiBase() {
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
+
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -31,20 +36,12 @@ function toSetLiteArray(x: unknown): SetLite[] {
   return Array.isArray(x) ? x.filter(isSetLite) : [];
 }
 
-type SetsResponse =
-  | SetLite[]
-  | {
-      results?: unknown;
-    };
-
-function asSetsResponse(x: unknown): SetsResponse {
+function normalizeSets(x: unknown): SetLite[] {
   if (Array.isArray(x)) return toSetLiteArray(x);
-
   if (typeof x === "object" && x !== null) {
-    const o = x as { results?: unknown };
-    return { results: o.results };
+    const r = (x as { results?: unknown }).results;
+    return Array.isArray(r) ? toSetLiteArray(r) : [];
   }
-
   return [];
 }
 
@@ -56,16 +53,24 @@ async function fetchNewSets(): Promise<SetLite[]> {
   params.set("page", "1");
   params.set("limit", "80");
 
-  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
-  const data = asSetsResponse(raw);
+  const url = `${apiBase()}/sets?${params.toString()}`;
 
-  const items: SetLite[] = Array.isArray(data)
-    ? data
-    : Array.isArray(data.results)
-      ? toSetLiteArray(data.results)
-      : [];
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate }, // ✅ cacheable fetch
+  });
 
-  return items;
+  if (!res.ok) return [];
+
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
+  }
+
+  return normalizeSets(data);
 }
 
 export default async function Page() {
@@ -75,6 +80,7 @@ export default async function Page() {
   try {
     sets = await fetchNewSets();
   } catch (e: unknown) {
+    // Degraded-but-200 response (don’t throw -> avoids caching 500s)
     error = errorMessage(e);
   }
 
