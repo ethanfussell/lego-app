@@ -9,14 +9,14 @@ import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 import { readSavedListIds, savedListsEventName } from "@/lib/savedLists";
 
-/** ✅ Use the EXACT prop type expected by RatingHistogram (avoids "two Histograms" issue) */
+/** ✅ Use the EXACT prop type expected by RatingHistogram */
 type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
 
 type ReviewStats = {
   total_reviews?: number;
   rated_reviews?: number;
   avg_rating?: number | null;
-  rating_histogram?: unknown; // API can be unknown → we validate before passing to RatingHistogram
+  rating_histogram?: unknown;
   recent?: unknown;
 };
 
@@ -138,7 +138,7 @@ function asListLiteArray(v: unknown): ListLite[] {
 
 /**
  * ✅ Validate unknown into EXACT HistogramProp used by RatingHistogram
- * We accept either:
+ * Accept either:
  * - Record<string, number>
  * - Array<{rating:number; count:number}>
  */
@@ -267,9 +267,7 @@ function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="line-clamp-2 font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">
-                {setName}
-              </div>
+              <div className="line-clamp-2 font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">{setName}</div>
               <div className="mt-1 text-sm text-zinc-500">{setNum}</div>
             </div>
 
@@ -298,7 +296,9 @@ function makeRecentKey(r: ReviewRecent, idx: number): string {
 export default function AccountClient() {
   const router = useRouter();
   const { token, me, logout, hydrated } = useAuth();
-  const isLoggedIn = hydrated && !!token;
+
+  // ✅ single source of truth for “can hit authed endpoints”
+  const isLoggedIn = hydrated && token.trim().length > 0;
 
   const username = useMemo(() => me?.username || "Account", [me?.username]);
 
@@ -320,6 +320,7 @@ export default function AccountClient() {
     return readSavedListIds().length;
   });
 
+  // saved lists count listener
   useEffect(() => {
     const refresh = () => setSavedCount(readSavedListIds().length);
 
@@ -367,20 +368,28 @@ export default function AccountClient() {
       .slice(0, 3);
   }, [owned]);
 
+  /**
+   * ✅ Load authed dashboard data only after hydration + token.
+   * This avoids localhost spam: 401 -> apiFetch bad response.
+   */
   useEffect(() => {
     let cancelled = false;
 
     async function loadAll() {
+      // Wait for hydration; before then we *don't know* token yet.
       if (!hydrated) return;
 
+      // If not logged in, keep the UI clean and stop.
       if (!isLoggedIn) {
         setOwned([]);
         setWishlist([]);
         setCustomLists([]);
         setReviewStats(null);
-        setReviewStatsErr("");
-        setErr("");
         setRecentEnriched([]);
+        setErr("");
+        setReviewStatsErr("");
+        setLoading(false);
+        setReviewStatsLoading(false);
         return;
       }
 
@@ -433,11 +442,16 @@ export default function AccountClient() {
     };
   }, [hydrated, isLoggedIn, token]);
 
+  /**
+   * ✅ Enrich recent review cards with images, but only when logged in.
+   */
   useEffect(() => {
     let cancelled = false;
 
     async function enrichRecent() {
-      if (!token) {
+      if (!hydrated) return;
+
+      if (!isLoggedIn) {
         setRecentEnriched([]);
         return;
       }
@@ -458,7 +472,8 @@ export default function AccountClient() {
       }
 
       try {
-        const qs = encodeURIComponent([...new Set(need)].join(","));
+        const joined = [...new Set(need)].join(",");
+        const qs = encodeURIComponent(joined);
         const setsRaw = await apiFetch<unknown>(`/sets/bulk?set_nums=${qs}`, { token, cache: "no-store" });
 
         if (cancelled) return;
@@ -478,9 +493,9 @@ export default function AccountClient() {
 
           const imageFromSet =
             (s && typeof s.image_url === "string" && s.image_url) ||
-            (s && typeof s.imageUrl === "string" && s.imageUrl) ||
-            (s && typeof s.set_image_url === "string" && s.set_image_url) ||
-            (s && typeof s.setImageUrl === "string" && s.setImageUrl) ||
+            (s && typeof (s as any).imageUrl === "string" && (s as any).imageUrl) ||
+            (s && typeof (s as any).set_image_url === "string" && (s as any).set_image_url) ||
+            (s && typeof (s as any).setImageUrl === "string" && (s as any).setImageUrl) ||
             null;
 
           return {
@@ -499,11 +514,10 @@ export default function AccountClient() {
     return () => {
       cancelled = true;
     };
-  }, [token, recentReviewsRaw]);
+  }, [hydrated, isLoggedIn, token, recentReviewsRaw]);
 
   const recentToShow = recentEnriched.length ? recentEnriched : recentReviewsRaw;
 
-  /** ✅ FIX: this is now HistogramProp (the exact prop type) */
   const histogram = useMemo<HistogramProp | null>(() => toHistogramProp(reviewStats?.rating_histogram), [reviewStats]);
 
   const REVIEW_TILE_H = "h-[96px]";
@@ -519,8 +533,10 @@ export default function AccountClient() {
                 Signed in as{" "}
                 <span className="font-semibold text-zinc-900 dark:text-zinc-100">{username}</span>
               </>
-            ) : (
+            ) : hydrated ? (
               "Log in to see your stats."
+            ) : (
+              "Loading…"
             )}
           </p>
         </div>
@@ -549,7 +565,13 @@ export default function AccountClient() {
         </div>
       </div>
 
-      {!isLoggedIn ? (
+      {!hydrated ? (
+        <div className="mt-6">
+          <CardShell>
+            <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">Loading account…</p>
+          </CardShell>
+        </div>
+      ) : !isLoggedIn ? (
         <div className="mt-6">
           <CardShell>
             <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">
@@ -674,12 +696,7 @@ export default function AccountClient() {
             ) : (
               <div className="mt-3 grid max-w-xl gap-2">
                 {topThemes.map(([theme, count]) => (
-                  <ThemeRow
-                    key={theme}
-                    theme={theme}
-                    count={count}
-                    href={`/collection/owned?theme=${encodeURIComponent(theme)}`}
-                  />
+                  <ThemeRow key={theme} theme={theme} count={count} href={`/collection/owned?theme=${encodeURIComponent(theme)}`} />
                 ))}
               </div>
             )}
