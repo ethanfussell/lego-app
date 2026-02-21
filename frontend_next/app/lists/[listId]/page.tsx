@@ -210,6 +210,20 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   };
 }
 
+function topCounts<T extends string | number>(items: T[], max = 3): Array<{ key: T; count: number }> {
+  const m = new Map<T, number>();
+  for (const it of items) m.set(it, (m.get(it) ?? 0) + 1);
+
+  return Array.from(m.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, Math.max(0, max));
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 export default async function Page({ params }: { params: Params | Promise<Params> }) {
   const { listId } = await Promise.resolve(params);
   const normalized = normalizeListId(listId);
@@ -221,6 +235,16 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
   const setNums = toSetNums(d);
   const sets = await fetchSetsBulkSSR(setNums);
+
+  const topThemes = topCounts(
+    sets.map((s) => String(s.theme ?? "").trim()).filter(isNonEmptyString),
+    4
+  );
+  
+  const topYears = topCounts(
+    sets.map((s) => (typeof s.year === "number" ? s.year : null)).filter((y): y is number => typeof y === "number"),
+    3
+  );
 
   const ownerName = (d.owner_username || d.owner || "").trim();
   const title = d.title?.trim() || `List #${d.id}`;
@@ -264,6 +288,57 @@ export default async function Page({ params }: { params: Params | Promise<Params
           </div>
         </div>
       </div>
+
+      {/* ✅ Internal links: lists → themes/years */}
+      {(topThemes.length > 0 || topYears.length > 0) ? (
+        <section className="mt-6 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <h2 className="m-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">Explore related pages</h2>
+
+          <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            {/* Top themes */}
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-zinc-500">Top themes in this list</div>
+              {topThemes.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">—</div>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {topThemes.map(({ key, count }) => (
+                    <Link
+                      key={String(key)}
+                      href={`/themes/${themeToSlug(String(key))}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                    >
+                      <span className="truncate">{String(key)}</span>
+                      <span className="text-xs text-zinc-500">{count}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Top years */}
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-zinc-500">Top years in this list</div>
+              {topYears.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">—</div>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {topYears.map(({ key, count }) => (
+                    <Link
+                      key={String(key)}
+                      href={`/years/${key}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                    >
+                      <span>{key}</span>
+                      <span className="text-xs text-zinc-500">{count}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
