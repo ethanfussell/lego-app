@@ -3,6 +3,7 @@
 import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
 
+export const dynamic = "force-static";
 export const revalidate = 3600; // ISR (1 hour)
 
 export async function generateMetadata(): Promise<Metadata> {
