@@ -118,7 +118,7 @@ async function fetchThemeSetsWithCount(args: {
 
   // themeName MUST be the real theme string (with spaces)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { next: { revalidate: 3600 } });
 
   if (res.status === 404) return { kind: "notfound" };
   if (!res.ok) return { kind: "error", status: res.status };
@@ -132,6 +132,8 @@ async function fetchThemeSetsWithCount(args: {
 
   return { kind: "ok", rows, totalCount };
 }
+
+export const revalidate = 3600; // 1 hour
 
 export default async function ThemeSetsPage({
   params,
