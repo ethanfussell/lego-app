@@ -99,7 +99,7 @@ export async function generateMetadata({
 
 type FetchOk = { kind: "ok"; rows: SetSummary[]; totalCount: number | null };
 type FetchNotFound = { kind: "notfound" };
-type FetchError = { kind: "error"; status: number };
+type FetchDegraded = { kind: "degraded"; rows: SetSummary[]; totalCount: null };
 
 async function fetchThemeSetsWithCount(args: {
   themeName: string;
@@ -107,7 +107,7 @@ async function fetchThemeSetsWithCount(args: {
   limit: number;
   sort: string;
   order: string;
-}): Promise<FetchOk | FetchNotFound | FetchError> {
+}): Promise<FetchOk | FetchNotFound | FetchDegraded> {
   const { themeName, page, limit, sort, order } = args;
 
   const qs = new URLSearchParams();
@@ -118,29 +118,31 @@ async function fetchThemeSetsWithCount(args: {
 
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
-  // Force GET (some environments can probe with HEAD; your backend returns 405 for HEAD)
-  const doGet = async () =>
-    fetch(url, {
-      method: "GET",
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET", // important: avoid any implicit HEAD behavior
       headers: { accept: "application/json" },
       next: { revalidate: 3600 },
     });
-
-  let res = await doGet();
-
-  // If anything upstream/proxy tried HEAD and we got a 405, retry GET explicitly.
-  if (res.status === 405) {
-    res = await doGet();
+  } catch {
+    // backend/network hiccup: DO NOT 500 the page
+    return { kind: "degraded", rows: [], totalCount: null };
   }
 
   if (res.status === 404) return { kind: "notfound" };
-  if (!res.ok) return { kind: "error", status: res.status };
+
+  // Some platforms/backends return 405 for HEAD, etc.
+  // We treat non-OK as degraded instead of throwing (prevents 500s).
+  if (!res.ok) {
+    return { kind: "degraded", rows: [], totalCount: null };
+  }
 
   let data: unknown;
   try {
     data = await res.json();
   } catch {
-    return { kind: "error", status: 502 };
+    return { kind: "degraded", rows: [], totalCount: null };
   }
 
   const rows = toSetSummaryArray(data);
@@ -152,6 +154,8 @@ async function fetchThemeSetsWithCount(args: {
   return { kind: "ok", rows, totalCount };
 }
 
+// Make public theme pages cacheable (ISR)
+export const runtime = "nodejs";
 export const dynamic = "force-static";
 export const revalidate = 3600;
 
@@ -182,12 +186,9 @@ export default async function ThemeSetsPage({
 
   if (result.kind === "notfound") notFound();
 
-  // Don’t convert upstream errors into 404 (soft-404 risk); error boundary / 500 is correct.
-  if (result.kind === "error") {
-    throw new Error(`Theme sets fetch failed (${result.status}) for theme="${themeName}"`);
-  }
+  const initialSets = result.rows;
+  const totalCount = result.kind === "ok" ? result.totalCount : null;
 
-  const { rows: initialSets, totalCount } = result;
   const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / limit)) : null;
 
   if (totalPages != null && requestedPage > totalPages) {
