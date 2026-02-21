@@ -6,8 +6,8 @@ import PublicListsClient from "./PublicListsClient";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
-// ✅ Manual curated IDs (update anytime)
-const FEATURED_LIST_IDS = [6, 5, 4]; // put up to 10 here
+// curated IDs (optional; keep yours)
+const FEATURED_LIST_IDS = [6, 5, 4];
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -29,85 +29,74 @@ export const metadata: Metadata = {
   },
 };
 
+type SortKey = "updated_desc" | "count_desc" | "name_asc";
+type SearchParams = Record<string, string | string[] | undefined>;
+
 type PublicListRow = {
   id: number;
   title: string;
   description: string | null;
   owner: string;
   items_count: number;
-  is_public: boolean;
-  updated_at?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
-type SearchParams = Record<string, string | string[] | undefined>;
+type ApiResp = {
+  results: PublicListRow[];
+  total: number;
+  total_pages: number;
+  page: number;
+  limit: number;
+  sort: SortKey;
+  owner: string;
+  q: string;
+};
 
 function first(sp: SearchParams, key: string): string {
   const v = sp[key];
   return (Array.isArray(v) ? v[0] : v || "").toString().trim();
 }
 
-function isPublicListRow(x: unknown): x is PublicListRow {
-  if (typeof x !== "object" || x === null) return false;
-  const o = x as any;
-  return typeof o.id === "number" && typeof o.title === "string" && typeof o.owner === "string";
+function toInt(raw: string, fallback: number) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
 }
 
-function toPublicListRowArray(x: unknown): PublicListRow[] {
-  if (Array.isArray(x)) return x.filter(isPublicListRow);
-  if (typeof x === "object" && x !== null) {
-    const r = (x as any).results;
-    return Array.isArray(r) ? r.filter(isPublicListRow) : [];
-  }
-  return [];
+function parseSort(raw: string): SortKey {
+  if (raw === "count_desc" || raw === "name_asc" || raw === "updated_desc") return raw;
+  return "updated_desc";
 }
 
-async function fetchPublicLists(owner: string): Promise<{ lists: PublicListRow[]; error: string | null }> {
-  try {
-    const qs = new URLSearchParams();
-    if (owner) qs.set("owner", owner);
+async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortKey; page: number }) {
+  const qs = new URLSearchParams();
+  if (opts.owner) qs.set("owner", opts.owner);
+  if (opts.q) qs.set("q", opts.q);
+  if (opts.sort !== "updated_desc") qs.set("sort", opts.sort);
+  if (opts.page > 1) qs.set("page", String(opts.page));
 
-    const path = `/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`;
+  const res = await fetch(`/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`, {
+    next: { revalidate },
+  });
 
-    // ✅ Server fetch must be absolute
-    const base = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-    const url = `${base}${path}`;
+  if (!res.ok) return { results: [] as PublicListRow[], total_pages: 1, page: opts.page, error: `HTTP ${res.status}` };
 
-    const res = await fetch(url, { next: { revalidate } });
-    if (!res.ok) return { lists: [], error: `HTTP ${res.status}` };
+  const data: ApiResp = await res.json().catch(() => null as any);
+  const results = Array.isArray(data?.results) ? data.results : [];
+  const total_pages = Number.isFinite(data?.total_pages) ? data.total_pages : 1;
+  const page = Number.isFinite(data?.page) ? data.page : opts.page;
 
-    const data: unknown = await res.json();
-    return { lists: toPublicListRowArray(data), error: null };
-  } catch (e: any) {
-    return { lists: [], error: e?.message ? String(e.message) : "Fetch failed" };
-  }
-}
-
-function pickFeatured(from: PublicListRow[]): PublicListRow[] {
-  const byId = new Map<number, PublicListRow>();
-  for (const r of from) byId.set(r.id, r);
-
-  // keep curated order
-  const out: PublicListRow[] = [];
-  for (const id of FEATURED_LIST_IDS) {
-    const hit = byId.get(id);
-    if (hit) out.push(hit);
-  }
-  return out;
-}
-
-function isNonEmpty(s: unknown): s is string {
-  return typeof s === "string" && s.trim().length > 0;
+  return { results, total_pages, page, error: null as string | null };
 }
 
 export default async function Page({ searchParams }: { searchParams?: SearchParams | Promise<SearchParams> }) {
   const sp = (await searchParams) ?? {};
   const initialOwner = first(sp, "owner");
+  const initialQ = first(sp, "q");
+  const initialSort = parseSort(first(sp, "sort") || "updated_desc");
+  const initialPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
 
-  const { lists: initialLists, error: initialError } = await fetchPublicLists(initialOwner);
-
-  // only show featured when NOT filtered
-  const featured = initialOwner ? [] : pickFeatured(initialLists);
+  const r = await fetchPublicListsSSR({ owner: initialOwner, q: initialQ, sort: initialSort, page: initialPage });
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -116,7 +105,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
       </div>
 
-      {/* Featured lists */}
+      {/* Featured chips (optional) */}
       <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -128,48 +117,30 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
           </Link>
         </div>
 
-        {featured.length > 0 ? (
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {featured.map((l) => (
-              <Link
-                key={l.id}
-                href={`/lists/${l.id}`}
-                className="rounded-2xl border border-black/[.10] bg-white p-4 hover:bg-black/[.03] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{l.title}</div>
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                      by <span className="font-semibold">{l.owner}</span> • {l.items_count} sets
-                    </div>
-                    {isNonEmpty(l.description) ? (
-                      <div className="mt-2 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">{l.description}</div>
-                    ) : null}
-                  </div>
-                  <div className="shrink-0 text-sm font-semibold">→</div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {FEATURED_LIST_IDS.map((id) => (
-              <Link
-                key={id}
-                href={`/lists/${id}`}
-                className="inline-flex items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              >
-                Featured list #{id} →
-              </Link>
-            ))}
-          </div>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {FEATURED_LIST_IDS.map((id) => (
+            <Link
+              key={id}
+              href={`/lists/${id}`}
+              className="inline-flex items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Featured #{id} →
+            </Link>
+          ))}
+        </div>
       </section>
 
-      {/* Client experience */}
       <div className="mt-10">
         <Suspense fallback={<p className="mt-6 text-sm text-zinc-500">Loading lists…</p>}>
-          <PublicListsClient initialOwner={initialOwner} initialLists={initialLists} initialError={initialError} />
+          <PublicListsClient
+            initialOwner={initialOwner}
+            initialQ={initialQ}
+            initialSort={initialSort}
+            initialPage={r.page}
+            initialTotalPages={r.total_pages}
+            initialLists={r.results}
+            initialError={r.error}
+          />
         </Suspense>
       </div>
     </div>

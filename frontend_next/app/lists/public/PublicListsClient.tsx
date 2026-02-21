@@ -5,136 +5,107 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type PublicListRow = {
-  id: number | string;
-
-  // API /lists/public currently returns: title, items_count, owner, description
-  title?: string | null;
-  items_count?: number | null;
-
-  // legacy / alternate names (keep for safety)
-  name?: string | null;
-  set_count?: number | null;
-  item_count?: number | null;
-
-  description?: string | null;
-  owner?: string | null;
-  username?: string | null;
-
-  updated_at?: string | null;
+  id: number;
+  title: string;
+  description: string | null;
+  owner: string;
+  items_count: number;
   created_at?: string | null;
-
-  sets?: Array<{ set_num: string }> | string[];
+  updated_at?: string | null;
+  is_public?: boolean;
 };
 
-type SortKey = "updated_desc" | "name_asc" | "count_desc";
+type SortKey = "updated_desc" | "count_desc" | "name_asc";
 
-function pickOwner(r: PublicListRow): string {
-  return String(r.owner ?? r.username ?? "").trim();
+type ApiResp = {
+  results: PublicListRow[];
+  total: number;
+  total_pages: number;
+  page: number;
+  limit: number;
+  sort: SortKey;
+  owner: string;
+  q: string;
+};
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
 }
 
-function pickTitle(r: PublicListRow): string {
-  const t = String(r.title ?? r.name ?? "").trim();
-  return t || `List #${String(r.id)}`;
-}
-
-function pickCount(r: PublicListRow): number {
-  const v =
-    typeof r.items_count === "number"
-      ? r.items_count
-      : typeof r.set_count === "number"
-        ? r.set_count
-        : typeof r.item_count === "number"
-          ? r.item_count
-          : 0;
-
-  return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
-}
-
-function pickUpdatedTs(r: PublicListRow): number {
-  const s = String(r.updated_at ?? r.created_at ?? "").trim();
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : 0;
-}
-
-function formatDateMaybe(s?: string | null): string | null {
-  const raw = String(s ?? "").trim();
-  if (!raw) return null;
-  const t = Date.parse(raw);
+function fmtDate(s?: string | null) {
+  const t = Date.parse(String(s ?? ""));
   if (!Number.isFinite(t)) return null;
   return new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function sortLists(rows: PublicListRow[], sort: SortKey) {
-  const copy = [...rows];
+function buildUrl(sp: URLSearchParams, next: Partial<{ owner: string; q: string; sort: SortKey; page: number }>) {
+  const p = new URLSearchParams(sp.toString());
 
-  if (sort === "name_asc") {
-    copy.sort((a, b) => pickTitle(a).localeCompare(pickTitle(b), undefined, { sensitivity: "base" }));
-    return copy;
-  }
+  const owner = (next.owner ?? p.get("owner") ?? "").trim();
+  const q = (next.q ?? p.get("q") ?? "").trim();
+  const sort = (next.sort ?? (p.get("sort") as SortKey) ?? "updated_desc") || "updated_desc";
+  const page = Number.isFinite(next.page as number) ? String(Math.max(1, Math.floor(next.page as number))) : (p.get("page") ?? "");
 
-  if (sort === "count_desc") {
-    copy.sort((a, b) => pickCount(b) - pickCount(a) || pickTitle(a).localeCompare(pickTitle(b)));
-    return copy;
-  }
+  if (owner) p.set("owner", owner);
+  else p.delete("owner");
 
-  // updated_desc
-  copy.sort((a, b) => pickUpdatedTs(b) - pickUpdatedTs(a) || pickCount(b) - pickCount(a));
-  return copy;
-}
+  if (q) p.set("q", q);
+  else p.delete("q");
 
-function toRows(data: unknown): PublicListRow[] {
-  if (Array.isArray(data)) return data as PublicListRow[];
-  if (typeof data === "object" && data !== null) {
-    const r = (data as any).results;
-    if (Array.isArray(r)) return r as PublicListRow[];
-  }
-  return [];
+  if (sort && sort !== "updated_desc") p.set("sort", sort);
+  else p.delete("sort");
+
+  if (page && page !== "1") p.set("page", page);
+  else p.delete("page");
+
+  const qs = p.toString();
+  return qs ? `/lists/public?${qs}` : `/lists/public`;
 }
 
 export default function PublicListsClient(props: {
   initialOwner: string;
+  initialQ: string;
+  initialSort: SortKey;
+  initialPage: number;
+  initialTotalPages: number;
   initialLists: PublicListRow[];
   initialError: string | null;
 }) {
-  const { initialOwner, initialLists, initialError } = props;
-
   const router = useRouter();
   const sp = useSearchParams();
 
-  const [owner, setOwner] = useState(initialOwner);
-  const [sort, setSort] = useState<SortKey>("updated_desc");
+  const [owner, setOwner] = useState(props.initialOwner);
+  const [q, setQ] = useState(props.initialQ);
+  const [sort, setSort] = useState<SortKey>(props.initialSort);
 
-  const [lists, setLists] = useState<PublicListRow[]>(initialLists);
+  const [page, setPage] = useState<number>(props.initialPage);
+  const [totalPages, setTotalPages] = useState<number>(props.initialTotalPages);
+
+  const [lists, setLists] = useState<PublicListRow[]>(props.initialLists);
   const [loading, setLoading] = useState(false);
 
-  // IMPORTANT: don’t wipe out server-rendered content
-  const [warning, setWarning] = useState<string | null>(initialError);
+  // don’t wipe content, just show warning
+  const [warning, setWarning] = useState<string | null>(props.initialError);
 
-  const canonicalQueryOwner = useMemo(() => (sp.get("owner") ?? "").trim(), [sp]);
+  // Canonical values from URL (back/forward)
+  const urlOwner = useMemo(() => (sp.get("owner") ?? "").trim(), [sp]);
+  const urlQ = useMemo(() => (sp.get("q") ?? "").trim(), [sp]);
+  const urlSort = useMemo(() => ((sp.get("sort") as SortKey) || "updated_desc") as SortKey, [sp]);
+  const urlPage = useMemo(() => {
+    const n = Number(sp.get("page") ?? "1");
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  }, [sp]);
 
-  // Keep input in sync if user navigates with back/forward
   useEffect(() => {
-    if (canonicalQueryOwner !== owner) setOwner(canonicalQueryOwner);
+    setOwner(urlOwner);
+    setQ(urlQ);
+    setSort(urlSort);
+    setPage(urlPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canonicalQueryOwner]);
+  }, [urlOwner, urlQ, urlSort, urlPage]);
 
-  function pushOwnerToUrl(nextOwner: string) {
-    const params = new URLSearchParams(sp?.toString?.() || "");
-    const clean = nextOwner.trim();
-    if (!clean) params.delete("owner");
-    else params.set("owner", clean);
-
-    const qs = params.toString();
-    router.push(qs ? `/lists/public?${qs}` : `/lists/public`, { scroll: false });
-  }
-
-  // Fetch when URL owner changes (not on every keystroke)
+  // Fetch when URL changes
   useEffect(() => {
-    const o = canonicalQueryOwner.trim();
-
-    // If URL matches what server already rendered, skip refetch
-    if (o === initialOwner.trim()) return;
-
     const controller = new AbortController();
 
     (async () => {
@@ -143,152 +114,196 @@ export default function PublicListsClient(props: {
         setWarning(null);
 
         const qs = new URLSearchParams();
-        if (o) qs.set("owner", o);
+        if (urlOwner) qs.set("owner", urlOwner);
+        if (urlQ) qs.set("q", urlQ);
+        if (urlSort && urlSort !== "updated_desc") qs.set("sort", urlSort);
+        if (urlPage > 1) qs.set("page", String(urlPage));
 
-        const url = `/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`;
-        const res = await fetch(url, { signal: controller.signal, cache: "no-store" });
+        const res = await fetch(`/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
 
         if (!res.ok) {
           setWarning(`Couldn’t refresh right now (HTTP ${res.status}). Showing cached results.`);
           return;
         }
 
-        const data: unknown = await res.json();
-        const rows = toRows(data);
-
-        // if filtering, allow empty state; if not filtering, only replace when we got something
-        if (o || rows.length > 0) setLists(rows);
+        const data: ApiResp = await res.json();
+        setLists(Array.isArray(data.results) ? data.results : []);
+        setTotalPages(Number.isFinite(data.total_pages) ? data.total_pages : 1);
+        setPage(Number.isFinite(data.page) ? data.page : urlPage);
       } catch (e: any) {
         if (e?.name === "AbortError") return;
-        setWarning("Couldn’t refresh right now. Showing cached results.");
+        setWarning(errorMessage(e) || "Couldn’t refresh right now. Showing cached results.");
       } finally {
         setLoading(false);
       }
     })();
 
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canonicalQueryOwner]);
+  }, [urlOwner, urlQ, urlSort, urlPage]);
 
-  const sorted = useMemo(() => sortLists(lists, sort), [lists, sort]);
+  const hasPrev = page > 1;
+  const hasNext = page < totalPages;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="m-0 text-2xl font-semibold">Public lists</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
+            <h2 className="m-0 text-2xl font-semibold">All public lists</h2>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              Filter + sort community lists.
+            </p>
           </div>
-
           <Link href="/discover" className="text-sm font-semibold hover:underline">
             Browse sets →
           </Link>
         </div>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <form
-            className="flex w-full max-w-xl gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              pushOwnerToUrl(owner);
-            }}
-          >
-            <div className="w-full">
-              <label className="mb-1 block text-xs font-semibold text-zinc-500">Filter by owner</label>
-              <input
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="e.g. ethan"
-                className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
-              />
-            </div>
+        <form
+          className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            router.push(buildUrl(new URLSearchParams(sp.toString()), { owner, q, sort, page: 1 }), { scroll: false });
+          }}
+        >
+          <div className="sm:col-span-1">
+            <label className="mb-1 block text-xs font-semibold text-zinc-500">Owner</label>
+            <input
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="e.g. ethan"
+              className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
+            />
+          </div>
 
+          <div className="sm:col-span-1">
+            <label className="mb-1 block text-xs font-semibold text-zinc-500">Search (q)</label>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="e.g. harry, animal, star wars"
+              className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
+            />
+          </div>
+
+          <div className="sm:col-span-1">
+            <label className="mb-1 block text-xs font-semibold text-zinc-500">Sort</label>
+            <select
+              value={sort}
+              onChange={(e) => {
+                const next = e.target.value as SortKey;
+                setSort(next);
+                router.push(buildUrl(new URLSearchParams(sp.toString()), { sort: next, page: 1 }), { scroll: false });
+              }}
+              className="h-10 w-full rounded-xl border border-black/[.08] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-black"
+            >
+              <option value="updated_desc">Newest/Recently updated</option>
+              <option value="count_desc">Most sets</option>
+              <option value="name_asc">Name (A → Z)</option>
+            </select>
+          </div>
+
+          <div className="sm:col-span-3 flex flex-wrap items-center gap-2">
             <button
-              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
               type="submit"
+              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
             >
               Apply
             </button>
 
             <button
-              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
               type="button"
+              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
               onClick={() => {
                 setOwner("");
-                pushOwnerToUrl("");
+                setQ("");
+                setSort("updated_desc");
+                router.push("/lists/public", { scroll: false });
               }}
             >
               Clear
             </button>
-          </form>
 
-          <div className="min-w-[220px]">
-            <label className="mb-1 block text-xs font-semibold text-zinc-500">Sort</label>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-              className="h-10 w-full rounded-xl border border-black/[.08] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-black"
-            >
-              <option value="updated_desc">Recently updated</option>
-              <option value="count_desc">Most items</option>
-              <option value="name_asc">Name (A → Z)</option>
-            </select>
+            {loading ? <span className="text-sm text-zinc-500">Refreshing…</span> : null}
+            {warning ? <span className="text-xs text-zinc-500">{warning}</span> : null}
           </div>
-        </div>
+        </form>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-          {loading ? <span className="text-zinc-500">Refreshing…</span> : null}
-          {warning ? <span className="text-xs text-zinc-500">{warning}</span> : null}
-        </div>
-
-        {sorted.length === 0 ? (
+        {lists.length === 0 ? (
           <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No public lists found.</p>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {sorted.map((r) => {
-              const id = String(r.id);
-              const title = pickTitle(r);
-              const ownerName = pickOwner(r);
-              const count = pickCount(r);
-              const updated = formatDateMaybe(r.updated_at) ?? formatDateMaybe(r.created_at);
+          <>
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {lists.map((r) => {
+                const href = `/lists/${encodeURIComponent(String(r.id))}`;
+                const updated = fmtDate(r.updated_at || r.created_at);
 
-              return (
-                <Link
-                  key={id}
-                  href={`/lists/${encodeURIComponent(id)}`}
-                  className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+                return (
+                  <Link
+                    key={r.id}
+                    href={href}
+                    className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                          {r.title || "Untitled list"}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          by <span className="font-semibold">{r.owner || "unknown"}</span>
+                          {updated ? <span className="ml-2">• Updated {updated}</span> : null}
+                        </div>
+                      </div>
 
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {ownerName ? (
-                          <>
-                            by <span className="font-semibold">{ownerName}</span>
-                          </>
-                        ) : (
-                          <span>by unknown</span>
-                        )}
-                        {updated ? <span className="ml-2">• Updated {updated}</span> : null}
+                      <div className="shrink-0 rounded-full border border-black/[.08] px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.14] dark:text-zinc-200">
+                        {r.items_count} {r.items_count === 1 ? "set" : "sets"}
                       </div>
                     </div>
 
-                    <div className="shrink-0 rounded-full border border-black/[.08] px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.14] dark:text-zinc-200">
-                      {count} {count === 1 ? "set" : "sets"}
-                    </div>
-                  </div>
+                    {r.description ? (
+                      <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">
+                        {r.description}
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
 
-                  {r.description?.trim() ? (
-                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{r.description}</p>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
+            {/* Pagination */}
+            <div className="mt-10 flex items-center justify-between">
+              <button
+                type="button"
+                disabled={!hasPrev}
+                onClick={() => router.push(buildUrl(new URLSearchParams(sp.toString()), { page: page - 1 }), { scroll: false })}
+                className={`rounded-full border border-black/[.12] px-4 py-2 text-sm font-semibold dark:border-white/[.2] ${
+                  !hasPrev ? "cursor-not-allowed opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                }`}
+              >
+                ← Prev
+              </button>
+
+              <div className="text-sm text-zinc-500">
+                Page {page} of {totalPages}
+              </div>
+
+              <button
+                type="button"
+                disabled={!hasNext}
+                onClick={() => router.push(buildUrl(new URLSearchParams(sp.toString()), { page: page + 1 }), { scroll: false })}
+                className={`rounded-full border border-black/[.12] px-4 py-2 text-sm font-semibold dark:border-white/[.2] ${
+                  !hasNext ? "cursor-not-allowed opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                }`}
+              >
+                Next →
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>
