@@ -2,38 +2,34 @@
 import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+export const revalidate = 3600; // ✅ ISR (1 hour)
 
-// ✅ cacheable via ISR (per URL incl. querystring)
-export const revalidate = 3600;
+const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
-
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-export async function generateMetadata(): Promise<Metadata> {
-  return {
+export const metadata: Metadata = {
+  title: `Discover | ${SITE_NAME}`,
+  description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+  metadataBase: new URL(siteBase()),
+  alternates: { canonical: "/discover" },
+  openGraph: {
     title: `Discover | ${SITE_NAME}`,
     description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-    metadataBase: new URL(siteBase()),
-    alternates: { canonical: "/discover" },
-    openGraph: {
-      title: `Discover | ${SITE_NAME}`,
-      description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-      url: "/discover",
-      type: "website",
-    },
-    twitter: {
-      card: "summary",
-      title: `Discover | ${SITE_NAME}`,
-      description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-    },
-  };
-}
+    url: "/discover",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: `Discover | ${SITE_NAME}`,
+    description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+  },
+};
 
 type SetLite = {
   set_num: string;
@@ -50,14 +46,17 @@ type SetLite = {
 type FeedResponse =
   | SetLite[]
   | {
-      results?: SetLite[];
-      total?: number;
-      total_pages?: number;
-      page?: number;
+      results?: unknown;
+      total?: unknown;
+      total_pages?: unknown;
+      page?: unknown;
     };
 
 type SearchParams = Record<string, string | string[] | undefined>;
-type PageProps = { searchParams?: Promise<SearchParams> | SearchParams };
+
+type PageProps = {
+  searchParams?: Promise<SearchParams> | SearchParams;
+};
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -68,9 +67,9 @@ function first(sp: SearchParams, key: string): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function toNum(v: unknown, fallback: number) {
+function toPosInt(v: unknown, fallback: number) {
   const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 function normalizeSort(v: unknown) {
@@ -98,13 +97,7 @@ function asFeedResponse(x: unknown): FeedResponse {
   if (Array.isArray(x)) return toSetLiteArray(x);
 
   if (typeof x === "object" && x !== null) {
-    const o = x as {
-      results?: unknown;
-      total?: unknown;
-      total_pages?: unknown;
-      page?: unknown;
-    };
-
+    const o = x as { results?: unknown; total?: unknown; total_pages?: unknown; page?: unknown };
     return {
       results: Array.isArray(o.results) ? toSetLiteArray(o.results) : undefined,
       total: typeof o.total === "number" ? o.total : undefined,
@@ -126,34 +119,26 @@ async function fetchFeed(opts: { sort: string; order: string; page: number; limi
   const url = `${apiBase()}/sets?${params.toString()}`;
 
   const res = await fetch(url, {
-    method: "GET",
     headers: { accept: "application/json" },
-    next: { revalidate: 3600 }, // ✅ ISR
+    next: { revalidate }, // ✅ cacheable
   });
 
   if (!res.ok) {
-    throw new Error(`Feed fetch failed (${res.status})`);
+    throw new Error(`${res.status} ${res.statusText}`);
   }
 
   const raw: unknown = await res.json();
   const data = asFeedResponse(raw);
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
-
-  const total =
-    !Array.isArray(data) && typeof data.total === "number"
-      ? data.total
-      : results.length;
+  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
 
   const totalPages =
     !Array.isArray(data) && typeof data.total_pages === "number"
       ? data.total_pages
       : Math.max(1, Math.ceil(total / opts.limit));
 
-  const page =
-    !Array.isArray(data) && typeof data.page === "number"
-      ? data.page
-      : opts.page;
+  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
 
   return { results, total, totalPages, page };
 }
@@ -163,7 +148,7 @@ export default async function Page({ searchParams }: PageProps) {
 
   const sort = normalizeSort(first(sp, "sort"));
   const order = normalizeOrder(first(sp, "order"));
-  const page = toNum(first(sp, "page"), 1);
+  const page = toPosInt(first(sp, "page"), 1);
 
   const pageSize = 50;
 
@@ -181,15 +166,8 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const r = await fetchFeed({ sort, order, page, limit: pageSize });
-    initial = {
-      ...initial,
-      results: r.results,
-      total: r.total,
-      totalPages: r.totalPages,
-      page: r.page,
-    };
+    initial = { ...initial, results: r.results, total: r.total, totalPages: r.totalPages, page: r.page };
   } catch (e: unknown) {
-    // Degraded: render page, don't 404
     initial = { ...initial, error: errorMessage(e) };
   }
 
