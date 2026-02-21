@@ -1,14 +1,37 @@
 // frontend_next/app/discover/page.tsx
-
 import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
-import { apiFetch } from "@/lib/api";
+
+const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+
+// ✅ cacheable via ISR (per URL incl. querystring)
+export const revalidate = 3600;
+
+function siteBase() {
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
+function apiBase() {
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: "Discover | LEGO App",
+    title: `Discover | ${SITE_NAME}`,
     description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+    metadataBase: new URL(siteBase()),
     alternates: { canonical: "/discover" },
+    openGraph: {
+      title: `Discover | ${SITE_NAME}`,
+      description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+      url: "/discover",
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: `Discover | ${SITE_NAME}`,
+      description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
+    },
   };
 }
 
@@ -34,11 +57,7 @@ type FeedResponse =
     };
 
 type SearchParams = Record<string, string | string[] | undefined>;
-
-// Next 16: searchParams may be Promise-wrapped
-type PageProps = {
-  searchParams?: Promise<SearchParams> | SearchParams;
-};
+type PageProps = { searchParams?: Promise<SearchParams> | SearchParams };
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -46,8 +65,7 @@ function errorMessage(e: unknown) {
 
 function first(sp: SearchParams, key: string): string | undefined {
   const v = sp[key];
-  if (Array.isArray(v)) return v[0];
-  return v;
+  return Array.isArray(v) ? v[0] : v;
 }
 
 function toNum(v: unknown, fallback: number) {
@@ -56,7 +74,6 @@ function toNum(v: unknown, fallback: number) {
 }
 
 function normalizeSort(v: unknown) {
-  // For "feed", default to newest-ish.
   const s = String(v ?? "year").trim();
   const allowed = new Set(["year", "rating", "pieces", "name", "relevance"]);
   return allowed.has(s) ? s : "year";
@@ -74,15 +91,12 @@ function isSetLite(x: unknown): x is SetLite {
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
-  if (!Array.isArray(x)) return [];
-  return x.filter(isSetLite);
+  return Array.isArray(x) ? x.filter(isSetLite) : [];
 }
 
 function asFeedResponse(x: unknown): FeedResponse {
-  // If backend returns array directly
   if (Array.isArray(x)) return toSetLiteArray(x);
 
-  // If backend returns object { results, total, ... }
   if (typeof x === "object" && x !== null) {
     const o = x as {
       results?: unknown;
@@ -109,20 +123,37 @@ async function fetchFeed(opts: { sort: string; order: string; page: number; limi
   params.set("page", String(opts.page));
   params.set("limit", String(opts.limit));
 
-  // ✅ No q param — discover is a feed, not search
-  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+  const url = `${apiBase()}/sets?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 }, // ✅ ISR
+  });
+
+  if (!res.ok) {
+    throw new Error(`Feed fetch failed (${res.status})`);
+  }
+
+  const raw: unknown = await res.json();
   const data = asFeedResponse(raw);
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
 
-  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
+  const total =
+    !Array.isArray(data) && typeof data.total === "number"
+      ? data.total
+      : results.length;
 
   const totalPages =
     !Array.isArray(data) && typeof data.total_pages === "number"
       ? data.total_pages
       : Math.max(1, Math.ceil(total / opts.limit));
 
-  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
+  const page =
+    !Array.isArray(data) && typeof data.page === "number"
+      ? data.page
+      : opts.page;
 
   return { results, total, totalPages, page };
 }
@@ -130,7 +161,6 @@ async function fetchFeed(opts: { sort: string; order: string; page: number; limi
 export default async function Page({ searchParams }: PageProps) {
   const sp: SearchParams = await Promise.resolve(searchParams ?? {});
 
-  // ✅ Ignore q entirely (even if someone manually adds it)
   const sort = normalizeSort(first(sp, "sort"));
   const order = normalizeOrder(first(sp, "order"));
   const page = toNum(first(sp, "page"), 1);
@@ -159,6 +189,7 @@ export default async function Page({ searchParams }: PageProps) {
       page: r.page,
     };
   } catch (e: unknown) {
+    // Degraded: render page, don't 404
     initial = { ...initial, error: errorMessage(e) };
   }
 
