@@ -205,7 +205,16 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      <ThemeDetailClient themeSlug={themeSlug} initialSets={initialSets} />
+      <ThemeDetailClient
+        themeSlug={themeSlug}
+        initialSets={initialSets}
+        initialQuery={{
+          page: requestedPage,
+          limit,
+          sort,
+          order,
+        }}
+      />
     </>
   );
 }
