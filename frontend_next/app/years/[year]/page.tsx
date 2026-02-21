@@ -7,6 +7,7 @@ import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
+export const dynamic = "force-static";
 export const revalidate = 3600;
 
 type JsonLdObject = Record<string, unknown>;
