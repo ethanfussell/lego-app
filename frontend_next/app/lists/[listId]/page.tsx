@@ -5,6 +5,8 @@ import { notFound } from "next/navigation";
 import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+
+export const dynamic = "force-static";
 export const revalidate = 3600;
 
 function siteBase() {
@@ -23,6 +25,7 @@ function normalizeListId(raw: string): string | null {
   const n = Number(decoded);
   if (!Number.isSafeInteger(n) || n <= 0) return null;
   if (n > 2147483647) return null; // keep strict for now
+
   return decoded;
 }
 
@@ -79,16 +82,16 @@ function coerceListDetail(x: unknown): ListDetail | null {
   const created_at = typeof x.created_at === "string" ? x.created_at : null;
   const updated_at = typeof x.updated_at === "string" ? x.updated_at : null;
 
-  const items =
-    Array.isArray(x.items)
-      ? (x.items as unknown[])
-          .filter(isRecord)
-          .map((it) => ({ set_num: String((it as any).set_num || "").trim() }))
-          .filter((it) => it.set_num.length > 0)
-      : null;
+  const items = Array.isArray(x.items)
+    ? (x.items as unknown[])
+        .filter(isRecord)
+        .map((it) => ({ set_num: String((it as any).set_num || "") }))
+        .filter((it) => it.set_num.trim().length > 0)
+    : null;
 
-  const set_nums =
-    Array.isArray(x.set_nums) ? (x.set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean) : null;
+  const set_nums = Array.isArray(x.set_nums)
+    ? (x.set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean)
+    : null;
 
   return {
     id,
@@ -120,7 +123,10 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
 
   let res: Response;
   try {
-    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+    res = await fetch(url, {
+      headers: { accept: "application/json" },
+      next: { revalidate },
+    });
   } catch {
     return "notfound";
   }
@@ -133,28 +139,27 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
   const d = coerceListDetail(data);
   if (!d) return "notfound";
 
+  // Don’t index private lists
   if (!d.is_public) return "private";
+
   return d;
 }
 
 async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
-  const nums = Array.from(new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean)));
+  const nums = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
 
-  // cap SSR so we don't render huge HTML
-  const capped = nums.slice(0, 60);
+  const capped = nums.slice(0, 60); // SSR safety cap
 
   const params = new URLSearchParams();
   params.set("set_nums", capped.join(","));
 
   const url = `${apiBase()}/sets/bulk?${params.toString()}`;
 
-  let res: Response;
-  try {
-    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
-  } catch {
-    return [];
-  }
+  const res = await fetch(url, {
+    headers: { accept: "application/json" },
+    next: { revalidate },
+  });
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
@@ -163,14 +168,17 @@ async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   const arr = (data as unknown[])
     .filter(isRecord)
     .filter((x) => typeof (x as any).set_num === "string" && String((x as any).set_num).trim())
-    .map((x) => ({
-      set_num: String((x as any).set_num),
-      name: typeof (x as any).name === "string" ? (x as any).name : undefined,
-      year: typeof (x as any).year === "number" ? (x as any).year : undefined,
-      pieces: typeof (x as any).pieces === "number" ? (x as any).pieces : undefined,
-      theme: typeof (x as any).theme === "string" ? (x as any).theme : undefined,
-      image_url: typeof (x as any).image_url === "string" ? (x as any).image_url : null,
-    })) as SetLite[];
+    .map((x) => {
+      const o = x as any;
+      return {
+        set_num: String(o.set_num),
+        name: typeof o.name === "string" ? o.name : undefined,
+        year: typeof o.year === "number" ? o.year : undefined,
+        pieces: typeof o.pieces === "number" ? o.pieces : undefined,
+        theme: typeof o.theme === "string" ? o.theme : undefined,
+        image_url: typeof o.image_url === "string" ? o.image_url : null,
+      } as SetLite;
+    });
 
   const byNum = new Map(arr.map((s) => [s.set_num, s]));
   return capped.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
@@ -188,8 +196,17 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     description: `View LEGO list ${safeId}.`,
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
-    openGraph: { title: `List ${safeId} | ${SITE_NAME}`, description: `View LEGO list ${safeId}.`, url: canonicalPath, type: "website" },
-    twitter: { card: "summary", title: `List ${safeId} | ${SITE_NAME}`, description: `View LEGO list ${safeId}.` },
+    openGraph: {
+      title: `List ${safeId} | ${SITE_NAME}`,
+      description: `View LEGO list ${safeId}.`,
+      url: canonicalPath,
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: `List ${safeId} | ${SITE_NAME}`,
+      description: `View LEGO list ${safeId}.`,
+    },
   };
 }
 
@@ -205,10 +222,14 @@ export default async function Page({ params }: { params: Params | Promise<Params
   const setNums = toSetNums(d);
   const sets = await fetchSetsBulkSSR(setNums);
 
-  const ownerName = String(d.owner_username || d.owner || "").trim();
+  const ownerName = (d.owner_username || d.owner || "").trim();
   const title = d.title?.trim() || `List #${d.id}`;
   const desc = d.description?.trim() || "";
-  const count = typeof d.items_count === "number" ? d.items_count : setNums.length;
+
+  const count =
+    typeof d.items_count === "number"
+      ? d.items_count
+      : setNums.length;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -244,7 +265,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </div>
       </div>
 
-      {/* SSR: strong internal links to sets */}
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => (
@@ -257,17 +277,33 @@ export default async function Page({ params }: { params: Params | Promise<Params
                 <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
                   {s.image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-2" loading="lazy" />
+                    <img
+                      src={s.image_url}
+                      alt={s.name || s.set_num}
+                      className="h-full w-full object-contain p-2"
+                      loading="lazy"
+                    />
                   ) : null}
                 </div>
 
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{s.name || s.set_num}</div>
+
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="font-semibold">{s.set_num}</span>
-                    {typeof s.year === "number" ? <span className="ml-2">• {s.year}</span> : null}
+                    {typeof s.year === "number" ? (
+                      <>
+                        <span className="mx-1">•</span>
+                        <span className="font-semibold">{s.year}</span>
+                      </>
+                    ) : null}
                   </div>
-                  {s.theme ? <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Theme: {s.theme}</div> : null}
+
+                  {s.theme ? (
+                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      Theme: <span className="font-semibold">{s.theme}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </Link>
@@ -276,6 +312,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
       ) : (
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
       )}
+
+      {/* Optional: later we can add an “Edit this list” button that routes to /collection or /account */}
     </div>
   );
 }
