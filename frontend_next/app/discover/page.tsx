@@ -1,35 +1,18 @@
 // frontend_next/app/discover/page.tsx
+
 import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
+import { apiFetch } from "@/lib/api";
 
-export const revalidate = 3600; // ✅ ISR (1 hour)
+export const revalidate = 3600; // ISR (1 hour)
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
-
-export const metadata: Metadata = {
-  title: `Discover | ${SITE_NAME}`,
-  description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-  metadataBase: new URL(siteBase()),
-  alternates: { canonical: "/discover" },
-  openGraph: {
-    title: `Discover | ${SITE_NAME}`,
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: "Discover | LEGO App",
     description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-    url: "/discover",
-    type: "website",
-  },
-  twitter: {
-    card: "summary",
-    title: `Discover | ${SITE_NAME}`,
-    description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-  },
-};
+    alternates: { canonical: "/discover" },
+  };
+}
 
 type SetLite = {
   set_num: string;
@@ -46,17 +29,19 @@ type SetLite = {
 type FeedResponse =
   | SetLite[]
   | {
-      results?: unknown;
-      total?: unknown;
-      total_pages?: unknown;
-      page?: unknown;
+      results?: SetLite[];
+      total?: number;
+      total_pages?: number;
+      page?: number;
     };
 
 type SearchParams = Record<string, string | string[] | undefined>;
-
 type PageProps = {
   searchParams?: Promise<SearchParams> | SearchParams;
 };
+
+type SortKey = "year" | "rating" | "pieces" | "name" | "relevance";
+type Order = "asc" | "desc";
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -72,15 +57,14 @@ function toPosInt(v: unknown, fallback: number) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-function normalizeSort(v: unknown) {
+function normalizeSort(v: unknown): SortKey {
   const s = String(v ?? "year").trim();
-  const allowed = new Set(["year", "rating", "pieces", "name", "relevance"]);
-  return allowed.has(s) ? s : "year";
+  const allowed: SortKey[] = ["year", "rating", "pieces", "name", "relevance"];
+  return allowed.includes(s as SortKey) ? (s as SortKey) : "year";
 }
 
-function normalizeOrder(v: unknown) {
-  const s = String(v ?? "desc").trim();
-  return s === "asc" ? "asc" : "desc";
+function normalizeOrder(v: unknown): Order {
+  return String(v ?? "desc").trim() === "asc" ? "asc" : "desc";
 }
 
 function isSetLite(x: unknown): x is SetLite {
@@ -90,7 +74,8 @@ function isSetLite(x: unknown): x is SetLite {
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
-  return Array.isArray(x) ? x.filter(isSetLite) : [];
+  if (!Array.isArray(x)) return [];
+  return x.filter(isSetLite);
 }
 
 function asFeedResponse(x: unknown): FeedResponse {
@@ -109,51 +94,50 @@ function asFeedResponse(x: unknown): FeedResponse {
   return [];
 }
 
-async function fetchFeed(opts: { sort: string; order: string; page: number; limit: number }) {
+async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limit: number }) {
   const params = new URLSearchParams();
   params.set("sort", opts.sort);
   params.set("order", opts.order);
   params.set("page", String(opts.page));
   params.set("limit", String(opts.limit));
 
-  const url = `${apiBase()}/sets?${params.toString()}`;
+  // IMPORTANT: don't use cache:"no-store" here; it forces the route dynamic.
+  // We want ISR, so let Next cache this server fetch.
+  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { next: { revalidate } });
 
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate }, // ✅ cacheable
-  });
-
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`);
-  }
-
-  const raw: unknown = await res.json();
   const data = asFeedResponse(raw);
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
-  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
+
+  const total =
+    !Array.isArray(data) && typeof data.total === "number"
+      ? data.total
+      : results.length;
 
   const totalPages =
     !Array.isArray(data) && typeof data.total_pages === "number"
       ? data.total_pages
-      : Math.max(1, Math.ceil(total / opts.limit));
+      : Math.max(1, Math.ceil(Math.max(1, total) / Math.max(1, opts.limit)));
 
-  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
+  const page =
+    !Array.isArray(data) && typeof data.page === "number"
+      ? data.page
+      : opts.page;
 
-  return { results, total, totalPages, page };
+  return { results, total, totalPages, page, error: null as string | null };
 }
 
 export default async function Page({ searchParams }: PageProps) {
   const sp: SearchParams = await Promise.resolve(searchParams ?? {});
 
-  const sort = normalizeSort(first(sp, "sort"));
-  const order = normalizeOrder(first(sp, "order"));
+  const sort: SortKey = normalizeSort(first(sp, "sort"));
+  const order: Order = normalizeOrder(first(sp, "order"));
   const page = toPosInt(first(sp, "page"), 1);
 
   const pageSize = 50;
 
   let initial: DiscoverInitial = {
-    q: "",
+    q: "", // discover is a feed
     sort,
     order,
     page,
@@ -166,7 +150,14 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const r = await fetchFeed({ sort, order, page, limit: pageSize });
-    initial = { ...initial, results: r.results, total: r.total, totalPages: r.totalPages, page: r.page };
+    initial = {
+      ...initial,
+      results: r.results,
+      total: r.total,
+      totalPages: r.totalPages,
+      page: r.page,
+      error: null,
+    };
   } catch (e: unknown) {
     initial = { ...initial, error: errorMessage(e) };
   }
