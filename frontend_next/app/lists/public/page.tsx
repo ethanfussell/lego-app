@@ -7,7 +7,7 @@ import PublicListsClient from "./PublicListsClient";
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 // ✅ Manual curated IDs (update anytime)
-const FEATURED_LIST_IDS = [103, 104, 105]; // add up to 10
+const FEATURED_LIST_IDS = [6, 5, 4]; // add up to 10
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
