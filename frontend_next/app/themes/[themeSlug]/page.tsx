@@ -1,13 +1,11 @@
 // frontend_next/app/themes/[themeSlug]/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { slugToTheme } from "@/lib/slug";
-
-type SP = Record<string, string | string[] | undefined>;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
@@ -19,23 +17,8 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
-}
-
-function toInt(raw: string, fallback: number) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.floor(n) : fallback;
-}
-function posInt(raw: string, fallback: number) {
-  const n = toInt(raw, fallback);
-  return n > 0 ? n : fallback;
-}
-
 function canonicalFor(themeSlug: string) {
-  // IMPORTANT: keep canonical stable (no ?page=...) to avoid Next static metadata bailouts
+  // Keep canonical stable (no ?page=...) so metadata stays cache-friendly
   return `/themes/${themeSlug}`;
 }
 
@@ -63,7 +46,7 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
   return [];
 }
 
-// ✅ metadata depends ONLY on params (NOT searchParams)
+// ✅ metadata depends ONLY on params (cache-friendly)
 export async function generateMetadata({
   params,
 }: {
@@ -86,103 +69,44 @@ export async function generateMetadata({
   };
 }
 
-type FetchOk = { kind: "ok"; rows: SetSummary[]; totalCount: number | null };
-type FetchNotFound = { kind: "notfound" };
-type FetchDegraded = { kind: "degraded"; rows: SetSummary[]; totalCount: null };
-
-async function fetchThemeSetsWithCount(args: {
-  themeName: string;
-  page: number;
-  limit: number;
-  sort: string;
-  order: string;
-}): Promise<FetchOk | FetchNotFound | FetchDegraded> {
-  const { themeName, page, limit, sort, order } = args;
-
+async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfound"> {
   const qs = new URLSearchParams();
-  qs.set("page", String(page));
-  qs.set("limit", String(limit));
-  qs.set("sort", sort);
-  qs.set("order", order);
+  qs.set("page", "1");
+  qs.set("limit", String(DEFAULT_LIMIT));
+  qs.set("sort", "relevance");
+  qs.set("order", "desc");
 
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      next: { revalidate: 3600 },
-    });
-  } catch {
-    return { kind: "degraded", rows: [], totalCount: null };
-  }
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 }, // ISR
+  });
 
-  if (res.status === 404) return { kind: "notfound" };
-  if (!res.ok) return { kind: "degraded", rows: [], totalCount: null };
+  if (res.status === 404) return "notfound";
+  if (!res.ok) return []; // degraded: still render the page (not 404)
 
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch {
-    return { kind: "degraded", rows: [], totalCount: null };
-  }
-
-  const rows = toSetSummaryArray(data);
-
-  const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
-  const parsed = header ? Number(header) : NaN;
-  const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-
-  return { kind: "ok", rows, totalCount };
+  const data: unknown = await res.json().catch(() => null);
+  return toSetSummaryArray(data);
 }
 
-// ✅ ISR without forcing “force-static” (we’ll tighten later once stable)
-export const runtime = "nodejs";
+// ✅ make route cacheable via ISR
 export const revalidate = 3600;
 
 export default async function ThemeSetsPage({
   params,
-  searchParams,
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
-  searchParams?: SP | Promise<SP>;
 }) {
   const { themeSlug } = await params;
-  const sp = (await searchParams) ?? ({} as SP);
 
   const themeName = slugToTheme(themeSlug);
 
-  const requestedPage = posInt(first(sp, "page") || "1", 1);
-  const limit = posInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
-  const sort = first(sp, "sort") || "relevance";
-  const order = first(sp, "order") || "desc";
+  const rows = await fetchThemePage1(themeName);
+  if (rows === "notfound") notFound();
 
-  const result = await fetchThemeSetsWithCount({
-    themeName,
-    page: requestedPage,
-    limit,
-    sort,
-    order,
-  });
-
-  if (result.kind === "notfound") notFound();
-
-  const initialSets = result.rows;
-  const totalCount = result.kind === "ok" ? result.totalCount : null;
-
-  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / limit)) : null;
-
-  if (totalPages != null && requestedPage > totalPages) {
-    const qs = new URLSearchParams();
-    if (totalPages > 1) qs.set("page", String(totalPages));
-    if (limit !== DEFAULT_LIMIT) qs.set("limit", String(limit));
-    if (sort !== "relevance") qs.set("sort", sort);
-    if (order !== "desc") qs.set("order", order);
-
-    const dest = `/themes/${themeSlug}${qs.toString() ? `?${qs.toString()}` : ""}`;
-    redirect(dest);
-  }
+  const initialQuery = { page: 1, limit: DEFAULT_LIMIT, sort: "relevance", order: "desc" } as const;
 
   return (
     <>
@@ -205,16 +129,7 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      <ThemeDetailClient
-        themeSlug={themeSlug}
-        initialSets={initialSets}
-        initialQuery={{
-          page: requestedPage,
-          limit,
-          sort,
-          order,
-        }}
-      />
+      <ThemeDetailClient themeSlug={themeSlug} initialSets={rows} initialQuery={initialQuery} />
     </>
   );
 }
