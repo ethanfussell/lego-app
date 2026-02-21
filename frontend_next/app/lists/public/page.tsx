@@ -3,11 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import PublicListsClient from "./PublicListsClient";
+import { FEATURED_LISTS } from "@/lib/featuredLists";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-// curated IDs (optional; keep yours)
-const FEATURED_LIST_IDS = [6, 5, 4];
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -153,7 +151,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {FEATURED_LIST_IDS.map((id) => (
+          {FEATURED_LISTS.map(({ id }) => (
             <Link
               key={id}
               href={`/lists/${id}`}
