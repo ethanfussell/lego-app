@@ -1,28 +1,21 @@
 // frontend_next/app/lists/[listId]/ListDetailClient.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState } from "react";
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
-import SetCard from "@/app/components/SetCard";
-import SetCardActions from "@/app/components/SetCardActions";
 
 type ListDetail = {
-  id: number | string;
-  title?: string | null;
-  description?: string | null;
-  is_public?: boolean | null;
-  is_system?: boolean | null;
-  system_key?: string | null;
-  items_count?: number | null;
-
-  owner?: string | null;
-  owner_username?: string | null;
-  username?: string | null;
-
-  items?: Array<{ set_num: string; added_at?: string; position?: number }> | null;
+  id: number;
+  title: string | null;
+  description: string | null;
+  is_public: boolean;
+  owner: string | null;
+  owner_username: string | null;
+  items_count: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  items?: Array<{ set_num: string }> | null;
   set_nums?: string[] | null;
 };
 
@@ -31,354 +24,121 @@ type SetLite = {
   name?: string;
   year?: number;
   pieces?: number;
-  image_url?: string | null;
   theme?: string;
+  image_url?: string | null;
 };
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
-function toSetNums(detail: ListDetail | null | undefined): string[] {
-  if (!detail) return [];
-  if (Array.isArray(detail.set_nums)) return detail.set_nums.map((x) => String(x || "").trim()).filter(Boolean);
-  if (Array.isArray(detail.items)) return detail.items.map((it) => String(it?.set_num || "").trim()).filter(Boolean);
-  return [];
-}
-
-async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite[]> {
-  const nums = Array.from(new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean)));
-  if (nums.length === 0) return [];
-
-  const params = new URLSearchParams();
-  params.set("set_nums", nums.join(","));
-
-  const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, { token, cache: "no-store" });
-  const arr = Array.isArray(data)
-    ? (data as unknown[]).filter(
-        (x): x is SetLite => typeof x === "object" && x !== null && typeof (x as any).set_num === "string"
-      )
-    : [];
-
-  const byNum = new Map(arr.map((s) => [String(s.set_num), s]));
-  return nums.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
-}
-
-function chipClass(variant: "neutral" | "good" | "warn") {
-  if (variant === "good") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (variant === "warn") return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  return "border-black/[.10] bg-black/[.04] text-zinc-700 dark:border-white/[.14] dark:bg-white/[.06] dark:text-zinc-200";
-}
-
-export default function ListDetailClient(props: {
+export default function ListDetailClient({
+  listId,
+  initialDetail,
+  initialSets,
+}: {
   listId: string;
-  initialDetail: ListDetail | null;
+  initialDetail: ListDetail;
   initialSets: SetLite[];
-  initialError: string | null;
 }) {
-  const { listId, initialDetail, initialSets, initialError } = props;
+  const { token, hydrated } = useAuth();
 
-  const router = useRouter();
-  const { token, me, hydrated } = useAuth();
-
-  const id = useMemo(() => String(listId || "").trim(), [listId]);
-
-  // SSR-first state (never wipe on refresh failure)
-  const [detail, setDetail] = useState<ListDetail | null>(initialDetail);
+  const [detail, setDetail] = useState<ListDetail>(initialDetail);
   const [sets, setSets] = useState<SetLite[]>(initialSets);
 
-  const [loading, setLoading] = useState(false);
-  const [warn, setWarn] = useState<string | null>(initialError);
-  const [err, setErr] = useState<string | null>(null);
-
-  const [savingPrivacy, setSavingPrivacy] = useState(false);
-  const [removing, setRemoving] = useState<Record<string, boolean>>({});
-
+  // keep stable; only show warning if refresh fails
+  const [warning, setWarning] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
-  const [copyErr, setCopyErr] = useState<string | null>(null);
 
   const ownerName = useMemo(() => {
-    if (!detail) return "";
-    return String(detail.owner_username || detail.owner || detail.username || "").trim();
-  }, [detail]);
-
-  const isSystem = !!detail?.is_system || !!String(detail?.system_key || "").trim();
-
-  const canEdit = useMemo(() => {
-    if (!token) return false;
-    if (!me?.username) return false;
-    if (!ownerName) return false;
-    if (isSystem) return false;
-    return ownerName.toLowerCase() === me.username.toLowerCase();
-  }, [token, me?.username, ownerName, isSystem]);
+    return String(detail.owner_username || detail.owner || "").trim();
+  }, [detail.owner_username, detail.owner]);
 
   const count = useMemo(() => {
-    if (typeof detail?.items_count === "number") return detail.items_count;
-    if (Array.isArray(detail?.items)) return detail.items.length;
+    if (typeof detail.items_count === "number") return detail.items_count;
     return sets.length;
-  }, [detail, sets.length]);
+  }, [detail.items_count, sets.length]);
 
-  const visibility = useMemo(() => {
-    if (typeof detail?.is_public !== "boolean") return null;
-    return detail.is_public ? "Public" : "Private";
-  }, [detail?.is_public]);
-
-  const isPublic = !!detail?.is_public;
-
-  const refresh = useCallback(async () => {
-    if (!id) throw new Error("Missing list id.");
-
-    const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
-    const nums = toSetNums(d || null);
-    const bulk = await fetchSetsBulk(nums, token);
-
-    setDetail(d || null);
-    setSets(bulk);
-  }, [id, token]);
-
-  // Optional client refresh (don’t do anything until hydration is ready)
+  // Optional auth refresh (does NOT blank SSR content)
   useEffect(() => {
-    let cancelled = false;
     if (!hydrated) return;
+    if (!token) return;
+
+    let cancelled = false;
 
     (async () => {
       try {
-        setLoading(true);
-        setErr(null);
-        setWarn(null);
-        await refresh();
+        setWarning(null);
+
+        const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(listId)}`, {
+          token,
+          cache: "no-store",
+        });
+
+        if (cancelled || !d) return;
+        setDetail((prev) => ({ ...prev, ...d }));
+        // sets already SSR-rendered; we leave as-is for now (fast + stable)
       } catch (e: unknown) {
         if (cancelled) return;
-
-        // Keep SSR content; only show warning
-        if (e instanceof APIError) {
-          if (e.status === 401 || e.status === 403) {
-            setWarn("This list may be private. Log in if you have access.");
-          } else if (e.status === 404) {
-            setErr("List not found.");
-          } else {
-            setWarn(`Couldn’t refresh right now (HTTP ${e.status}). Showing cached results.`);
-          }
-        } else {
-          setWarn("Couldn’t refresh right now. Showing cached results.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (e instanceof APIError && (e.status === 401 || e.status === 403)) return;
+        setWarning(`Couldn’t refresh right now. Showing cached content.`);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [hydrated, refresh]);
-
-  async function togglePublic() {
-    if (!detail || !canEdit || savingPrivacy) return;
-
-    const next = !detail.is_public;
-    setSavingPrivacy(true);
-    setErr(null);
-    setWarn(null);
-
-    setDetail((d) => (d ? { ...d, is_public: next } : d));
-
-    try {
-      await apiFetch(`/lists/${encodeURIComponent(id)}`, { token, method: "PATCH", body: { is_public: next } });
-    } catch (e: unknown) {
-      setDetail((d) => (d ? { ...d, is_public: !next } : d));
-      setErr(errorMessage(e));
-    } finally {
-      setSavingPrivacy(false);
-    }
-  }
-
-  async function removeFromThisList(setNum: string) {
-    const sn = String(setNum || "").trim();
-    if (!sn || !token || !canEdit || removing[sn]) return;
-
-    setErr(null);
-    setWarn(null);
-    setRemoving((m) => ({ ...m, [sn]: true }));
-
-    // optimistic
-    setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
-    setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
-
-    try {
-      await apiFetch(`/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(sn)}`, { token, method: "DELETE" });
-    } catch (e: unknown) {
-      setErr(errorMessage(e));
-      try {
-        await refresh();
-      } catch {
-        // ignore
-      }
-    } finally {
-      setRemoving((m) => {
-        const next = { ...m };
-        delete next[sn];
-        return next;
-      });
-    }
-  }
+  }, [hydrated, token, listId]);
 
   async function copyLink() {
-    setCopyErr(null);
-    if (typeof window === "undefined") return;
-
-    const url = window.location.href;
+    setWarning(null);
 
     try {
+      const url = window.location.href;
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
       } else {
-        const ok = window.prompt("Copy this link:", url);
-        if (ok === null) return;
+        window.prompt("Copy this link:", url);
       }
       setCopyState("copied");
       window.setTimeout(() => setCopyState("idle"), 1200);
     } catch (e: unknown) {
-      try {
-        window.prompt("Copy this link:", url);
-      } catch {
-        // ignore
-      }
-      setCopyErr(errorMessage(e) || "Could not copy link.");
+      setWarning(errorMessage(e) || "Could not copy link.");
     }
   }
 
-  const title = detail?.title?.trim() || `List ${id}`;
-  const description = detail?.description?.trim() || "";
-
-  const subtitle = useMemo(() => {
-    const bits: string[] = [];
-    bits.push(`${count} set${count === 1 ? "" : "s"}`);
-    if (ownerName) bits.push(`by ${ownerName}`);
-    return bits.join(" • ");
-  }, [count, ownerName]);
-
-  type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
-
+  // This component is “extra UI”, not the main content (SSR already handled)
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="flex items-start justify-between gap-4 pt-10">
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
-
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-zinc-600 dark:text-zinc-400">{subtitle}</span>
-
-            {visibility ? (
-              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(visibility === "Public" ? "good" : "warn")}`}>
-                {visibility}
-              </span>
-            ) : null}
-
-            {isSystem ? (
-              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass("neutral")}`}>
-                System
-              </span>
-            ) : null}
-
-            {loading ? <span className="text-xs text-zinc-500">Refreshing…</span> : null}
-            {warn ? <span className="text-xs text-zinc-500">{warn}</span> : null}
-          </div>
-
-          {description ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p> : null}
+    <div className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+          {count} set{count === 1 ? "" : "s"}
+          {ownerName ? (
+            <>
+              {" "}
+              • by <span className="font-semibold text-zinc-900 dark:text-zinc-50">{ownerName}</span>
+            </>
+          ) : null}
+          {!detail.is_public ? <span className="ml-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Private</span> : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {detail.is_public ? (
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={copyLink}
             className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
           >
-            Back
+            {copyState === "copied" ? "Copied!" : "Copy link"}
           </button>
-
-          {isPublic ? (
-            <button
-              type="button"
-              onClick={copyLink}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              title="Copy shareable link"
-            >
-              {copyState === "copied" ? "Copied!" : "Copy link"}
-            </button>
-          ) : null}
-
-          {!token ? (
-            <button
-              type="button"
-              onClick={() => router.push("/login")}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Log in
-            </button>
-          ) : null}
-
-          {canEdit ? (
-            <button
-              type="button"
-              onClick={togglePublic}
-              disabled={savingPrivacy}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              title="Toggle visibility"
-            >
-              {detail?.is_public ? "Make Private" : "Make Public"}
-            </button>
-          ) : null}
-        </div>
+        ) : null}
       </div>
 
-      {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
-      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
+      {warning ? <p className="mt-3 text-xs text-zinc-500">{warning}</p> : null}
 
-      {sets.length === 0 ? (
-        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is empty</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">Browse sets and add them to this list.</div>
-          <div className="mt-4">
-            <Link
-              href="/discover"
-              className="inline-flex rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Browse sets
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
-          {sets.map((s) => {
-            const sn = String(s.set_num);
-            const isRemoving = !!removing[sn];
-
-            return (
-              <li key={sn} className={isRemoving ? "opacity-60" : ""}>
-                <SetCard
-                  set={s as unknown as SetCardSetProp}
-                  footer={
-                    <div className="space-y-2">
-                      {token ? <SetCardActions token={token} setNum={sn} /> : null}
-
-                      {canEdit ? (
-                        <button
-                          type="button"
-                          onClick={() => removeFromThisList(sn)}
-                          disabled={isRemoving}
-                          className="inline-flex w-full items-center justify-center rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
-                        >
-                          {isRemoving ? "Removing…" : "Remove"}
-                        </button>
-                      ) : null}
-                    </div>
-                  }
-                />
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* Keep a tiny “SEO sanity” line so you can see SSR is what matters */}
+      <div className="mt-4 text-xs text-zinc-500">
+        (This box is client-side polish; the set links above are server-rendered for crawl depth.)
+      </div>
     </div>
   );
 }
