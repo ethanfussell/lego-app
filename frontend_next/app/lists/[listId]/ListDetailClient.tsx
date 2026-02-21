@@ -1,4 +1,3 @@
-// frontend_next/app/lists/[listId]/ListDetailClient.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -36,6 +35,12 @@ type SetLite = {
   theme?: string;
 };
 
+type Props = {
+  listId: string;
+  initialDetail: ListDetail | null;
+  initialSets: SetLite[];
+};
+
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -59,9 +64,12 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
   params.set("set_nums", nums.join(","));
 
   const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, { token, cache: "no-store" });
-  const arr = Array.isArray(data) ? (data as unknown[]).filter((x): x is SetLite => {
-    return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
-  }) : [];
+
+  const arr = Array.isArray(data)
+    ? (data as unknown[]).filter((x): x is SetLite => {
+        return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+      })
+    : [];
 
   const byNum = new Map(arr.map((s) => [String(s.set_num), s]));
   return nums.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
@@ -77,17 +85,18 @@ function chipClass(variant: "neutral" | "good" | "warn") {
   return "border-black/[.10] bg-black/[.04] text-zinc-700 dark:border-white/[.14] dark:bg-white/[.06] dark:text-zinc-200";
 }
 
-export default function ListDetailClient({ listId }: { listId: string }) {
+export default function ListDetailClient({ listId, initialDetail, initialSets }: Props) {
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
 
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  // ✅ Start from SSR content
+  const [detail, setDetail] = useState<ListDetail | null>(initialDetail);
+  const [sets, setSets] = useState<SetLite[]>(initialSets);
 
-  const [detail, setDetail] = useState<ListDetail | null>(null);
-  const [sets, setSets] = useState<SetLite[]>([]);
+  const [loading, setLoading] = useState<boolean>(!initialDetail);
+  const [err, setErr] = useState<string | null>(null);
 
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
@@ -143,20 +152,24 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       if (e instanceof APIError) {
         if (e.status === 404) {
           setNotFound(true);
-          setDetail(null);
-          setSets([]);
+          if (!initialDetail) {
+            setDetail(null);
+            setSets([]);
+          }
           return;
         }
         if (e.status === 401 || e.status === 403) {
           setForbidden(true);
-          setDetail(null);
-          setSets([]);
+          if (!initialDetail) {
+            setDetail(null);
+            setSets([]);
+          }
           return;
         }
       }
       throw e;
     }
-  }, [id, token]);
+  }, [id, token, initialDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +184,12 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       }
 
       if (!hydrated) return;
+
+      // ✅ If SSR already showed a public list w/ sets, don't immediately refetch
+      if (initialDetail?.is_public && initialSets.length > 0) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
 
       try {
         if (!cancelled) {
@@ -189,7 +208,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, refresh, hydrated]);
+  }, [id, hydrated, refresh, initialDetail?.is_public, initialSets.length]);
 
   async function togglePublic() {
     if (!detail || !canEdit || savingPrivacy) return;
@@ -264,7 +283,7 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     }
   }
 
-  const title = detail?.title?.trim() || "Private";
+  const title = detail?.title?.trim() || (initialDetail ? "List" : "Private list");
   const description = detail?.description?.trim() || "";
 
   const headerSubtitle = useMemo(() => {
@@ -274,9 +293,8 @@ export default function ListDetailClient({ listId }: { listId: string }) {
     return bits.join(" • ");
   }, [count, ownerName]);
 
-  const showGrid = !loading && !err && !notFound && !forbidden && sets.length > 0;
+  const showGrid = sets.length > 0;
 
-  // Avoid `as any` for SetCard props
   type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
 
   return (
@@ -352,17 +370,19 @@ export default function ListDetailClient({ listId }: { listId: string }) {
       </div>
 
       {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
-
       {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
-      {err ? <p className="mt-8 text-sm text-red-600">Error: {err}</p> : null}
 
-      {!loading && !err && notFound ? (
+      {err ? (
+        <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
+          Couldn’t refresh right now. Showing cached content. <span className="opacity-70">({err})</span>
+        </div>
+      ) : null}
+
+      {!initialDetail && !loading && (notFound || forbidden) ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">{token ? "List not found" : "This list may be private"}</div>
+          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list may be private</div>
           <div className="mt-2 text-zinc-600 dark:text-zinc-400">
-            {token
-              ? "It may have been deleted, the link is wrong, or you don’t have access."
-              : "If someone shared this link with you, you may need to log in to view it. Otherwise it may have been deleted or the link is wrong."}
+            If someone shared this link with you, you may need to log in to view it.
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -378,10 +398,10 @@ export default function ListDetailClient({ listId }: { listId: string }) {
 
             <button
               type="button"
-              onClick={() => router.back()}
+              onClick={() => refresh()}
               className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
             >
-              Back
+              Retry
             </button>
 
             <Link
@@ -390,44 +410,11 @@ export default function ListDetailClient({ listId }: { listId: string }) {
             >
               Browse sets
             </Link>
-
-            <button
-              type="button"
-              onClick={() => refresh()}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Retry
-            </button>
           </div>
         </div>
       ) : null}
 
-      {!loading && !err && forbidden ? (
-        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is private</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">If you have access, log in and try again.</div>
-          <div className="mt-4 flex gap-2">
-            {!token ? (
-              <button
-                type="button"
-                onClick={() => router.push("/login")}
-                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-              >
-                Log in
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => refresh()}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {!loading && !err && !notFound && !forbidden && sets.length === 0 ? (
+      {!loading && sets.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is empty</div>
           <div className="mt-2 text-zinc-600 dark:text-zinc-400">
