@@ -67,10 +67,13 @@ async function fetchPublicLists(owner: string): Promise<{ lists: PublicListRow[]
     const qs = new URLSearchParams();
     if (owner) qs.set("owner", owner);
 
-    // ✅ Same-origin route handler (works on Vercel + locally)
     const path = `/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`;
 
-    const res = await fetch(path, { next: { revalidate } });
+    // ✅ Server fetch must be absolute
+    const base = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
+    const url = `${base}${path}`;
+
+    const res = await fetch(url, { next: { revalidate } });
     if (!res.ok) return { lists: [], error: `HTTP ${res.status}` };
 
     const data: unknown = await res.json();
