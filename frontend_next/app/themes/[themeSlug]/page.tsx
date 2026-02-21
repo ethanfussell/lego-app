@@ -72,17 +72,27 @@ export async function generateMetadata({
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    openGraph: {
+      title: `${title} | ${SITE_NAME}`,
+      description,
+      url: canonical,
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: `${title} | ${SITE_NAME}`,
+      description,
+    },
   };
 }
 
 async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfound"> {
-  const qs = new URLSearchParams();
-  qs.set("page", "1");
-  qs.set("limit", String(DEFAULT_LIMIT));
-  qs.set("sort", "relevance");
-  qs.set("order", "desc");
+  const qs = new URLSearchParams({
+    page: "1",
+    limit: String(DEFAULT_LIMIT),
+    sort: "relevance",
+    order: "desc",
+  });
 
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
@@ -101,7 +111,7 @@ async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfo
   if (res.status === 404) return "notfound";
   if (!res.ok) return []; // degraded: still render the page (not 404)
 
-  let data: unknown = null;
+  let data: unknown;
   try {
     data = await res.json();
   } catch {
@@ -111,8 +121,12 @@ async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfo
   return toSetSummaryArray(data);
 }
 
-// ✅ make route cacheable via ISR
+// ✅ try to make route cacheable via ISR
 export const revalidate = 3600;
+// 🔑 force static shell (otherwise Next/Vercel will keep sending private/no-store)
+export const dynamic = "force-static";
+export const dynamicParams = true;
+export const fetchCache = "force-cache";
 
 export default async function ThemeSetsPage({
   params,
@@ -120,7 +134,6 @@ export default async function ThemeSetsPage({
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
 }) {
   const { themeSlug } = await params;
-
   const themeName = slugToTheme(themeSlug);
 
   const rows = await fetchThemePage1(themeName);
