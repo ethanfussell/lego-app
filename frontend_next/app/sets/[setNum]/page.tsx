@@ -2,8 +2,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+
 import SetDetailClient from "./SetDetailClient";
 import { themeToSlug } from "@/lib/slug";
+
+export const dynamic = "force-static";
+export const revalidate = 3600;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -41,6 +45,11 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
+function canonicalForSet(setNum: string): string {
+  const decoded = String(setNum ?? "").trim();
+  return `/sets/${encodeURIComponent(decoded)}`;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -67,45 +76,6 @@ function isReviewLite(x: unknown): x is ReviewLite {
   return true;
 }
 
-const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
-  const s = String(setNum ?? "").trim();
-  if (!s) return null;
-
-  const url = `${apiBase()}/sets/${encodeURIComponent(s)}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    next: { revalidate: 3600 }, // ✅ cacheable (ISR)
-  });
-
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-
-  const data: unknown = await res.json();
-  return isLegoSet(data) ? data : null;
-});
-
-const fetchTopTextReviews = cache(async (setNum: string, limit = 10): Promise<ReviewLite[]> => {
-  const s = String(setNum ?? "").trim();
-  if (!s) return [];
-
-  const url = `${apiBase()}/sets/${encodeURIComponent(s)}/reviews?limit=${encodeURIComponent(String(limit))}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    next: { revalidate: 3600 }, // ✅ cacheable (ISR)
-  });
-  if (!res.ok) return [];
-
-  const data: unknown = await res.json();
-  const arr: unknown[] = Array.isArray(data) ? data : [];
-
-  return arr
-    .filter(isReviewLite)
-    .filter((r) => typeof r.text === "string" && r.text.trim().length > 0)
-    .slice(0, Math.max(0, Math.min(20, limit))); // safety cap
-});
-
 function pickAvgRating(setDetail: LegoSet): number | null {
   const v =
     typeof setDetail.average_rating === "number"
@@ -127,9 +97,18 @@ function pickReviewCount(setDetail: LegoSet): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
 }
 
-function canonicalForSet(setNum: string): string {
-  const decoded = String(setNum ?? "").trim();
-  return `/sets/${encodeURIComponent(decoded)}`;
+function buildDescription(setNum: string, data: LegoSet | null): string {
+  const decodedSetNum = String(setNum ?? "").trim();
+  const name = data?.name || "LEGO Set";
+
+  const pieces = typeof data?.pieces === "number" ? `${data.pieces} pieces` : null;
+  const year = typeof data?.year === "number" ? `from ${data.year}` : null;
+  const theme = typeof data?.theme === "string" && data.theme.trim() ? `Theme: ${data.theme.trim()}` : null;
+
+  const facts = [pieces, year, theme].filter(Boolean).join(" · ");
+  return facts
+    ? `Details for LEGO set ${decodedSetNum}: ${name}. ${facts}.`
+    : `Details for LEGO set ${decodedSetNum}: ${name}.`;
 }
 
 function buildReviewJsonLd(reviews: ReviewLite[]): JsonLdObject[] {
@@ -189,7 +168,6 @@ function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): Jso
     ...(setDetail.image_url ? { image: [setDetail.image_url] } : {}),
   };
 
-  // AggregateRating only when real rating info exists
   if (ratingCount > 0 && avg != null) {
     jsonLd.aggregateRating = {
       "@type": "AggregateRating",
@@ -201,11 +179,8 @@ function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): Jso
     };
   }
 
-  // Minimal Review JSON-LD: only real text reviews
   const reviewLd = reviews.length > 0 ? buildReviewJsonLd(reviews) : [];
-  if (reviewLd.length > 0) {
-    jsonLd.review = reviewLd;
-  }
+  if (reviewLd.length > 0) jsonLd.review = reviewLd;
 
   return jsonLd;
 }
@@ -239,21 +214,33 @@ function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, ba
   };
 }
 
-function buildDescription(setNum: string, data: LegoSet | null): string {
-  const decodedSetNum = String(setNum ?? "").trim();
-  const name = data?.name || "LEGO Set";
+// ---- Data fetchers (ISR) ----
 
-  const pieces = typeof data?.pieces === "number" ? `${data.pieces} pieces` : null;
-  const year = typeof data?.year === "number" ? `from ${data.year}` : null;
-  const theme = typeof data?.theme === "string" && data.theme.trim() ? `Theme: ${data.theme.trim()}` : null;
+const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
+  const s = String(setNum ?? "").trim();
+  if (!s) return null;
 
-  const facts = [pieces, year, theme].filter(Boolean).join(" · ");
-  return facts
-    ? `Details for LEGO set ${decodedSetNum}: ${name}. ${facts}.`
-    : `Details for LEGO set ${decodedSetNum}: ${name}.`;
-}
+  const url = `${apiBase()}/sets/${encodeURIComponent(s)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 },
+  });
 
-export const revalidate = 3600; 
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+
+  const data: unknown = await res.json().catch(() => null);
+  return isLegoSet(data) ? data : null;
+});
+
+// Keep reviews disabled for now (still returns stable cached value)
+const fetchTopTextReviews = cache(async (_setNum: string, _limit = 10): Promise<ReviewLite[]> => {
+  return [];
+});
+
+
+// ---- Metadata ----
 
 export async function generateMetadata({
   params,
@@ -291,6 +278,8 @@ export async function generateMetadata({
   };
 }
 
+// ---- Page ----
+
 export default async function Page({
   params,
 }: {
@@ -313,7 +302,7 @@ export default async function Page({
     { label: decoded, href: canonicalPath },
   ];
 
-  const topTextReviews: any[] = [];
+  const topTextReviews = await fetchTopTextReviews(decoded, 10);
 
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
   const productLd = buildProductJsonLd(data, topTextReviews);
