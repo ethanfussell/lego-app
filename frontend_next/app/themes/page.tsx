@@ -99,7 +99,7 @@ async function fetchThemes(q: string, page: number, limit: number): Promise<{ ro
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const url = `${apiBase}/themes?${params.toString()}`;
 
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { next: { revalidate: 3600 } });
   if (!res.ok) return { rows: [], totalCount: null };
 
   const data: unknown = await res.json();
