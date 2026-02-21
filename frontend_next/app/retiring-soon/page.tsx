@@ -2,6 +2,9 @@
 import { apiFetch } from "@/lib/api";
 import RetiringSoonClient from "./RetiringSoonClient";
 
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 type SetLite = {
   set_num: string;
   name?: string;
