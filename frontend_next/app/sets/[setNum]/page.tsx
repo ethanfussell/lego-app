@@ -72,7 +72,11 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   if (!s) return null;
 
   const url = `${apiBase()}/sets/${encodeURIComponent(s)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 }, // ✅ cacheable (ISR)
+  });
 
   if (res.status === 404) return null;
   if (!res.ok) return null;
@@ -86,7 +90,11 @@ const fetchTopTextReviews = cache(async (setNum: string, limit = 10): Promise<Re
   if (!s) return [];
 
   const url = `${apiBase()}/sets/${encodeURIComponent(s)}/reviews?limit=${encodeURIComponent(String(limit))}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 }, // ✅ cacheable (ISR)
+  });
   if (!res.ok) return [];
 
   const data: unknown = await res.json();
@@ -244,6 +252,8 @@ function buildDescription(setNum: string, data: LegoSet | null): string {
     ? `Details for LEGO set ${decodedSetNum}: ${name}. ${facts}.`
     : `Details for LEGO set ${decodedSetNum}: ${name}.`;
 }
+
+export const revalidate = 3600; 
 
 export async function generateMetadata({
   params,
