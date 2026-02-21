@@ -7,7 +7,7 @@ import PublicListsClient from "./PublicListsClient";
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 // ✅ Manual curated IDs (update anytime)
-const FEATURED_LIST_IDS = [6, 5, 4]; // add up to 10
+const FEATURED_LIST_IDS = [6, 5, 4]; // put up to 10 here
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -84,7 +84,7 @@ function pickFeatured(from: PublicListRow[]): PublicListRow[] {
   const byId = new Map<number, PublicListRow>();
   for (const r of from) byId.set(r.id, r);
 
-  // Keep the curated order; only include ones we actually have
+  // keep curated order
   const out: PublicListRow[] = [];
   for (const id of FEATURED_LIST_IDS) {
     const hit = byId.get(id);
@@ -97,18 +97,13 @@ function isNonEmpty(s: unknown): s is string {
   return typeof s === "string" && s.trim().length > 0;
 }
 
-export default async function Page({
-  searchParams,
-}: {
-  searchParams?: SearchParams | Promise<SearchParams>;
-}) {
+export default async function Page({ searchParams }: { searchParams?: SearchParams | Promise<SearchParams> }) {
   const sp = (await searchParams) ?? {};
-  const initialOwner = first(sp, "owner"); // ✅ server-driven filter if present
+  const initialOwner = first(sp, "owner");
 
   const { lists: initialLists, error: initialError } = await fetchPublicLists(initialOwner);
 
-  // Only “decorate” featured lists when we’re showing ALL lists (no owner filter).
-  // If owner is set, initialLists will be filtered and likely won’t include the featured IDs.
+  // only show featured when NOT filtered
   const featured = initialOwner ? [] : pickFeatured(initialLists);
 
   return (
@@ -118,7 +113,7 @@ export default async function Page({
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
       </div>
 
-      {/* ✅ Featured lists: server-rendered internal links (with titles when available) */}
+      {/* Featured lists */}
       <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -130,7 +125,6 @@ export default async function Page({
           </Link>
         </div>
 
-        {/* If we have the rows, show richer cards; otherwise fall back to ID chips */}
         {featured.length > 0 ? (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {featured.map((l) => (
