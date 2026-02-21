@@ -2,7 +2,6 @@
 
 import type { Metadata } from "next";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
-import { apiFetch } from "@/lib/api";
 
 export const revalidate = 3600; // ISR (1 hour)
 
@@ -42,6 +41,10 @@ type PageProps = {
 
 type SortKey = "year" | "rating" | "pieces" | "name" | "relevance";
 type Order = "asc" | "desc";
+
+function apiBase(): string {
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -101,10 +104,19 @@ async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limi
   params.set("page", String(opts.page));
   params.set("limit", String(opts.limit));
 
-  // IMPORTANT: don't use cache:"no-store" here; it forces the route dynamic.
-  // We want ISR, so let Next cache this server fetch.
-  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { next: { revalidate } });
+  const url = `${apiBase()}/sets?${params.toString()}`;
 
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate }, // ✅ THIS is what makes the route cacheable
+  });
+
+  if (!res.ok) {
+    return { results: [] as SetLite[], total: 0, totalPages: 1, page: opts.page, error: `${res.status} ${res.statusText}` };
+  }
+
+  const raw: unknown = await res.json().catch(() => null);
   const data = asFeedResponse(raw);
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
@@ -137,7 +149,7 @@ export default async function Page({ searchParams }: PageProps) {
   const pageSize = 50;
 
   let initial: DiscoverInitial = {
-    q: "", // discover is a feed
+    q: "",
     sort,
     order,
     page,
@@ -156,7 +168,7 @@ export default async function Page({ searchParams }: PageProps) {
       total: r.total,
       totalPages: r.totalPages,
       page: r.page,
-      error: null,
+      error: r.error,
     };
   } catch (e: unknown) {
     initial = { ...initial, error: errorMessage(e) };
