@@ -1,6 +1,5 @@
 // frontend_next/app/sale/page.tsx
 import type { Metadata } from "next";
-import { apiFetch } from "@/lib/api";
 import SaleClient from "./SaleClient";
 import AnalyticsClient from "@/app/components/AnalyticsClient";
 
@@ -27,14 +26,23 @@ type FeedResponse =
 
 export const metadata: Metadata = {
   title: "Deals & price drops",
+  alternates: { canonical: "/sale" },
 };
+
+export const revalidate = 3600; // ✅ ISR
+
+function apiBase(): string {
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+}
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
 function isSetLite(x: unknown): x is SetLite {
-  return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+  if (typeof x !== "object" || x === null) return false;
+  const sn = (x as { set_num?: unknown }).set_num;
+  return typeof sn === "string" && sn.trim().length > 0;
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
@@ -65,7 +73,18 @@ async function fetchSaleSets(): Promise<SetLite[]> {
   params.set("page", "1");
   params.set("limit", "60");
 
-  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
+  // ✅ Server Component: hit backend directly and allow ISR caching
+  const url = `${apiBase()}/sets?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate }, // ✅ cacheable
+  });
+
+  if (!res.ok) return [];
+
+  const raw: unknown = await res.json().catch(() => null);
   const data = asFeedResponse(raw);
 
   const items: SetLite[] = Array.isArray(data)
@@ -74,7 +93,7 @@ async function fetchSaleSets(): Promise<SetLite[]> {
       ? toSetLiteArray((data as { results?: unknown }).results)
       : [];
 
-  return items.filter((s) => s.set_num.trim() !== "");
+  return items;
 }
 
 export default async function Page() {
@@ -100,7 +119,9 @@ export default async function Page() {
 
         {error ? <p className="mt-4 text-sm text-red-600">Error: {error}</p> : null}
 
-        {!error && sets.length === 0 ? <p className="mt-4 text-sm text-zinc-500">No sets found for this category yet.</p> : null}
+        {!error && sets.length === 0 ? (
+          <p className="mt-4 text-sm text-zinc-500">No sets found for this category yet.</p>
+        ) : null}
 
         {!error && sets.length > 0 ? <SaleClient sets={sets} /> : null}
       </section>
