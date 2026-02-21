@@ -12,10 +12,6 @@ type SP = Record<string, string | string[] | undefined>;
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
 
-// ✅ Force ISR/static HTML caching on Vercel
-export const dynamic = "force-static";
-export const revalidate = 3600; // 1 hour
-
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -120,16 +116,33 @@ async function fetchThemeSetsWithCount(args: {
   qs.set("sort", sort);
   qs.set("order", order);
 
-  // themeName MUST be the real theme string (with spaces)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
-  // ✅ This keeps the route static/ISR
-  const res = await fetch(url, { next: { revalidate } });
+  // Force GET (some environments can probe with HEAD; your backend returns 405 for HEAD)
+  const doGet = async () =>
+    fetch(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      next: { revalidate: 3600 },
+    });
+
+  let res = await doGet();
+
+  // If anything upstream/proxy tried HEAD and we got a 405, retry GET explicitly.
+  if (res.status === 405) {
+    res = await doGet();
+  }
 
   if (res.status === 404) return { kind: "notfound" };
   if (!res.ok) return { kind: "error", status: res.status };
 
-  const data: unknown = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    return { kind: "error", status: 502 };
+  }
+
   const rows = toSetSummaryArray(data);
 
   const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
@@ -138,6 +151,8 @@ async function fetchThemeSetsWithCount(args: {
 
   return { kind: "ok", rows, totalCount };
 }
+
+export const revalidate = 3600;
 
 export default async function ThemeSetsPage({
   params,
@@ -166,13 +181,12 @@ export default async function ThemeSetsPage({
 
   if (result.kind === "notfound") notFound();
 
-  // IMPORTANT: do NOT convert server/API issues into 404s (soft-404 risk)
+  // Don’t convert upstream errors into 404 (soft-404 risk); error boundary / 500 is correct.
   if (result.kind === "error") {
     throw new Error(`Theme sets fetch failed (${result.status}) for theme="${themeName}"`);
   }
 
   const { rows: initialSets, totalCount } = result;
-
   const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / limit)) : null;
 
   if (totalPages != null && requestedPage > totalPages) {
