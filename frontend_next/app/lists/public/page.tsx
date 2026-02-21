@@ -1,5 +1,6 @@
 // frontend_next/app/lists/public/page.tsx
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import PublicListsClient from "./PublicListsClient";
 
@@ -112,7 +113,9 @@ export default async function Page() {
 
       {/* Client experience */}
       <div className="mt-10">
+      <Suspense fallback={<p className="mt-6 text-sm text-zinc-500">Loading lists…</p>}>
         <PublicListsClient initialOwner={initialOwner} initialLists={initialLists} initialError={initialError} />
+      </Suspense>
       </div>
     </div>
   );
