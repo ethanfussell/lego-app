@@ -313,7 +313,7 @@ export default async function Page({
     { label: decoded, href: canonicalPath },
   ];
 
-  const [topTextReviews] = await Promise.all([fetchTopTextReviews(decoded, 10)]);
+  const topTextReviews: any[] = [];
 
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
   const productLd = buildProductJsonLd(data, topTextReviews);
