@@ -6,13 +6,11 @@ import ListDetailClient from "./ListDetailClient";
 import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-export const dynamic = "force-static";
 export const revalidate = 3600;
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
-
 function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
@@ -22,6 +20,7 @@ type Params = { listId: string };
 function normalizeListId(raw: string): string | null {
   const decoded = decodeURIComponent(String(raw || "")).trim();
   if (!/^\d+$/.test(decoded)) return null;
+
   const n = Number(decoded);
   if (!Number.isSafeInteger(n) || n <= 0) return null;
   if (n > 2147483647) return null; // keep strict for now
@@ -57,6 +56,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function coerceListDetail(x: unknown): ListDetail | null {
   if (!isRecord(x)) return null;
+
   const id = x.id;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
 
@@ -68,7 +68,11 @@ function coerceListDetail(x: unknown): ListDetail | null {
 
   const owner = typeof x.owner === "string" ? x.owner : x.owner == null ? null : String(x.owner);
   const owner_username =
-    typeof x.owner_username === "string" ? x.owner_username : x.owner_username == null ? null : String(x.owner_username);
+    typeof x.owner_username === "string"
+      ? x.owner_username
+      : x.owner_username == null
+        ? null
+        : String(x.owner_username);
 
   const items_count =
     typeof x.items_count === "number" && Number.isFinite(x.items_count) ? Math.floor(x.items_count) : null;
@@ -76,8 +80,16 @@ function coerceListDetail(x: unknown): ListDetail | null {
   const created_at = typeof x.created_at === "string" ? x.created_at : null;
   const updated_at = typeof x.updated_at === "string" ? x.updated_at : null;
 
-  const items = Array.isArray(x.items) ? (x.items as any[]).filter(isRecord).map((it) => ({ set_num: String(it.set_num || "") })) : null;
-  const set_nums = Array.isArray(x.set_nums) ? (x.set_nums as any[]).map((s) => String(s || "")).filter(Boolean) : null;
+  const items =
+    Array.isArray(x.items)
+      ? (x.items as unknown[])
+          .filter(isRecord)
+          .map((it) => ({ set_num: String((it as any).set_num || "").trim() }))
+          .filter((it) => it.set_num.length > 0)
+      : null;
+
+  const set_nums =
+    Array.isArray(x.set_nums) ? (x.set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean) : null;
 
   return {
     id,
@@ -109,12 +121,8 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: { accept: "application/json" },
-      next: { revalidate },
-    });
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
   } catch {
-    // treat as notfound so we don't publish a broken page
     return "notfound";
   }
 
@@ -126,27 +134,28 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
   const d = coerceListDetail(data);
   if (!d) return "notfound";
 
-  // If backend returns a private list without auth, also treat as private.
   if (!d.is_public) return "private";
-
   return d;
 }
 
 async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
-  const nums = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
+  const nums = Array.from(new Set((setNums || []).map((s) => String(s || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
 
-  // cap SSR so we don't build huge HTML
+  // cap SSR so we don't render huge HTML
   const capped = nums.slice(0, 60);
 
   const params = new URLSearchParams();
   params.set("set_nums", capped.join(","));
 
   const url = `${apiBase()}/sets/bulk?${params.toString()}`;
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate },
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+  } catch {
+    return [];
+  }
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
@@ -154,14 +163,14 @@ async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
 
   const arr = (data as unknown[])
     .filter(isRecord)
-    .filter((x) => typeof x.set_num === "string" && String(x.set_num).trim())
+    .filter((x) => typeof (x as any).set_num === "string" && String((x as any).set_num).trim())
     .map((x) => ({
-      set_num: String(x.set_num),
-      name: typeof x.name === "string" ? x.name : undefined,
-      year: typeof x.year === "number" ? x.year : undefined,
-      pieces: typeof x.pieces === "number" ? x.pieces : undefined,
-      theme: typeof x.theme === "string" ? x.theme : undefined,
-      image_url: typeof x.image_url === "string" ? x.image_url : null,
+      set_num: String((x as any).set_num),
+      name: typeof (x as any).name === "string" ? (x as any).name : undefined,
+      year: typeof (x as any).year === "number" ? (x as any).year : undefined,
+      pieces: typeof (x as any).pieces === "number" ? (x as any).pieces : undefined,
+      theme: typeof (x as any).theme === "string" ? (x as any).theme : undefined,
+      image_url: typeof (x as any).image_url === "string" ? (x as any).image_url : null,
     })) as SetLite[];
 
   const byNum = new Map(arr.map((s) => [s.set_num, s]));
@@ -175,7 +184,6 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const safeId = normalized ?? "list";
   const canonicalPath = canonicalForList(safeId);
 
-  // Keep metadata stable even if list fetch fails
   return {
     title: `List ${safeId} | ${SITE_NAME}`,
     description: `View LEGO list ${safeId}.`,
@@ -193,14 +201,15 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
   const d = await fetchPublicListSSR(normalized);
   if (d === "notfound") notFound();
-  if (d === "private") notFound(); // don't index private lists
+  if (d === "private") notFound();
 
   const setNums = toSetNums(d);
   const sets = await fetchSetsBulkSSR(setNums);
 
-  const ownerName = (d.owner_username || d.owner || "").trim();
+  const ownerName = String(d.owner_username || d.owner || "").trim();
   const title = d.title?.trim() || `List #${d.id}`;
   const desc = d.description?.trim() || "";
+  const count = typeof d.items_count === "number" ? d.items_count : setNums.length;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -209,17 +218,27 @@ export default async function Page({ params }: { params: Params | Promise<Params
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold">{title}</h1>
             <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              {typeof d.items_count === "number" ? `${d.items_count} set${d.items_count === 1 ? "" : "s"}` : `${setNums.length} sets`}
-              {ownerName ? <span className="ml-2">• by <span className="font-semibold">{ownerName}</span></span> : null}
+              {count} set{count === 1 ? "" : "s"}
+              {ownerName ? (
+                <span className="ml-2">
+                  • by <span className="font-semibold">{ownerName}</span>
+                </span>
+              ) : null}
             </div>
             {desc ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{desc}</p> : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/lists/public" className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]">
+            <Link
+              href="/lists/public"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
               ← Public lists
             </Link>
-            <Link href="/discover" className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]">
+            <Link
+              href="/discover"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
               Browse sets →
             </Link>
           </div>
@@ -242,31 +261,14 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-2" loading="lazy" />
                   ) : null}
                 </div>
+
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{s.name || s.set_num}</div>
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="font-semibold">{s.set_num}</span>
-                    {typeof s.year === "number" ? (
-                      <>
-                        <span className="mx-1">•</span>
-                        <Link href={`/years/${s.year}`} className="font-semibold hover:underline" onClick={(e) => e.stopPropagation()}>
-                          {s.year}
-                        </Link>
-                      </>
-                    ) : null}
+                    {typeof s.year === "number" ? <span className="ml-2">• {s.year}</span> : null}
                   </div>
-                  {s.theme ? (
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                      Theme:{" "}
-                      <Link
-                        href={`/themes/${themeToSlug(String(s.theme))}`}
-                        className="font-semibold hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {s.theme}
-                      </Link>
-                    </div>
-                  ) : null}
+                  {s.theme ? <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Theme: {s.theme}</div> : null}
                 </div>
               </div>
             </Link>
@@ -276,7 +278,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
       )}
 
-      {/* Client: optional enhancements (copy link, edit if logged in, etc) */}
+      {/* Client: logged-in enhancements */}
       <div className="mt-10">
         <ListDetailClient listId={normalized} initialDetail={d} initialSets={sets} />
       </div>
