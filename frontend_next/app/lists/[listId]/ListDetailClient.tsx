@@ -1,3 +1,4 @@
+// frontend_next/app/lists/[listId]/ListDetailClient.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -30,15 +31,8 @@ type SetLite = {
   name?: string;
   year?: number;
   pieces?: number;
-  num_parts?: number;
   image_url?: string | null;
   theme?: string;
-};
-
-type Props = {
-  listId: string;
-  initialDetail: ListDetail | null;
-  initialSets: SetLite[];
 };
 
 function errorMessage(e: unknown) {
@@ -47,12 +41,8 @@ function errorMessage(e: unknown) {
 
 function toSetNums(detail: ListDetail | null | undefined): string[] {
   if (!detail) return [];
-  if (Array.isArray(detail.set_nums)) {
-    return detail.set_nums.map((x) => String(x || "").trim()).filter(Boolean);
-  }
-  if (Array.isArray(detail.items)) {
-    return detail.items.map((it) => String(it?.set_num || "").trim()).filter(Boolean);
-  }
+  if (Array.isArray(detail.set_nums)) return detail.set_nums.map((x) => String(x || "").trim()).filter(Boolean);
+  if (Array.isArray(detail.items)) return detail.items.map((it) => String(it?.set_num || "").trim()).filter(Boolean);
   return [];
 }
 
@@ -64,11 +54,10 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
   params.set("set_nums", nums.join(","));
 
   const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, { token, cache: "no-store" });
-
   const arr = Array.isArray(data)
-    ? (data as unknown[]).filter((x): x is SetLite => {
-        return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
-      })
+    ? (data as unknown[]).filter(
+        (x): x is SetLite => typeof x === "object" && x !== null && typeof (x as any).set_num === "string"
+      )
     : [];
 
   const byNum = new Map(arr.map((s) => [String(s.set_num), s]));
@@ -76,33 +65,34 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
 }
 
 function chipClass(variant: "neutral" | "good" | "warn") {
-  if (variant === "good") {
-    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  }
-  if (variant === "warn") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  }
+  if (variant === "good") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (variant === "warn") return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
   return "border-black/[.10] bg-black/[.04] text-zinc-700 dark:border-white/[.14] dark:bg-white/[.06] dark:text-zinc-200";
 }
 
-export default function ListDetailClient({ listId, initialDetail, initialSets }: Props) {
+export default function ListDetailClient(props: {
+  listId: string;
+  initialDetail: ListDetail | null;
+  initialSets: SetLite[];
+  initialError: string | null;
+}) {
+  const { listId, initialDetail, initialSets, initialError } = props;
+
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
 
-  // ✅ Start from SSR content
+  // SSR-first state (never wipe on refresh failure)
   const [detail, setDetail] = useState<ListDetail | null>(initialDetail);
   const [sets, setSets] = useState<SetLite[]>(initialSets);
 
-  const [loading, setLoading] = useState<boolean>(!initialDetail);
+  const [loading, setLoading] = useState(false);
+  const [warn, setWarn] = useState<string | null>(initialError);
   const [err, setErr] = useState<string | null>(null);
 
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
-
-  const [notFound, setNotFound] = useState(false);
-  const [forbidden, setForbidden] = useState(false);
 
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [copyErr, setCopyErr] = useState<string | null>(null);
@@ -138,77 +128,49 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
   const refresh = useCallback(async () => {
     if (!id) throw new Error("Missing list id.");
 
-    setNotFound(false);
-    setForbidden(false);
+    const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
+    const nums = toSetNums(d || null);
+    const bulk = await fetchSetsBulk(nums, token);
 
-    try {
-      const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, { token, cache: "no-store" });
-      setDetail(d || null);
+    setDetail(d || null);
+    setSets(bulk);
+  }, [id, token]);
 
-      const nums = toSetNums(d || null);
-      const bulk = await fetchSetsBulk(nums, token);
-      setSets(bulk);
-    } catch (e: unknown) {
-      if (e instanceof APIError) {
-        if (e.status === 404) {
-          setNotFound(true);
-          if (!initialDetail) {
-            setDetail(null);
-            setSets([]);
-          }
-          return;
-        }
-        if (e.status === 401 || e.status === 403) {
-          setForbidden(true);
-          if (!initialDetail) {
-            setDetail(null);
-            setSets([]);
-          }
-          return;
-        }
-      }
-      throw e;
-    }
-  }, [id, token, initialDetail]);
-
+  // Optional client refresh (don’t do anything until hydration is ready)
   useEffect(() => {
     let cancelled = false;
+    if (!hydrated) return;
 
-    async function load() {
-      if (!id) {
-        if (!cancelled) {
-          setErr("Could not read list id from route.");
-          setLoading(false);
-        }
-        return;
-      }
-
-      if (!hydrated) return;
-
-      // ✅ If SSR already showed a public list w/ sets, don't immediately refetch
-      if (initialDetail?.is_public && initialSets.length > 0) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
+    (async () => {
       try {
-        if (!cancelled) {
-          setLoading(true);
-          setErr(null);
-        }
+        setLoading(true);
+        setErr(null);
+        setWarn(null);
         await refresh();
       } catch (e: unknown) {
-        if (!cancelled) setErr(errorMessage(e));
+        if (cancelled) return;
+
+        // Keep SSR content; only show warning
+        if (e instanceof APIError) {
+          if (e.status === 401 || e.status === 403) {
+            setWarn("This list may be private. Log in if you have access.");
+          } else if (e.status === 404) {
+            setErr("List not found.");
+          } else {
+            setWarn(`Couldn’t refresh right now (HTTP ${e.status}). Showing cached results.`);
+          }
+        } else {
+          setWarn("Couldn’t refresh right now. Showing cached results.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
+    })();
 
-    load();
     return () => {
       cancelled = true;
     };
-  }, [id, hydrated, refresh, initialDetail?.is_public, initialSets.length]);
+  }, [hydrated, refresh]);
 
   async function togglePublic() {
     if (!detail || !canEdit || savingPrivacy) return;
@@ -216,6 +178,7 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
     const next = !detail.is_public;
     setSavingPrivacy(true);
     setErr(null);
+    setWarn(null);
 
     setDetail((d) => (d ? { ...d, is_public: next } : d));
 
@@ -234,8 +197,10 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
     if (!sn || !token || !canEdit || removing[sn]) return;
 
     setErr(null);
+    setWarn(null);
     setRemoving((m) => ({ ...m, [sn]: true }));
 
+    // optimistic
     setSets((prev) => prev.filter((s) => String(s.set_num) !== sn));
     setDetail((d) => (d ? { ...d, items_count: Math.max(0, Number(d.items_count || 0) - 1) } : d));
 
@@ -270,7 +235,6 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
         const ok = window.prompt("Copy this link:", url);
         if (ok === null) return;
       }
-
       setCopyState("copied");
       window.setTimeout(() => setCopyState("idle"), 1200);
     } catch (e: unknown) {
@@ -283,17 +247,15 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
     }
   }
 
-  const title = detail?.title?.trim() || (initialDetail ? "List" : "Private list");
+  const title = detail?.title?.trim() || `List ${id}`;
   const description = detail?.description?.trim() || "";
 
-  const headerSubtitle = useMemo(() => {
+  const subtitle = useMemo(() => {
     const bits: string[] = [];
     bits.push(`${count} set${count === 1 ? "" : "s"}`);
     if (ownerName) bits.push(`by ${ownerName}`);
     return bits.join(" • ");
   }, [count, ownerName]);
-
-  const showGrid = sets.length > 0;
 
   type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
 
@@ -304,14 +266,10 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
           <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-zinc-600 dark:text-zinc-400">{headerSubtitle}</span>
+            <span className="text-zinc-600 dark:text-zinc-400">{subtitle}</span>
 
             {visibility ? (
-              <span
-                className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(
-                  visibility === "Public" ? "good" : "warn"
-                )}`}
-              >
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chipClass(visibility === "Public" ? "good" : "warn")}`}>
                 {visibility}
               </span>
             ) : null}
@@ -321,18 +279,22 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
                 System
               </span>
             ) : null}
+
+            {loading ? <span className="text-xs text-zinc-500">Refreshing…</span> : null}
+            {warn ? <span className="text-xs text-zinc-500">{warn}</span> : null}
           </div>
 
           {description ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p> : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/collection"
+          <button
+            type="button"
+            onClick={() => router.back()}
             className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
           >
             Back
-          </Link>
+          </button>
 
           {isPublic ? (
             <button
@@ -370,56 +332,12 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
       </div>
 
       {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
-      {loading ? <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p> : null}
+      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
-      {err ? (
-        <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
-          Couldn’t refresh right now. Showing cached content. <span className="opacity-70">({err})</span>
-        </div>
-      ) : null}
-
-      {!initialDetail && !loading && (notFound || forbidden) ? (
-        <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list may be private</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
-            If someone shared this link with you, you may need to log in to view it.
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!token ? (
-              <button
-                type="button"
-                onClick={() => router.push("/login")}
-                className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-              >
-                Log in
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => refresh()}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Retry
-            </button>
-
-            <Link
-              href="/discover"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Browse sets
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
-      {!loading && sets.length === 0 ? (
+      {sets.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-6 text-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="font-semibold text-zinc-900 dark:text-zinc-50">This list is empty</div>
-          <div className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Use <span className="font-semibold">Add to list</span> on any set card to add items here.
-          </div>
+          <div className="mt-2 text-zinc-600 dark:text-zinc-400">Browse sets and add them to this list.</div>
           <div className="mt-4">
             <Link
               href="/discover"
@@ -429,9 +347,7 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
             </Link>
           </div>
         </div>
-      ) : null}
-
-      {showGrid ? (
+      ) : (
         <ul className="mt-8 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
             const sn = String(s.set_num);
@@ -462,7 +378,7 @@ export default function ListDetailClient({ listId, initialDetail, initialSets }:
             );
           })}
         </ul>
-      ) : null}
+      )}
     </div>
   );
 }
