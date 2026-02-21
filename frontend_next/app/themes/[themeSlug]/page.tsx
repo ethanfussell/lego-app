@@ -9,14 +9,16 @@ import { slugToTheme } from "@/lib/slug";
 
 type SP = Record<string, string | string[] | undefined>;
 
+export const revalidate = 3600; // 1 hour (cacheable HTML; helps SEO + avoids no-store)
+
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
 
 function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
 }
 function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
 function first(sp: SP, key: string): string {
@@ -92,7 +94,12 @@ export async function generateMetadata({
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
+    openGraph: {
+      title: `${title} | ${SITE_NAME}`,
+      description,
+      url: canonical,
+      type: "website",
+    },
     twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
   };
 }
@@ -116,8 +123,10 @@ async function fetchThemeSetsWithCount(args: {
   qs.set("sort", sort);
   qs.set("order", order);
 
-  // themeName MUST be the real theme string (with spaces)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
+
+  // IMPORTANT: do NOT use cache:"no-store" here — it forces Next to treat the page as dynamic
+  // and returns `cache-control: private, no-store...` on the HTML.
   const res = await fetch(url, { next: { revalidate: 3600 } });
 
   if (res.status === 404) return { kind: "notfound" };
@@ -132,8 +141,6 @@ async function fetchThemeSetsWithCount(args: {
 
   return { kind: "ok", rows, totalCount };
 }
-
-export const revalidate = 3600; // 1 hour
 
 export default async function ThemeSetsPage({
   params,
@@ -160,10 +167,10 @@ export default async function ThemeSetsPage({
     order,
   });
 
-  // ✅ Only true invalid theme -> 404
+  // Only a truly invalid theme -> 404
   if (result.kind === "notfound") notFound();
 
-  // ✅ API/server problems should NOT become 404 (avoid soft-404 classification)
+  // API/server problems should NOT become 404 (avoid soft-404 classification)
   if (result.kind === "error") {
     throw new Error(`Theme sets fetch failed (${result.status}) for theme="${themeName}"`);
   }
@@ -183,7 +190,7 @@ export default async function ThemeSetsPage({
     redirect(dest);
   }
 
-  // ✅ IMPORTANT: Do NOT notFound just because there are 0 sets.
+  // IMPORTANT: Do NOT notFound just because there are 0 sets.
   // Render the page; the client can show "No sets found" instead.
 
   return (
