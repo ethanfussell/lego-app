@@ -34,8 +34,9 @@ function posInt(raw: string, fallback: number) {
   return n > 0 ? n : fallback;
 }
 
-function canonicalFor(themeSlug: string, page: number) {
-  return `/themes/${themeSlug}` + (page > 1 ? `?page=${page}` : "");
+function canonicalFor(themeSlug: string) {
+  // IMPORTANT: keep canonical stable (no ?page=...) to avoid Next static metadata bailouts
+  return `/themes/${themeSlug}`;
 }
 
 type SetSummary = {
@@ -45,9 +46,6 @@ type SetSummary = {
   pieces?: number;
   theme?: string | null;
   image_url?: string | null;
-  rating_count?: number | null;
-  rating_avg?: number | null;
-  average_rating?: number | null;
 };
 
 function isSetSummary(x: unknown): x is SetSummary {
@@ -65,27 +63,18 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
   return [];
 }
 
+// ✅ metadata depends ONLY on params (NOT searchParams)
 export async function generateMetadata({
   params,
-  searchParams,
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
-  searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
   const { themeSlug } = await params;
-  const sp = (await searchParams) ?? ({} as SP);
 
   const themeName = slugToTheme(themeSlug);
-  const page = posInt(first(sp, "page") || "1", 1);
-
-  const baseTitle = `${themeName} sets`;
-  const title = page > 1 ? `${baseTitle} (Page ${page})` : baseTitle;
-  const description =
-    page > 1
-      ? `Browse LEGO sets in the ${themeName} theme. Page ${page}.`
-      : `Browse LEGO sets in the ${themeName} theme.`;
-
-  const canonical = canonicalFor(themeSlug, page);
+  const title = `${themeName} sets`;
+  const description = `Browse LEGO sets in the ${themeName} theme.`;
+  const canonical = canonicalFor(themeSlug);
 
   return {
     title,
@@ -121,22 +110,16 @@ async function fetchThemeSetsWithCount(args: {
   let res: Response;
   try {
     res = await fetch(url, {
-      method: "GET", // important: avoid any implicit HEAD behavior
+      method: "GET",
       headers: { accept: "application/json" },
       next: { revalidate: 3600 },
     });
   } catch {
-    // backend/network hiccup: DO NOT 500 the page
     return { kind: "degraded", rows: [], totalCount: null };
   }
 
   if (res.status === 404) return { kind: "notfound" };
-
-  // Some platforms/backends return 405 for HEAD, etc.
-  // We treat non-OK as degraded instead of throwing (prevents 500s).
-  if (!res.ok) {
-    return { kind: "degraded", rows: [], totalCount: null };
-  }
+  if (!res.ok) return { kind: "degraded", rows: [], totalCount: null };
 
   let data: unknown;
   try {
@@ -154,9 +137,8 @@ async function fetchThemeSetsWithCount(args: {
   return { kind: "ok", rows, totalCount };
 }
 
-// Make public theme pages cacheable (ISR)
+// ✅ ISR without forcing “force-static” (we’ll tighten later once stable)
 export const runtime = "nodejs";
-export const dynamic = "force-static";
 export const revalidate = 3600;
 
 export default async function ThemeSetsPage({
