@@ -1,93 +1,30 @@
 // frontend_next/app/themes/[themeSlug]/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { slugToTheme } from "@/lib/slug";
 
-type SP = Record<string, string | string[] | undefined>;
-
-export const revalidate = 3600; // 1 hour (cacheable HTML; helps SEO + avoids no-store)
-
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-const DEFAULT_LIMIT = 36;
 
 function siteBase() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
-function apiBase() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
-}
-
-function toInt(raw: string, fallback: number) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.floor(n) : fallback;
-}
-function posInt(raw: string, fallback: number) {
-  const n = toInt(raw, fallback);
-  return n > 0 ? n : fallback;
-}
-
-function canonicalFor(themeSlug: string, page: number) {
-  return `/themes/${themeSlug}` + (page > 1 ? `?page=${page}` : "");
-}
-
-type SetSummary = {
-  set_num: string;
-  name: string;
-  year?: number;
-  pieces?: number;
-  theme?: string | null;
-  image_url?: string | null;
-  rating_count?: number | null;
-  rating_avg?: number | null;
-  average_rating?: number | null;
-};
-
-function isSetSummary(x: unknown): x is SetSummary {
-  if (typeof x !== "object" || x === null) return false;
-  const o = x as { set_num?: unknown; name?: unknown };
-  return typeof o.set_num === "string" && o.set_num.trim() !== "" && typeof o.name === "string";
-}
-
-function toSetSummaryArray(x: unknown): SetSummary[] {
-  if (Array.isArray(x)) return x.filter(isSetSummary);
-  if (typeof x === "object" && x !== null) {
-    const r = (x as { results?: unknown }).results;
-    return Array.isArray(r) ? r.filter(isSetSummary) : [];
-  }
-  return [];
-}
+export const revalidate = 3600; // 1 hour (page shell can be cached)
 
 export async function generateMetadata({
   params,
-  searchParams,
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
-  searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
   const { themeSlug } = await params;
-  const sp = (await searchParams) ?? ({} as SP);
-
   const themeName = slugToTheme(themeSlug);
-  const page = posInt(first(sp, "page") || "1", 1);
 
-  const baseTitle = `${themeName} sets`;
-  const title = page > 1 ? `${baseTitle} (Page ${page})` : baseTitle;
-  const description =
-    page > 1
-      ? `Browse LEGO sets in the ${themeName} theme. Page ${page}.`
-      : `Browse LEGO sets in the ${themeName} theme.`;
-
-  const canonical = canonicalFor(themeSlug, page);
+  const title = `${themeName} sets`;
+  const description = `Browse LEGO sets in the ${themeName} theme.`;
+  const canonical = `/themes/${themeSlug}`;
 
   return {
     title,
@@ -100,98 +37,21 @@ export async function generateMetadata({
       url: canonical,
       type: "website",
     },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    twitter: {
+      card: "summary",
+      title: `${title} | ${SITE_NAME}`,
+      description,
+    },
   };
-}
-
-type FetchOk = { kind: "ok"; rows: SetSummary[]; totalCount: number | null };
-type FetchNotFound = { kind: "notfound" };
-type FetchError = { kind: "error"; status: number };
-
-async function fetchThemeSetsWithCount(args: {
-  themeName: string;
-  page: number;
-  limit: number;
-  sort: string;
-  order: string;
-}): Promise<FetchOk | FetchNotFound | FetchError> {
-  const { themeName, page, limit, sort, order } = args;
-
-  const qs = new URLSearchParams();
-  qs.set("page", String(page));
-  qs.set("limit", String(limit));
-  qs.set("sort", sort);
-  qs.set("order", order);
-
-  const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
-
-  // IMPORTANT: do NOT use cache:"no-store" here — it forces Next to treat the page as dynamic
-  // and returns `cache-control: private, no-store...` on the HTML.
-  const res = await fetch(url, { next: { revalidate: 3600 } });
-
-  if (res.status === 404) return { kind: "notfound" };
-  if (!res.ok) return { kind: "error", status: res.status };
-
-  const data: unknown = await res.json();
-  const rows = toSetSummaryArray(data);
-
-  const header = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
-  const parsed = header ? Number(header) : NaN;
-  const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-
-  return { kind: "ok", rows, totalCount };
 }
 
 export default async function ThemeSetsPage({
   params,
-  searchParams,
 }: {
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
-  searchParams?: SP | Promise<SP>;
 }) {
   const { themeSlug } = await params;
-  const sp = (await searchParams) ?? ({} as SP);
-
   const themeName = slugToTheme(themeSlug);
-
-  const requestedPage = posInt(first(sp, "page") || "1", 1);
-  const limit = posInt(first(sp, "limit") || String(DEFAULT_LIMIT), DEFAULT_LIMIT);
-  const sort = first(sp, "sort") || "relevance";
-  const order = first(sp, "order") || "desc";
-
-  const result = await fetchThemeSetsWithCount({
-    themeName,
-    page: requestedPage,
-    limit,
-    sort,
-    order,
-  });
-
-  // Only a truly invalid theme -> 404
-  if (result.kind === "notfound") notFound();
-
-  // API/server problems should NOT become 404 (avoid soft-404 classification)
-  if (result.kind === "error") {
-    throw new Error(`Theme sets fetch failed (${result.status}) for theme="${themeName}"`);
-  }
-
-  const { rows: initialSets, totalCount } = result;
-
-  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / limit)) : null;
-
-  if (totalPages != null && requestedPage > totalPages) {
-    const qs = new URLSearchParams();
-    if (totalPages > 1) qs.set("page", String(totalPages));
-    if (limit !== DEFAULT_LIMIT) qs.set("limit", String(limit));
-    if (sort !== "relevance") qs.set("sort", sort);
-    if (order !== "desc") qs.set("order", order);
-
-    const dest = `/themes/${themeSlug}${qs.toString() ? `?${qs.toString()}` : ""}`;
-    redirect(dest);
-  }
-
-  // IMPORTANT: Do NOT notFound just because there are 0 sets.
-  // Render the page; the client can show "No sets found" instead.
 
   return (
     <>
@@ -214,7 +74,8 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      <ThemeDetailClient themeSlug={themeSlug} initialSets={initialSets} />
+      {/* Client handles fetching/pagination/sort so this route can be cached */}
+      <ThemeDetailClient themeSlug={themeSlug} initialSets={[]} />
     </>
   );
 }
