@@ -12,9 +12,15 @@ const FEATURED_LIST_IDS = [6, 5, 4];
 export const dynamic = "force-static";
 export const revalidate = 3600;
 
+function siteBase() {
+  // MUST be an absolute origin for SSR fetch() during prerender
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
 export const metadata: Metadata = {
   title: "Public Lists",
   description: "Browse lists shared by the community.",
+  metadataBase: new URL(siteBase()),
   alternates: { canonical: "/lists/public" },
   openGraph: {
     title: `Public Lists | ${SITE_NAME}`,
@@ -43,14 +49,14 @@ type PublicListRow = {
 };
 
 type ApiResp = {
-  results: PublicListRow[];
-  total: number;
-  total_pages: number;
-  page: number;
-  limit: number;
-  sort: SortKey;
-  owner: string;
-  q: string;
+  results?: unknown;
+  total?: unknown;
+  total_pages?: unknown;
+  page?: unknown;
+  limit?: unknown;
+  sort?: unknown;
+  owner?: unknown;
+  q?: unknown;
 };
 
 function first(sp: SearchParams, key: string): string {
@@ -64,8 +70,22 @@ function toInt(raw: string, fallback: number) {
 }
 
 function parseSort(raw: string): SortKey {
-  if (raw === "count_desc" || raw === "name_asc" || raw === "updated_desc") return raw;
-  return "updated_desc";
+  return raw === "count_desc" || raw === "name_asc" || raw === "updated_desc" ? raw : "updated_desc";
+}
+
+function isPublicListRow(x: unknown): x is PublicListRow {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as any;
+  return typeof o.id === "number" && typeof o.title === "string" && typeof o.owner === "string";
+}
+
+function toRows(x: unknown): PublicListRow[] {
+  if (Array.isArray(x)) return x.filter(isPublicListRow);
+  if (typeof x === "object" && x !== null) {
+    const r = (x as any).results;
+    return Array.isArray(r) ? r.filter(isPublicListRow) : [];
+  }
+  return [];
 }
 
 async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortKey; page: number }) {
@@ -75,22 +95,37 @@ async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortK
   if (opts.sort !== "updated_desc") qs.set("sort", opts.sort);
   if (opts.page > 1) qs.set("page", String(opts.page));
 
-  const res = await fetch(`/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`, {
-    next: { revalidate },
-  });
+  const url = new URL(`/api/lists/public${qs.toString() ? `?${qs.toString()}` : ""}`, siteBase()).toString();
 
-  if (!res.ok) return { results: [] as PublicListRow[], total_pages: 1, page: opts.page, error: `HTTP ${res.status}` };
+  try {
+    const res = await fetch(url, { next: { revalidate } });
 
-  const data: ApiResp = await res.json().catch(() => null as any);
-  const results = Array.isArray(data?.results) ? data.results : [];
-  const total_pages = Number.isFinite(data?.total_pages) ? data.total_pages : 1;
-  const page = Number.isFinite(data?.page) ? data.page : opts.page;
+    if (!res.ok) {
+      return { results: [] as PublicListRow[], total_pages: 1, page: opts.page, error: `HTTP ${res.status}` };
+    }
 
-  return { results, total_pages, page, error: null as string | null };
+    const data: ApiResp | unknown = await res.json().catch(() => null);
+    const results = toRows(data);
+
+    const total_pages =
+      typeof (data as any)?.total_pages === "number" && Number.isFinite((data as any).total_pages)
+        ? Math.max(1, Math.floor((data as any).total_pages))
+        : 1;
+
+    const page =
+      typeof (data as any)?.page === "number" && Number.isFinite((data as any).page)
+        ? Math.max(1, Math.floor((data as any).page))
+        : opts.page;
+
+    return { results, total_pages, page, error: null as string | null };
+  } catch {
+    return { results: [] as PublicListRow[], total_pages: 1, page: opts.page, error: "Fetch failed" };
+  }
 }
 
 export default async function Page({ searchParams }: { searchParams?: SearchParams | Promise<SearchParams> }) {
   const sp = (await searchParams) ?? {};
+
   const initialOwner = first(sp, "owner");
   const initialQ = first(sp, "q");
   const initialSort = parseSort(first(sp, "sort") || "updated_desc");
