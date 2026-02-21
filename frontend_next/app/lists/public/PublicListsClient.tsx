@@ -5,49 +5,90 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type PublicListRow = {
-  id: string | number;
+  id: number | string;
+
+  // API /lists/public currently returns: title, items_count, owner, description
+  title?: string | null;
+  items_count?: number | null;
+
+  // legacy / alternate names (keep for safety)
   name?: string | null;
+  set_count?: number | null;
+  item_count?: number | null;
+
   description?: string | null;
   owner?: string | null;
   username?: string | null;
+
   updated_at?: string | null;
   created_at?: string | null;
-  set_count?: number | null;
-  item_count?: number | null;
+
   sets?: Array<{ set_num: string }> | string[];
 };
 
 type SortKey = "updated_desc" | "name_asc" | "count_desc";
 
-function pickOwner(r: PublicListRow) {
+function pickOwner(r: PublicListRow): string {
   return String(r.owner ?? r.username ?? "").trim();
 }
 
-function pickCount(r: PublicListRow) {
-  const a = typeof r.set_count === "number" ? r.set_count : null;
-  const b = typeof r.item_count === "number" ? r.item_count : null;
-  return (a ?? b ?? 0) | 0;
+function pickTitle(r: PublicListRow): string {
+  const t = String(r.title ?? r.name ?? "").trim();
+  return t || `List #${String(r.id)}`;
 }
 
-function pickUpdatedTs(r: PublicListRow) {
+function pickCount(r: PublicListRow): number {
+  const v =
+    typeof r.items_count === "number"
+      ? r.items_count
+      : typeof r.set_count === "number"
+        ? r.set_count
+        : typeof r.item_count === "number"
+          ? r.item_count
+          : 0;
+
+  return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+}
+
+function pickUpdatedTs(r: PublicListRow): number {
   const s = String(r.updated_at ?? r.created_at ?? "").trim();
   const t = Date.parse(s);
   return Number.isFinite(t) ? t : 0;
 }
 
+function formatDateMaybe(s?: string | null): string | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
 function sortLists(rows: PublicListRow[], sort: SortKey) {
   const copy = [...rows];
+
   if (sort === "name_asc") {
-    copy.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, { sensitivity: "base" }));
+    copy.sort((a, b) => pickTitle(a).localeCompare(pickTitle(b), undefined, { sensitivity: "base" }));
     return copy;
   }
+
   if (sort === "count_desc") {
-    copy.sort((a, b) => pickCount(b) - pickCount(a) || String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    copy.sort((a, b) => pickCount(b) - pickCount(a) || pickTitle(a).localeCompare(pickTitle(b)));
     return copy;
   }
+
   // updated_desc
   copy.sort((a, b) => pickUpdatedTs(b) - pickUpdatedTs(a) || pickCount(b) - pickCount(a));
   return copy;
+}
+
+function toRows(data: unknown): PublicListRow[] {
+  if (Array.isArray(data)) return data as PublicListRow[];
+  if (typeof data === "object" && data !== null) {
+    const r = (data as any).results;
+    if (Array.isArray(r)) return r as PublicListRow[];
+  }
+  return [];
 }
 
 export default function PublicListsClient(props: {
@@ -66,13 +107,10 @@ export default function PublicListsClient(props: {
   const [lists, setLists] = useState<PublicListRow[]>(initialLists);
   const [loading, setLoading] = useState(false);
 
-  // IMPORTANT: don’t wipe out server-rendered content (avoid “soft 404 vibes”)
+  // IMPORTANT: don’t wipe out server-rendered content
   const [warning, setWarning] = useState<string | null>(initialError);
 
-  const canonicalQueryOwner = useMemo(() => {
-    const raw = (sp.get("owner") ?? "").trim();
-    return raw;
-  }, [sp]);
+  const canonicalQueryOwner = useMemo(() => (sp.get("owner") ?? "").trim(), [sp]);
 
   // Keep input in sync if user navigates with back/forward
   useEffect(() => {
@@ -85,6 +123,7 @@ export default function PublicListsClient(props: {
     const clean = nextOwner.trim();
     if (!clean) params.delete("owner");
     else params.set("owner", clean);
+
     const qs = params.toString();
     router.push(qs ? `/lists/public?${qs}` : `/lists/public`, { scroll: false });
   }
@@ -92,6 +131,7 @@ export default function PublicListsClient(props: {
   // Fetch when URL owner changes (not on every keystroke)
   useEffect(() => {
     const o = canonicalQueryOwner.trim();
+
     // If URL matches what server already rendered, skip refetch
     if (o === initialOwner.trim()) return;
 
@@ -114,13 +154,10 @@ export default function PublicListsClient(props: {
         }
 
         const data: unknown = await res.json();
-        const rows: PublicListRow[] = Array.isArray(data)
-          ? (data as PublicListRow[])
-          : typeof data === "object" && data !== null && Array.isArray((data as any).results)
-            ? ((data as any).results as PublicListRow[])
-            : [];
+        const rows = toRows(data);
 
-        if (rows.length > 0 || o) setLists(rows);
+        // if filtering, allow empty state; if not filtering, only replace when we got something
+        if (o || rows.length > 0) setLists(rows);
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         setWarning("Couldn’t refresh right now. Showing cached results.");
@@ -141,10 +178,9 @@ export default function PublicListsClient(props: {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Public lists</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Browse lists shared by the community.
-            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
           </div>
+
           <Link href="/discover" className="text-sm font-semibold hover:underline">
             Browse sets →
           </Link>
@@ -163,16 +199,18 @@ export default function PublicListsClient(props: {
               <input
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
-                placeholder="e.g. ethanfussell"
+                placeholder="e.g. ethan"
                 className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
               />
             </div>
+
             <button
               className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
               type="submit"
             >
               Apply
             </button>
+
             <button
               className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
               type="button"
@@ -210,37 +248,40 @@ export default function PublicListsClient(props: {
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {sorted.map((r) => {
               const id = String(r.id);
-              const title = String(r.name ?? "Untitled list");
+              const title = pickTitle(r);
               const ownerName = pickOwner(r);
               const count = pickCount(r);
-
-              // Strong internal links: list -> list detail (which should link to sets)
-              const href = `/lists/${encodeURIComponent(id)}`;
+              const updated = formatDateMaybe(r.updated_at) ?? formatDateMaybe(r.created_at);
 
               return (
                 <Link
                   key={id}
-                  href={href}
+                  href={`/lists/${encodeURIComponent(id)}`}
                   className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
-                      {ownerName ? (
-                        <div className="mt-1 text-xs text-zinc-500">
-                          by <span className="font-semibold">{ownerName}</span>
-                        </div>
-                      ) : null}
+
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {ownerName ? (
+                          <>
+                            by <span className="font-semibold">{ownerName}</span>
+                          </>
+                        ) : (
+                          <span>by unknown</span>
+                        )}
+                        {updated ? <span className="ml-2">• Updated {updated}</span> : null}
+                      </div>
                     </div>
+
                     <div className="shrink-0 rounded-full border border-black/[.08] px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.14] dark:text-zinc-200">
-                      {count} items
+                      {count} {count === 1 ? "set" : "sets"}
                     </div>
                   </div>
 
-                  {r.description ? (
-                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">
-                      {String(r.description)}
-                    </p>
+                  {r.description?.trim() ? (
+                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{r.description}</p>
                   ) : (
                     <p className="mt-3 text-sm text-zinc-500">View list →</p>
                   )}
