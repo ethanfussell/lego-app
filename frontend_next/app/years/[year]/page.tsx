@@ -7,6 +7,8 @@ import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
+export const revalidate = 3600;
+
 type JsonLdObject = Record<string, unknown>;
 
 function siteBase() {
@@ -139,7 +141,10 @@ async function fetchSetsByYear(year: number, page: number, limit: number) {
   params.set("limit", String(limit));
 
   const url = new URL(`/api/sets?${params.toString()}`, siteBase()).toString();
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, {
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 },
+  });
   if (!res.ok) return { rows: [] as SetSummary[], totalCount: null as number | null };
 
   const data: unknown = await res.json();
