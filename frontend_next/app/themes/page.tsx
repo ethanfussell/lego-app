@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
 
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 type JsonLdObject = Record<string, unknown>;
