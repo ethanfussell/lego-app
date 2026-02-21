@@ -2,7 +2,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import ListDetailClient from "./ListDetailClient";
 import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
@@ -277,11 +276,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
       ) : (
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
       )}
-
-      {/* Client: logged-in enhancements */}
-      <div className="mt-10">
-        <ListDetailClient listId={normalized} initialDetail={d} initialSets={sets} />
-      </div>
     </div>
   );
 }
