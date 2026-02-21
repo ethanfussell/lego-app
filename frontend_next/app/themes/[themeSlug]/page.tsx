@@ -152,6 +152,7 @@ async function fetchThemeSetsWithCount(args: {
   return { kind: "ok", rows, totalCount };
 }
 
+export const dynamic = "force-static";
 export const revalidate = 3600;
 
 export default async function ThemeSetsPage({
