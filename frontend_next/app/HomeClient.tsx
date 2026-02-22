@@ -1,10 +1,11 @@
 // frontend_next/app/HomeClient.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { isRecord } from "@/lib/types";
+import { FEATURED_LISTS } from "@/lib/featuredLists";
 
 type PublicList = {
   id: string | number;
@@ -76,6 +77,14 @@ function RowNav({
   );
 }
 
+function FeaturedBadge() {
+  return (
+    <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-extrabold text-amber-700 dark:text-amber-300">
+      Featured
+    </span>
+  );
+}
+
 export default function HomeClient() {
   const dealsRowRef = useRef<HTMLDivElement | null>(null);
   const retiringRowRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +93,10 @@ export default function HomeClient() {
   const [loadingLists, setLoadingLists] = useState(false);
   const [listsErr, setListsErr] = useState<string>("");
 
-  function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {    if (!ref.current) return;
+  const featuredIds = useMemo(() => new Set((FEATURED_LISTS || []).map((x) => String(x.id))), []);
+
+  function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {
+    if (!ref.current) return;
     const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction; // ~2 cards at a time
     ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
   }
@@ -106,7 +118,10 @@ export default function HomeClient() {
             ? (data.results as PublicList[])
             : [];
 
-        if (!cancelled) setLists(arr.slice(0, 6));
+        // Avoid duplicating featured lists in the "Popular public lists" section
+        const filtered = arr.filter((x) => !featuredIds.has(String(x.id)));
+
+        if (!cancelled) setLists(filtered.slice(0, 6));
       } catch (e: unknown) {
         if (!cancelled) setListsErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -118,7 +133,7 @@ export default function HomeClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [featuredIds]);
 
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16">
@@ -147,6 +162,63 @@ export default function HomeClient() {
           </Link>
         </div>
       </section>
+
+      {/* FEATURED LISTS (Task 8 + Task 9) */}
+      {FEATURED_LISTS?.length ? (
+        <section className="mt-10 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="m-0 text-lg font-semibold">Featured lists</h2>
+                <FeaturedBadge />
+              </div>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Curated picks to explore.</p>
+            </div>
+
+            <Link href="/lists/public" className="text-sm font-semibold hover:underline">
+              Browse all lists →
+            </Link>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURED_LISTS.slice(0, 10).map((f) => {
+              const id = String(f.id);
+              const title = (f.title && String(f.title).trim()) || `List #${id}`;
+              const desc = (f.description && String(f.description).trim()) || "";
+              const owner = (f.owner && String(f.owner).trim()) || "";
+
+              return (
+                <Link
+                  key={id}
+                  href={`/lists/${encodeURIComponent(id)}`}
+                  className="block rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+                      {owner ? (
+                        <div className="mt-1 text-xs text-zinc-500">
+                          by <span className="font-semibold">{owner}</span>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="shrink-0">
+                      <FeaturedBadge />
+                    </div>
+                  </div>
+
+                  {desc ? (
+                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{desc}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {/* FEATURED */}
       <section className="mt-10">
