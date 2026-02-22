@@ -48,13 +48,8 @@ type PublicListRow = {
 
 type ApiResp = {
   results?: unknown;
-  total?: unknown;
   total_pages?: unknown;
   page?: unknown;
-  limit?: unknown;
-  sort?: unknown;
-  owner?: unknown;
-  q?: unknown;
 };
 
 function first(sp: SearchParams, key: string): string {
@@ -84,6 +79,14 @@ function toRows(x: unknown): PublicListRow[] {
     return Array.isArray(r) ? r.filter(isPublicListRow) : [];
   }
   return [];
+}
+
+function FeaturedBadge() {
+  return (
+    <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-extrabold text-amber-700 dark:text-amber-300">
+      Featured
+    </span>
+  );
 }
 
 async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortKey; page: number }) {
@@ -131,6 +134,9 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
 
   const r = await fetchPublicListsSSR({ owner: initialOwner, q: initialQ, sort: initialSort, page: initialPage });
 
+  // Only show the featured block when not filtering (so it doesn't look "broken")
+  const showFeatured = !initialOwner && !initialQ && initialPage === 1;
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
@@ -138,30 +144,55 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
       </div>
 
-      {/* Featured chips (optional) */}
-      <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="m-0 text-lg font-semibold">Featured lists</h2>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Curated picks to explore.</p>
-          </div>
-          <Link href="/discover" className="text-sm font-semibold hover:underline">
-            Discover sets →
-          </Link>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {FEATURED_LISTS.map(({ id }) => (
-            <Link
-              key={id}
-              href={`/lists/${id}`}
-              className="inline-flex items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              Featured #{id} →
+      {/* Featured section (Task 8 + Task 9) */}
+      {showFeatured && FEATURED_LISTS?.length ? (
+        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="m-0 text-lg font-semibold">Featured lists</h2>
+                <FeaturedBadge />
+              </div>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Curated picks to explore.</p>
+            </div>
+            <Link href="/discover" className="text-sm font-semibold hover:underline">
+              Discover sets →
             </Link>
-          ))}
-        </div>
-      </section>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURED_LISTS.slice(0, 10).map((f) => {
+            const id = String(f.id);
+            const title = (f.title && String(f.title).trim()) || `List #${id}`;
+
+            return (
+              <Link
+                key={id}
+                href={`/lists/${encodeURIComponent(id)}`}
+                className="block rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+
+                    {/* optional subtitle if your FeaturedList type includes it */}
+                    {"subtitle" in f && typeof (f as any).subtitle === "string" && (f as any).subtitle.trim() ? (
+                      <div className="mt-1 text-xs text-zinc-500">{String((f as any).subtitle).trim()}</div>
+                    ) : null}
+                  </div>
+
+                  <div className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                    Featured
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm text-zinc-500">View list →</p>
+              </Link>
+            );
+          })}
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-10">
         <Suspense fallback={<p className="mt-6 text-sm text-zinc-500">Loading lists…</p>}>
