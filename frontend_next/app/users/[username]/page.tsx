@@ -9,161 +9,223 @@ type PublicUser = {
   username: string;
 };
 
-type PublicList = {
+type PublicListRow = {
   id: number;
   title: string;
-  description?: string | null;
-  items_count?: number;
-  owner?: string;
+  description: string | null;
+  owner: string;
+  items_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
-
-type PromiseLikeValue<T> = {
-  then: (onFulfilled: (value: T) => unknown) => unknown;
-};
-function isPromiseLike<T>(v: unknown): v is PromiseLikeValue<T> {
-  return typeof v === "object" && v !== null && "then" in v && typeof (v as { then?: unknown }).then === "function";
-}
-async function unwrap<T>(p: T | Promise<T>): Promise<T> {
-  return isPromiseLike<T>(p) ? await (p as Promise<T>) : (p as T);
-}
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 function siteBase() {
+  // MUST be absolute for SSR fetch during prerender
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+type Params = { username: string };
+
+function normalizeUsername(raw: string): string | null {
+  const decoded = decodeURIComponent(String(raw || "")).trim();
+  if (!decoded) return null;
+
+  // Keep this simple + safe for URLs/caching.
+  // Adjust if your usernames allow hyphens, etc.
+  if (!/^[A-Za-z0-9_]{2,30}$/.test(decoded)) return null;
+
+  return decoded;
 }
 
-function isPublicUser(x: unknown): x is PublicUser {
-  if (typeof x !== "object" || x === null) return false;
-  const u = x as { id?: unknown; username?: unknown };
-  return typeof u.id === "number" && typeof u.username === "string" && u.username.trim() !== "";
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isPublicList(x: unknown): x is PublicList {
-  if (typeof x !== "object" || x === null) return false;
-  const l = x as { id?: unknown; title?: unknown };
-  return typeof l.id === "number" && typeof l.title === "string" && l.title.trim() !== "";
+function coerceUser(x: unknown): PublicUser | null {
+  if (!isRecord(x)) return null;
+  const id = x.id;
+  const username = x.username;
+
+  if (typeof id !== "number" || !Number.isFinite(id)) return null;
+  if (typeof username !== "string" || !username.trim()) return null;
+
+  return { id, username: username.trim() };
 }
 
-const fetchUser = cache(async (username: string): Promise<PublicUser | null> => {
-  const url = `${apiBase()}/users/${encodeURIComponent(username)}`;
-  const res = await fetch(url, { cache: "no-store" });
+function coercePublicLists(x: unknown): PublicListRow[] {
+  // your /api/lists/public can be either [] or { results: [] }
+  const arr = Array.isArray(x)
+    ? x
+    : isRecord(x) && Array.isArray((x as any).results)
+      ? ((x as any).results as unknown[])
+      : [];
+
+  const out: PublicListRow[] = [];
+  for (const it of arr) {
+    if (!isRecord(it)) continue;
+    const id = it.id;
+    const title = it.title;
+    const owner = it.owner;
+
+    if (typeof id !== "number" || !Number.isFinite(id)) continue;
+    if (typeof title !== "string" || !title.trim()) continue;
+    if (typeof owner !== "string" || !owner.trim()) continue;
+
+    out.push({
+      id,
+      title: title.trim(),
+      description: typeof it.description === "string" ? it.description : it.description == null ? null : String(it.description),
+      owner: owner.trim(),
+      items_count: typeof it.items_count === "number" && Number.isFinite(it.items_count) ? Math.floor(it.items_count) : 0,
+      created_at: typeof it.created_at === "string" ? it.created_at : null,
+      updated_at: typeof it.updated_at === "string" ? it.updated_at : null,
+    });
+  }
+  return out;
+}
+
+const fetchUserSSR = cache(async (username: string): Promise<PublicUser | null> => {
+  const url = new URL(`/api/users/${encodeURIComponent(username)}`, siteBase()).toString();
+  const res = await fetch(url, { next: { revalidate } });
 
   if (res.status === 404) return null;
   if (!res.ok) return null;
 
-  const data: unknown = await res.json();
-  return isPublicUser(data) ? data : null;
+  const data: unknown = await res.json().catch(() => null);
+  return coerceUser(data);
 });
 
-const fetchUserLists = cache(async (username: string): Promise<PublicList[]> => {
-  const url = `${apiBase()}/users/${encodeURIComponent(username)}/lists`;
-  const res = await fetch(url, { cache: "no-store" });
+const fetchPublicListsByOwnerSSR = cache(async (username: string): Promise<PublicListRow[]> => {
+  // Use your existing public lists endpoint so this is guaranteed public + crawlable
+  const qs = new URLSearchParams();
+  qs.set("owner", username);
+  qs.set("sort", "updated_desc");
+  qs.set("page", "1");
 
+  const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
+  const res = await fetch(url, { next: { revalidate } });
   if (!res.ok) return [];
 
-  const data: unknown = await res.json();
-  if (!Array.isArray(data)) return [];
-  return data.filter(isPublicList);
+  const data: unknown = await res.json().catch(() => null);
+  return coercePublicLists(data);
 });
 
 export async function generateMetadata({
   params,
 }: {
-  params: { username: string } | Promise<{ username: string }>;
+  params: Params | Promise<Params>;
 }): Promise<Metadata> {
-  const { username } = await unwrap(params);
-  const decoded = decodeURIComponent(username);
+  const p = await Promise.resolve(params);
+  const normalized = normalizeUsername(p.username);
 
-  // If the user doesn't exist, return a "noindex" metadata set (and the page will 404 via notFound()).
-  const user = await fetchUser(decoded);
+  // If invalid, keep metadata sane; page will 404.
+  const safe = normalized ?? "user";
+  const canonicalPath = `/users/${encodeURIComponent(safe)}`;
 
-  const canonical = `/users/${encodeURIComponent(decoded)}`;
+  // We *can* try to fetch to personalize the title/desc; if not found we’ll noindex.
+  const user = normalized ? await fetchUserSSR(normalized) : null;
 
-  if (!user) {
+  if (!normalized || !user) {
     const title = "User not found";
-    const description = `No public profile for @${decoded}.`;
+    const description = `No public profile for @${safe}.`;
     return {
       title,
       description,
       metadataBase: new URL(siteBase()),
-      alternates: { canonical },
+      alternates: { canonical: canonicalPath },
       robots: { index: false, follow: false },
-      openGraph: { title, description, url: canonical, type: "website" },
+      openGraph: { title, description, url: canonicalPath, type: "website" },
       twitter: { card: "summary", title, description },
     };
   }
 
-  const title = `@${user.username}`;
+  const title = `@${user.username} | ${SITE_NAME}`;
   const description = `Public profile for @${user.username} on ${SITE_NAME}.`;
 
   return {
     title,
     description,
     metadataBase: new URL(siteBase()),
-    alternates: { canonical },
-    openGraph: {
-      title,
-      description,
-      url: canonical,
-      type: "profile",
-    },
-    twitter: {
-      card: "summary",
-      title,
-      description,
-    },
+    alternates: { canonical: canonicalPath },
+    openGraph: { title, description, url: canonicalPath, type: "profile" },
+    twitter: { card: "summary", title, description },
   };
 }
 
-export default async function UserPage({
+export default async function Page({
   params,
 }: {
-  params: { username: string } | Promise<{ username: string }>;
+  params: Params | Promise<Params>;
 }) {
-  const { username } = await unwrap(params);
-  const decoded = decodeURIComponent(username);
+  const p = await Promise.resolve(params);
+  const username = normalizeUsername(p.username);
+  if (!username) notFound();
 
-  const [user, lists] = await Promise.all([fetchUser(decoded), fetchUserLists(decoded)]);
+  const [user, lists] = await Promise.all([
+    fetchUserSSR(username),
+    fetchPublicListsByOwnerSSR(username),
+  ]);
 
-  // ✅ KEY FIX: real 404 status (instead of a "User not found" page with HTTP 200)
   if (!user) notFound();
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <div className="mb-6">
-        <div className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">{SITE_NAME}</div>
+    <div className="mx-auto w-full max-w-5xl px-6 pb-16">
+      <div className="pt-10">
+        <div className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">
+          {SITE_NAME}
+        </div>
+
         <h1 className="mt-2 text-3xl font-bold">@{user.username}</h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">Public lists (newest first)</p>
+
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Public lists by this user
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href="/lists/public"
+            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          >
+            Browse public lists
+          </Link>
+        </div>
       </div>
 
       {lists.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">No public lists yet.</p>
+        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No public lists yet.</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="mt-8 space-y-3">
           {lists.map((l) => (
             <li
               key={l.id}
-              className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-black"
+              className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
             >
-              <div className="flex items-center justify-between gap-4">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <Link
                     href={`/lists/${encodeURIComponent(String(l.id))}`}
-                    className="text-lg font-semibold hover:underline"
+                    className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
                   >
                     {l.title}
                   </Link>
-                  {l.description ? <p className="mt-1 text-zinc-600 dark:text-zinc-400">{l.description}</p> : null}
+
+                  {l.description ? (
+                    <p className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
+                      {l.description}
+                    </p>
+                  ) : null}
+
+                  <div className="mt-2 text-xs text-zinc-500">
+                    {l.items_count} set{l.items_count === 1 ? "" : "s"}
+                  </div>
                 </div>
 
-                {typeof l.items_count === "number" ? (
-                  <div className="text-sm text-zinc-600 dark:text-zinc-400">{l.items_count} items</div>
-                ) : null}
+                <div className="shrink-0 text-sm font-semibold">→</div>
               </div>
             </li>
           ))}
