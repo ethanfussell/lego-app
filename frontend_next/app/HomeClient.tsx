@@ -1,7 +1,7 @@
 // frontend_next/app/HomeClient.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { isRecord } from "@/lib/types";
@@ -9,13 +9,15 @@ import { FEATURED_LISTS } from "@/lib/featuredLists";
 
 type PublicList = {
   id: string | number;
-  title?: string;
-  name?: string;
-  description?: string;
-  items_count?: number;
-  owner?: string;
-  owner_username?: string;
-  username?: string;
+  title?: string | null;
+  name?: string | null;
+  description?: string | null;
+  items_count?: number | null;
+  owner?: string | null;
+  owner_username?: string | null;
+  username?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 };
 
 const CARD_MIN_WIDTH = 220;
@@ -85,6 +87,26 @@ function RowNav({
   );
 }
 
+function pickTitle(l: PublicList): string {
+  const t = (l.title ?? l.name ?? "").toString().trim();
+  return t || `List #${String(l.id)}`;
+}
+
+function pickOwner(l: PublicList): string {
+  return String(l.owner ?? l.owner_username ?? l.username ?? "").trim();
+}
+
+function pickCount(l: PublicList): number {
+  const n = Number(l.items_count ?? 0);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function mergeFeaturedOverrides(detail: PublicList, f: { id: number; title?: string }): PublicList {
+  const overrideTitle = typeof f.title === "string" ? f.title.trim() : "";
+  if (overrideTitle) return { ...detail, title: overrideTitle };
+  return detail;
+}
+
 export default function HomeClient() {
   const dealsRowRef = useRef<HTMLDivElement | null>(null);
   const retiringRowRef = useRef<HTMLDivElement | null>(null);
@@ -93,11 +115,67 @@ export default function HomeClient() {
   const [loadingLists, setLoadingLists] = useState(false);
   const [listsErr, setListsErr] = useState<string>("");
 
+  const [featured, setFeatured] = useState<PublicList[]>([]);
+  const [loadingFeatured, setLoadingFeatured] = useState(false);
+
   function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {
     if (!ref.current) return;
     const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction; // ~2 cards at a time
     ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
   }
+
+  // Load featured list details (client-side)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFeatured() {
+      if (!Array.isArray(FEATURED_LISTS) || FEATURED_LISTS.length === 0) return;
+
+      try {
+        setLoadingFeatured(true);
+
+        const results = await Promise.all(
+          FEATURED_LISTS.slice(0, 12).map(async (f) => {
+            const id = String(f.id);
+            const res = await fetch(`/api/lists/${encodeURIComponent(id)}`, { cache: "no-store" });
+            if (!res.ok) return null;
+
+            const data: unknown = await res.json().catch(() => null);
+            if (!isRecord(data)) return null;
+
+            // normalize minimal fields
+            const detail: PublicList = {
+              id: (data as any).id ?? f.id,
+              title: typeof (data as any).title === "string" ? (data as any).title : null,
+              description: typeof (data as any).description === "string" ? (data as any).description : null,
+              items_count: typeof (data as any).items_count === "number" ? (data as any).items_count : null,
+              owner: typeof (data as any).owner === "string" ? (data as any).owner : null,
+              owner_username:
+                typeof (data as any).owner_username === "string" ? (data as any).owner_username : null,
+              updated_at: typeof (data as any).updated_at === "string" ? (data as any).updated_at : null,
+              created_at: typeof (data as any).created_at === "string" ? (data as any).created_at : null,
+            };
+
+            return mergeFeaturedOverrides(detail, f);
+          })
+        );
+
+        if (cancelled) return;
+
+        const cleaned = results.filter((x): x is PublicList => !!x);
+        setFeatured(cleaned);
+      } catch {
+        if (!cancelled) setFeatured([]);
+      } finally {
+        if (!cancelled) setLoadingFeatured(false);
+      }
+    }
+
+    void loadFeatured();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load popular public lists (client-side)
   useEffect(() => {
@@ -112,8 +190,8 @@ export default function HomeClient() {
 
         const arr: PublicList[] = Array.isArray(data)
           ? (data as PublicList[])
-          : isRecord(data) && Array.isArray(data.results)
-            ? (data.results as PublicList[])
+          : isRecord(data) && Array.isArray((data as any).results)
+            ? ((data as any).results as PublicList[])
             : [];
 
         if (!cancelled) setLists(arr.slice(0, 6));
@@ -129,6 +207,8 @@ export default function HomeClient() {
       cancelled = true;
     };
   }, []);
+
+  const featuredById = useMemo(() => new Set(featured.map((x) => String(x.id))), [featured]);
 
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16">
@@ -159,7 +239,7 @@ export default function HomeClient() {
       </section>
 
       {/* FEATURED LISTS */}
-      {FEATURED_LISTS?.length ? (
+      {Array.isArray(FEATURED_LISTS) && FEATURED_LISTS.length > 0 ? (
         <section className="mt-10">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -174,29 +254,57 @@ export default function HomeClient() {
             </Link>
           </div>
 
+          {loadingFeatured ? <p className="mt-4 text-sm text-zinc-500">Loading featured…</p> : null}
+
           <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
-            {FEATURED_LISTS.slice(0, 10).map((f) => {
-              const id = String((f as any).id);
-              const title = (typeof (f as any).title === "string" && (f as any).title.trim()) || `List #${id}`;
+            {(featured.length ? featured : FEATURED_LISTS.slice(0, 10).map((f) => ({ id: f.id, title: f.title } as PublicList))).map(
+              (l) => {
+                const id = String(l.id);
+                const title = pickTitle(l);
+                const owner = pickOwner(l);
+                const count = pickCount(l);
+                const desc = String(l.description ?? "").trim();
 
-              return (
-                <Link
-                  key={id}
-                  href={`/lists/${encodeURIComponent(id)}`}
-                  className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Featured community list</div>
+                return (
+                  <Link
+                    key={id}
+                    href={`/lists/${encodeURIComponent(id)}`}
+                    className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
+
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {owner ? (
+                            <>
+                              by{" "}
+                              <Link
+                                href={`/users/${encodeURIComponent(owner)}`}
+                                className="font-semibold hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {owner}
+                              </Link>
+                              <span className="mx-1">•</span>
+                            </>
+                          ) : null}
+                          {count} set{count === 1 ? "" : "s"}
+                        </div>
+                      </div>
+
+                      <FeaturedBadge />
                     </div>
-                    <FeaturedBadge />
-                  </div>
 
-                  <div className="mt-3 text-sm text-zinc-500">View list →</div>
-                </Link>
-              );
-            })}
+                    {desc ? (
+                      <div className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{desc}</div>
+                    ) : (
+                      <div className="mt-2 text-sm text-zinc-500">View list →</div>
+                    )}
+                  </Link>
+                );
+              }
+            )}
           </div>
         </section>
       ) : null}
@@ -225,12 +333,7 @@ export default function HomeClient() {
             </p>
           </div>
 
-          <RowNav
-            onLeft={() => scrollRow(dealsRowRef, -1)}
-            onRight={() => scrollRow(dealsRowRef, 1)}
-            href="/sale"
-            hrefLabel="View all deals →"
-          />
+          <RowNav onLeft={() => scrollRow(dealsRowRef, -1)} onRight={() => scrollRow(dealsRowRef, 1)} href="/sale" hrefLabel="View all deals →" />
         </div>
 
         <div ref={dealsRowRef} className="mt-4 flex gap-4 overflow-x-auto pb-2" style={{ scrollSnapType: "x mandatory" }}>
@@ -245,24 +348,13 @@ export default function HomeClient() {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
             <h2 className="m-0 text-lg font-semibold">⏰ Retiring soon</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Great for urgency / FOMO and “last chance” buttons with affiliate links.
-            </p>
+            <p className="mt-1 text-sm text-zinc-500">Great for urgency / FOMO and “last chance” buttons with affiliate links.</p>
           </div>
 
-          <RowNav
-            onLeft={() => scrollRow(retiringRowRef, -1)}
-            onRight={() => scrollRow(retiringRowRef, 1)}
-            href="/retiring-soon"
-            hrefLabel="View retiring →"
-          />
+          <RowNav onLeft={() => scrollRow(retiringRowRef, -1)} onRight={() => scrollRow(retiringRowRef, 1)} href="/retiring-soon" hrefLabel="View retiring →" />
         </div>
 
-        <div
-          ref={retiringRowRef}
-          className="mt-4 flex gap-4 overflow-x-auto pb-2"
-          style={{ scrollSnapType: "x mandatory" }}
-        >
+        <div ref={retiringRowRef} className="mt-4 flex gap-4 overflow-x-auto pb-2" style={{ scrollSnapType: "x mandatory" }}>
           {[1, 2, 3, 4, 5].map((n) => (
             <PlaceholderSetCard key={n} />
           ))}
@@ -291,33 +383,46 @@ export default function HomeClient() {
           {listsErr ? <p className="mt-4 text-sm text-red-600">Error: {listsErr}</p> : null}
 
           {!loadingLists && !listsErr && lists.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-500">
-              No public lists yet. Once you create some and mark them public, they’ll show up here.
-            </p>
+            <p className="mt-4 text-sm text-zinc-500">No public lists yet. Once you create some and mark them public, they’ll show up here.</p>
           ) : null}
 
           {!loadingLists && !listsErr && lists.length > 0 ? (
             <div className="mt-4 grid gap-3">
               {lists.map((list) => {
-                const id = list.id;
-                const title = list.title || list.name || "Untitled list";
-                const owner = list.owner || list.owner_username || list.username || "unknown";
-                const count = Number(list.items_count ?? 0);
+                const id = String(list.id);
+                const title = pickTitle(list);
+                const owner = pickOwner(list) || "unknown";
+                const count = pickCount(list);
+
+                const isFeatured = featuredById.has(id);
 
                 return (
                   <Link
-                    key={String(id)}
-                    href={`/lists/${encodeURIComponent(String(id))}`}
+                    key={id}
+                    href={`/lists/${encodeURIComponent(id)}`}
                     className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
                   >
-                    <div className="font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
-                    {list.description ? (
-                      <div className="mt-1 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
-                        {list.description}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
+                        {list.description ? (
+                          <div className="mt-1 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
+                            {String(list.description)}
+                          </div>
+                        ) : null}
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {count} set{count === 1 ? "" : "s"} · by{" "}
+                          <Link
+                            href={`/users/${encodeURIComponent(owner)}`}
+                            className="font-semibold hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {owner}
+                          </Link>
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="mt-2 text-xs text-zinc-500">
-                      {count} sets · by <span className="font-semibold">{owner}</span>
+
+                      {isFeatured ? <FeaturedBadge /> : null}
                     </div>
                   </Link>
                 );

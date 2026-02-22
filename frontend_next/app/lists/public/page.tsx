@@ -89,6 +89,48 @@ function FeaturedBadge() {
   );
 }
 
+function pickCount(l: { items_count?: number | null }) {
+  const n = Number(l.items_count ?? 0);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+async function fetchFeaturedListsSSR(): Promise<PublicListRow[]> {
+  if (!Array.isArray(FEATURED_LISTS) || FEATURED_LISTS.length === 0) return [];
+
+  const results = await Promise.all(
+    FEATURED_LISTS.slice(0, 12).map(async (f) => {
+      const id = String(f.id);
+      const url = new URL(`/api/lists/${encodeURIComponent(id)}`, siteBase()).toString();
+
+      const res = await fetch(url, { next: { revalidate } });
+      if (!res.ok) return null;
+
+      const data: any = await res.json().catch(() => null);
+      if (!data || typeof data !== "object") return null;
+
+      const row: PublicListRow = {
+        id: typeof data.id === "number" ? data.id : Number(f.id),
+        title: typeof data.title === "string" ? data.title : `List #${id}`,
+        description: typeof data.description === "string" ? data.description : null,
+        owner:
+          (typeof data.owner_username === "string" && data.owner_username) ||
+          (typeof data.owner === "string" && data.owner) ||
+          "unknown",
+        items_count: typeof data.items_count === "number" ? data.items_count : 0,
+        created_at: typeof data.created_at === "string" ? data.created_at : null,
+        updated_at: typeof data.updated_at === "string" ? data.updated_at : null,
+      };
+
+      // Optional title override from FEATURED_LISTS
+      if (typeof f.title === "string" && f.title.trim()) row.title = f.title.trim();
+
+      return row;
+    })
+  );
+
+  return results.filter((x): x is PublicListRow => !!x);
+}
+
 async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortKey; page: number }) {
   const qs = new URLSearchParams();
   if (opts.owner) qs.set("owner", opts.owner);
@@ -132,10 +174,13 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
   const initialSort = parseSort(first(sp, "sort") || "updated_desc");
   const initialPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
 
-  const r = await fetchPublicListsSSR({ owner: initialOwner, q: initialQ, sort: initialSort, page: initialPage });
+  const [r, featured] = await Promise.all([
+    fetchPublicListsSSR({ owner: initialOwner, q: initialQ, sort: initialSort, page: initialPage }),
+    // Only load featured when not filtering (so it doesn't look "broken")
+    !initialOwner && !initialQ && initialPage === 1 ? fetchFeaturedListsSSR() : Promise.resolve([] as PublicListRow[]),
+  ]);
 
-  // Only show the featured block when not filtering (so it doesn't look "broken")
-  const showFeatured = !initialOwner && !initialQ && initialPage === 1;
+  const showFeatured = featured.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -145,7 +190,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
       </div>
 
       {/* Featured section (Task 8 + Task 9) */}
-      {showFeatured && FEATURED_LISTS?.length ? (
+      {showFeatured ? (
         <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -161,35 +206,44 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURED_LISTS.slice(0, 10).map((f) => {
-            const id = String(f.id);
-            const title = (f.title && String(f.title).trim()) || `List #${id}`;
+            {featured.map((l) => {
+              const id = String(l.id);
+              const count = pickCount(l);
 
-            return (
-              <Link
-                key={id}
-                href={`/lists/${encodeURIComponent(id)}`}
-                className="block rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+              return (
+                <Link
+                  key={id}
+                  href={`/lists/${encodeURIComponent(id)}`}
+                  className="block rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{l.title}</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        by{" "}
+                        <Link
+                          href={`/users/${encodeURIComponent(l.owner)}`}
+                          className="font-semibold hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {l.owner}
+                        </Link>
+                        <span className="mx-1">•</span>
+                        {count} set{count === 1 ? "" : "s"}
+                      </div>
+                    </div>
 
-                    {/* optional subtitle if your FeaturedList type includes it */}
-                    {"subtitle" in f && typeof (f as any).subtitle === "string" && (f as any).subtitle.trim() ? (
-                      <div className="mt-1 text-xs text-zinc-500">{String((f as any).subtitle).trim()}</div>
-                    ) : null}
+                    <FeaturedBadge />
                   </div>
 
-                  <div className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                    Featured
-                  </div>
-                </div>
-
-                <p className="mt-3 text-sm text-zinc-500">View list →</p>
-              </Link>
-            );
-          })}
+                  {l.description ? (
+                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </section>
       ) : null}
