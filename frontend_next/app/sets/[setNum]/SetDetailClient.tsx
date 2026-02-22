@@ -14,6 +14,12 @@ import OffersSection from "@/app/components/OffersSection";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
 
+function normalizeUsername(raw: unknown): string | null {
+  const u = String(raw ?? "").trim();
+  if (!u) return null;
+  // keep permissive; your route handles decode
+  return u;
+}
 
 type ReviewItem = {
   id: number;
@@ -848,10 +854,26 @@ export default function SetDetailClient(props: Props) {
                   className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">{r.user}</span>
-                      {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
-                    </div>
+                  <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {(() => {
+                      const u = normalizeUsername(r.user);
+                      if (!u) {
+                        return (
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>
+                        );
+                      }
+
+                      return (
+                        <Link
+                          href={`/users/${encodeURIComponent(u)}`}
+                          className="font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
+                        >
+                          {u}
+                        </Link>
+                      );
+                    })()}
+                    {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
+                  </div>
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
