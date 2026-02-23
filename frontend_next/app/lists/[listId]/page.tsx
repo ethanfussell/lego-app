@@ -24,9 +24,14 @@ function normalizeListId(raw: string): string | null {
 
   const n = Number(decoded);
   if (!Number.isSafeInteger(n) || n <= 0) return null;
-  if (n > 2147483647) return null; // keep strict for now
+  if (n > 2147483647) return null;
 
   return decoded;
+}
+
+function normalizeUsername(raw: unknown): string | null {
+  const u = String(raw ?? "").trim();
+  return u ? u : null;
 }
 
 type ListDetail = {
@@ -52,45 +57,80 @@ type SetLite = {
   image_url?: string | null;
 };
 
+type PublicListRow = {
+  id: number;
+  title: string;
+  description: string | null;
+  owner: string;
+  items_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type ApiResp = { results?: unknown; total_pages?: unknown; page?: unknown };
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isPublicListRow(x: unknown): x is PublicListRow {
+  if (!isRecord(x)) return false;
+  const o = x as any;
+  return (
+    typeof o.id === "number" &&
+    Number.isFinite(o.id) &&
+    typeof o.title === "string" &&
+    typeof o.owner === "string"
+  );
+}
+
+function toRows(x: unknown): PublicListRow[] {
+  if (Array.isArray(x)) return x.filter(isPublicListRow);
+  if (isRecord(x) && Array.isArray((x as any).results)) return ((x as any).results as unknown[]).filter(isPublicListRow);
+  return [];
 }
 
 function coerceListDetail(x: unknown): ListDetail | null {
   if (!isRecord(x)) return null;
 
-  const id = x.id;
+  const id = (x as any).id;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
 
-  const title = typeof x.title === "string" ? x.title : x.title == null ? null : String(x.title);
+  const title = typeof (x as any).title === "string" ? (x as any).title : (x as any).title == null ? null : String((x as any).title);
   const description =
-    typeof x.description === "string" ? x.description : x.description == null ? null : String(x.description);
-
-  const is_public = typeof x.is_public === "boolean" ? x.is_public : false;
-
-  const owner = typeof x.owner === "string" ? x.owner : x.owner == null ? null : String(x.owner);
-  const owner_username =
-    typeof x.owner_username === "string"
-      ? x.owner_username
-      : x.owner_username == null
+    typeof (x as any).description === "string"
+      ? (x as any).description
+      : (x as any).description == null
         ? null
-        : String(x.owner_username);
+        : String((x as any).description);
+
+  const is_public = typeof (x as any).is_public === "boolean" ? (x as any).is_public : false;
+
+  const owner = typeof (x as any).owner === "string" ? (x as any).owner : (x as any).owner == null ? null : String((x as any).owner);
+  const owner_username =
+    typeof (x as any).owner_username === "string"
+      ? (x as any).owner_username
+      : (x as any).owner_username == null
+        ? null
+        : String((x as any).owner_username);
 
   const items_count =
-    typeof x.items_count === "number" && Number.isFinite(x.items_count) ? Math.floor(x.items_count) : null;
+    typeof (x as any).items_count === "number" && Number.isFinite((x as any).items_count)
+      ? Math.floor((x as any).items_count)
+      : null;
 
-  const created_at = typeof x.created_at === "string" ? x.created_at : null;
-  const updated_at = typeof x.updated_at === "string" ? x.updated_at : null;
+  const created_at = typeof (x as any).created_at === "string" ? (x as any).created_at : null;
+  const updated_at = typeof (x as any).updated_at === "string" ? (x as any).updated_at : null;
 
-  const items = Array.isArray(x.items)
-    ? (x.items as unknown[])
+  const items = Array.isArray((x as any).items)
+    ? ((x as any).items as unknown[])
         .filter(isRecord)
         .map((it) => ({ set_num: String((it as any).set_num || "") }))
         .filter((it) => it.set_num.trim().length > 0)
     : null;
 
-  const set_nums = Array.isArray(x.set_nums)
-    ? (x.set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean)
+  const set_nums = Array.isArray((x as any).set_nums)
+    ? ((x as any).set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean)
     : null;
 
   return {
@@ -123,10 +163,7 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: { accept: "application/json" },
-      next: { revalidate },
-    });
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
   } catch {
     return "notfound";
   }
@@ -138,8 +175,6 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
   const data: unknown = await res.json().catch(() => null);
   const d = coerceListDetail(data);
   if (!d) return "notfound";
-
-  // Don’t index private lists
   if (!d.is_public) return "private";
 
   return d;
@@ -149,17 +184,14 @@ async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   const nums = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
 
-  const capped = nums.slice(0, 60); // SSR safety cap
+  const capped = nums.slice(0, 60);
 
   const params = new URLSearchParams();
   params.set("set_nums", capped.join(","));
 
   const url = `${apiBase()}/sets/bulk?${params.toString()}`;
 
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate },
-  });
+  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
@@ -213,7 +245,6 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
 function topCounts<T extends string | number>(items: T[], max = 3): Array<{ key: T; count: number }> {
   const m = new Map<T, number>();
   for (const it of items) m.set(it, (m.get(it) ?? 0) + 1);
-
   return Array.from(m.entries())
     .map(([key, count]) => ({ key, count }))
     .sort((a, b) => b.count - a.count)
@@ -222,6 +253,39 @@ function topCounts<T extends string | number>(items: T[], max = 3): Array<{ key:
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+/**
+ * Related lists (simple heuristic):
+ * - pick top theme from this list
+ * - query /api/lists/public?q=<theme>&sort=count_desc&page=1
+ * - filter out current list id
+ * - cap to 9 links
+ */
+async function fetchRelatedListsSSR(opts: { q: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
+  const q = String(opts.q || "").trim();
+  if (!q) return [];
+
+  const qs = new URLSearchParams();
+  qs.set("q", q);
+  qs.set("sort", "count_desc");
+  qs.set("page", "1");
+
+  const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
+
+  let res: Response;
+  try {
+    res = await fetch(url, { next: { revalidate } });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+
+  const data: ApiResp | unknown = await res.json().catch(() => null);
+  const rows = toRows(data);
+
+  const out = rows.filter((r) => r.id !== opts.excludeId);
+  return out.slice(0, Math.max(1, Math.min(12, opts.limit ?? 9)));
 }
 
 export default async function Page({ params }: { params: Params | Promise<Params> }) {
@@ -240,20 +304,20 @@ export default async function Page({ params }: { params: Params | Promise<Params
     sets.map((s) => String(s.theme ?? "").trim()).filter(isNonEmptyString),
     4
   );
-  
+
   const topYears = topCounts(
     sets.map((s) => (typeof s.year === "number" ? s.year : null)).filter((y): y is number => typeof y === "number"),
     3
   );
 
-  const ownerName = (d.owner_username || d.owner || "").trim();
+  const ownerName = normalizeUsername(d.owner_username || d.owner);
   const title = d.title?.trim() || `List #${d.id}`;
   const desc = d.description?.trim() || "";
 
-  const count =
-    typeof d.items_count === "number"
-      ? d.items_count
-      : setNums.length;
+  const count = typeof d.items_count === "number" ? d.items_count : setNums.length;
+
+  const relatedQuery = topThemes[0]?.key ? String(topThemes[0].key) : "";
+  const relatedLists = relatedQuery ? await fetchRelatedListsSSR({ q: relatedQuery, excludeId: d.id, limit: 9 }) : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -261,14 +325,19 @@ export default async function Page({ params }: { params: Params | Promise<Params
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold">{title}</h1>
+
             <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
               {count} set{count === 1 ? "" : "s"}
               {ownerName ? (
                 <span className="ml-2">
-                  • by <span className="font-semibold">{ownerName}</span>
+                  • by{" "}
+                  <Link href={`/users/${encodeURIComponent(ownerName)}`} className="font-semibold hover:underline">
+                    {ownerName}
+                  </Link>
                 </span>
               ) : null}
             </div>
+
             {desc ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{desc}</p> : null}
           </div>
 
@@ -290,12 +359,11 @@ export default async function Page({ params }: { params: Params | Promise<Params
       </div>
 
       {/* ✅ Internal links: lists → themes/years */}
-      {(topThemes.length > 0 || topYears.length > 0) ? (
+      {topThemes.length > 0 || topYears.length > 0 ? (
         <section className="mt-6 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <h2 className="m-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">Explore related pages</h2>
 
           <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            {/* Top themes */}
             <div className="min-w-0">
               <div className="text-xs font-semibold text-zinc-500">Top themes in this list</div>
               {topThemes.length === 0 ? (
@@ -316,7 +384,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
               )}
             </div>
 
-            {/* Top years */}
             <div className="min-w-0">
               <div className="text-xs font-semibold text-zinc-500">Top years in this list</div>
               {topYears.length === 0 ? (
@@ -340,6 +407,69 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </section>
       ) : null}
 
+      {/* ✅ Related lists (Task 13–15) */}
+      {relatedLists.length > 0 ? (
+        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="m-0 text-lg font-semibold">Related lists</h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Similar lists (based on theme: <span className="font-semibold">{relatedQuery}</span>).
+              </p>
+            </div>
+            <Link href="/lists/public" className="text-sm font-semibold hover:underline">
+              Browse all →
+            </Link>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {relatedLists.slice(0, 9).map((l) => {
+              const id = String(l.id);
+              const owner = normalizeUsername(l.owner) || "unknown";
+              const count = typeof l.items_count === "number" ? l.items_count : 0;
+
+              return (
+                <Link
+                  key={id}
+                  href={`/lists/${encodeURIComponent(id)}`}
+                  className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                        {l.title || `List #${id}`}
+                      </div>
+
+                      <div className="mt-1 text-xs text-zinc-500">
+                        by{" "}
+                        <Link
+                          href={`/users/${encodeURIComponent(owner)}`}
+                          className="font-semibold hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {owner}
+                        </Link>
+                        <span className="mx-2">•</span>
+                        {count} set{count === 1 ? "" : "s"}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-sm font-semibold">→</div>
+                  </div>
+
+                  {l.description ? (
+                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* ✅ Strong set links (Task 5) */}
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => (
@@ -369,14 +499,27 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     {typeof s.year === "number" ? (
                       <>
                         <span className="mx-1">•</span>
-                        <span className="font-semibold">{s.year}</span>
+                        <Link
+                          href={`/years/${s.year}`}
+                          className="font-semibold hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {s.year}
+                        </Link>
                       </>
                     ) : null}
                   </div>
 
                   {s.theme ? (
                     <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                      Theme: <span className="font-semibold">{s.theme}</span>
+                      Theme:{" "}
+                      <Link
+                        href={`/themes/${themeToSlug(String(s.theme))}`}
+                        className="font-semibold hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {s.theme}
+                      </Link>
                     </div>
                   ) : null}
                 </div>
@@ -387,8 +530,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
       ) : (
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
       )}
-
-      {/* Optional: later we can add an “Edit this list” button that routes to /collection or /account */}
     </div>
   );
 }
