@@ -264,11 +264,13 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const title = ownerName ? `${listTitle} by @${ownerName} | ${SITE_NAME}` : `${listTitle} | ${SITE_NAME}`;
 
   const desc = (d.description && d.description.trim()) || "";
-  const description =
-    desc ||
-    (ownerName
+  const fallback =
+    ownerName
       ? `Public LEGO list by @${ownerName}. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim()
-      : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim());
+      : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim();
+  
+  // If desc is too short, use the richer fallback
+  const description = desc.length >= 40 ? desc : (desc ? `${desc} — ${fallback}` : fallback);
 
   return {
     title,
