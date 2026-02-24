@@ -30,15 +30,17 @@ function isRecord(v: unknown): v is UnknownRecord {
 
 function pickArrayOrResults(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
-  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
+  if (isRecord(data) && Array.isArray((data as any).results)) return (data as any).results as unknown[];
   return [];
 }
 
-// --- NEW: fetch with timeout (prevents hangs that cause "Couldn't fetch") ---
-async function fetchWithTimeout(
-  url: string,
-  opts: RequestInit & { timeoutMs?: number } = {}
-) {
+function asTrimmedString(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s ? s : null;
+}
+
+// --- fetch with timeout (prevents hangs that cause "Couldn't fetch") ---
+async function fetchWithTimeout(url: string, opts: RequestInit & { timeoutMs?: number } = {}) {
   const { timeoutMs = 8000, ...rest } = opts;
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -57,7 +59,6 @@ async function fetchJsonWithCount(
   try {
     res = await fetchWithTimeout(url, { cache: "no-store", timeoutMs: 8000 });
   } catch {
-    // Network error / timeout
     return { data: null, totalCount: null, status: 0 };
   }
 
@@ -124,12 +125,12 @@ async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> 
   const readSet = (r: unknown) => {
     if (!isRecord(r)) return;
     const sn =
-      r.set_num ??
-      r["set_num"] ??
-      r.setNum ??
-      r["setNum"] ??
-      r.set_number ??
-      r["set_number"];
+      (r as any).set_num ??
+      (r as any)["set_num"] ??
+      (r as any).setNum ??
+      (r as any)["setNum"] ??
+      (r as any).set_number ??
+      (r as any)["set_number"];
     if (typeof sn === "string" && sn.trim()) setNums.push(sn.trim());
   };
 
@@ -168,7 +169,7 @@ async function collectThemeUrls(): Promise<{
 
   const readTheme = (r: unknown) => {
     if (!isRecord(r)) return;
-    const t = r.theme ?? r["theme"] ?? r.name ?? r["name"];
+    const t = (r as any).theme ?? (r as any)["theme"] ?? (r as any).name ?? (r as any)["name"];
     if (typeof t === "string" && t.trim()) themes.push(t.trim());
   };
 
@@ -199,7 +200,22 @@ async function collectThemeUrls(): Promise<{
   return { paths: themePaths, rawThemes: uniqThemes, badSlugThemes };
 }
 
-async function collectPublicListUrls(): Promise<{ paths: string[]; rawCount: number }> {
+/**
+ * Collect BOTH:
+ * - public list detail URLs: /lists/{id}
+ * - public user profile URLs: /users/{owner}
+ *
+ * Users are derived from lists/public rows:
+ * - owner_username (preferred)
+ * - owner
+ * - username (fallback)
+ */
+async function collectPublicListAndUserUrls(): Promise<{
+  listPaths: string[];
+  userPaths: string[];
+  rawListCount: number;
+  rawUserCount: number;
+}> {
   const limit = 200;
   const firstUrl = `${apiBase()}${PUBLIC_LISTS_INDEX}?limit=${limit}&page=1`;
 
@@ -207,15 +223,24 @@ async function collectPublicListUrls(): Promise<{ paths: string[]; rawCount: num
   const rows = pickArrayOrResults(first.data);
 
   const ids: string[] = [];
+  const users: string[] = [];
 
-  const readId = (r: unknown) => {
+  const readRow = (r: unknown) => {
     if (!isRecord(r)) return;
-    const id = r.id ?? r["id"];
+
+    const id = (r as any).id ?? (r as any)["id"];
     if (typeof id === "string" && id.trim()) ids.push(id.trim());
     else if (typeof id === "number" && Number.isFinite(id)) ids.push(String(id));
+
+    const owner =
+      asTrimmedString((r as any).owner_username) ||
+      asTrimmedString((r as any).owner) ||
+      asTrimmedString((r as any).username);
+
+    if (owner) users.push(owner);
   };
 
-  rows.forEach(readId);
+  rows.forEach(readRow);
 
   const totalPages = first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
   const pagesToFetch = totalPages > 1 ? totalPages : rows.length === limit ? 5 : 1;
@@ -226,13 +251,20 @@ async function collectPublicListUrls(): Promise<{ paths: string[]; rawCount: num
     const more = pickArrayOrResults(next.data);
 
     const before = ids.length;
-    more.forEach(readId);
+    more.forEach(readRow);
 
     if (totalPages === 1 && ids.length === before) break;
   }
 
-  const uniq = Array.from(new Set(ids));
-  return { rawCount: uniq.length, paths: uniq.map((id) => `/lists/${encodeURIComponent(id)}`) };
+  const uniqIds = Array.from(new Set(ids));
+  const uniqUsers = Array.from(new Set(users));
+
+  return {
+    rawListCount: uniqIds.length,
+    rawUserCount: uniqUsers.length,
+    listPaths: uniqIds.map((id) => `/lists/${encodeURIComponent(id)}`),
+    userPaths: uniqUsers.map((u) => `/users/${encodeURIComponent(u)}`),
+  };
 }
 
 export async function GET() {
@@ -240,7 +272,7 @@ export async function GET() {
   const now = new Date().toISOString();
   const api = apiBase();
 
-  // --- Make probes best-effort (never block sitemap) ---
+  // Probes (best-effort)
   const themesProbeUrl = `${api}${THEMES_INDEX}?limit=5&page=1`;
   const setsProbeUrl = `${api}${SETS_INDEX}?limit=5&page=1`;
 
@@ -278,11 +310,15 @@ export async function GET() {
   let setPaths: string[] = [];
   let themePaths: string[] = [];
   let publicListPaths: string[] = [];
+  let userProfilePaths: string[] = [];
 
   let setsRawCount = 0;
   let themesRawCount = 0;
   let themesBadSlugCount = 0;
   let themesBadSlugSample = "";
+
+  let publicListsRawCount = 0;
+  let usersRawCount = 0;
 
   try {
     const sets = await collectSetUrls();
@@ -295,20 +331,22 @@ export async function GET() {
     themePaths = themes.paths;
     themesRawCount = themes.rawThemes.length;
     themesBadSlugCount = themes.badSlugThemes.length;
-    themesBadSlugSample = themes.badSlugThemes[0]
-      ? String(themes.badSlugThemes[0]).slice(0, 120)
-      : "";
+    themesBadSlugSample = themes.badSlugThemes[0] ? String(themes.badSlugThemes[0]).slice(0, 120) : "";
   } catch {}
 
   try {
-    const lists = await collectPublicListUrls();
-    publicListPaths = lists.paths;
+    const listsAndUsers = await collectPublicListAndUserUrls();
+    publicListPaths = listsAndUsers.listPaths;
+    userProfilePaths = listsAndUsers.userPaths;
+    publicListsRawCount = listsAndUsers.rawListCount;
+    usersRawCount = listsAndUsers.rawUserCount;
   } catch {}
 
   const dynamicEntries: UrlEntry[] = [
     ...themePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.6 })),
     ...setPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "monthly" as const, priority: 0.5 })),
     ...publicListPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.4 })),
+    ...userProfilePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.3 })),
   ];
 
   const xml = toSitemapXml([...staticEntries, ...dynamicEntries]);
@@ -319,7 +357,7 @@ export async function GET() {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-      "X-Sitemap-Route": "v3",
+      "X-Sitemap-Route": "v4",
       "X-Sitemap-ApiBase": api,
 
       "X-Sitemap-ThemesURL": themesProbeUrl,
@@ -339,6 +377,10 @@ export async function GET() {
       "X-Sitemap-SetsRaw": String(setsRawCount),
 
       "X-Sitemap-PublicLists": String(publicListPaths.length),
+      "X-Sitemap-PublicListsRaw": String(publicListsRawCount),
+
+      "X-Sitemap-Users": String(userProfilePaths.length),
+      "X-Sitemap-UsersRaw": String(usersRawCount),
     },
   });
 }
