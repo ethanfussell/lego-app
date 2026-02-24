@@ -9,63 +9,49 @@ import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 
-type ListSummary = {
-  id: number | string;
-  title?: string;
-  is_public?: boolean;
-  is_system?: boolean;
-  system_key?: string | null;
-  items_count?: number;
-};
-
-type ListItem = { set_num: string; added_at?: string; position?: number };
-
-type ListDetail = ListSummary & {
-  items?: ListItem[];
-};
-
 type SetLite = {
   set_num: string;
   name?: string;
   year?: number;
   num_parts?: number;
+  pieces?: number; // backend sometimes uses pieces
   image_url?: string | null;
   theme?: string;
+};
+
+type WishlistDetail = {
+  items_count: number;
 };
 
 function errorMessage(e: unknown, fallback = "Something went wrong") {
   return e instanceof Error ? e.message : String(e || fallback);
 }
 
-function toSetNums(detail: ListDetail | null | undefined): string[] {
-  const items = Array.isArray(detail?.items) ? detail.items : [];
-  return items.map((x) => String(x?.set_num || "").trim()).filter(Boolean);
-}
-
 function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
 }
 
-async function fetchSetsBulk(setNums: string[], token: string): Promise<SetLite[]> {
-  const nums = Array.from(new Set(setNums.map((x) => String(x || "").trim()).filter(Boolean)));
-  if (nums.length === 0) return [];
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
-  const params = new URLSearchParams();
-  params.set("set_nums", nums.join(","));
+function coerceSetLite(raw: unknown): SetLite | null {
+  if (!isRecord(raw)) return null;
 
-  const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, {
-    token,
-    cache: "no-store",
-  });
+  const sn = typeof (raw as any).set_num === "string" ? String((raw as any).set_num).trim() : "";
+  if (!sn) return null;
 
-  const arr: SetLite[] = Array.isArray(data)
-    ? (data as unknown[]).filter((x): x is SetLite => {
-        return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
-      })
-    : [];
+  const o: any = raw;
 
-  const byNum = new Map(arr.map((s) => [s.set_num, s] as const));
-  return nums.map((n) => byNum.get(n)).filter((x): x is SetLite => !!x);
+  return {
+    set_num: sn,
+    ...(typeof o.name === "string" ? { name: o.name } : {}),
+    ...(typeof o.year === "number" ? { year: o.year } : {}),
+    ...(typeof o.num_parts === "number" ? { num_parts: o.num_parts } : {}),
+    ...(typeof o.pieces === "number" ? { pieces: o.pieces } : {}),
+    image_url: typeof o.image_url === "string" ? o.image_url : null,
+    ...(typeof o.theme === "string" ? { theme: o.theme } : {}),
+  };
 }
 
 export default function CollectionWishlistClient() {
@@ -75,35 +61,23 @@ export default function CollectionWishlistClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [wishlistDetail, setWishlistDetail] = useState<ListDetail | null>(null);
+  const [wishlistDetail, setWishlistDetail] = useState<WishlistDetail | null>(null);
   const [sets, setSets] = useState<SetLite[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
-  const wishlistSetNums = useMemo(() => new Set(toSetNums(wishlistDetail)), [wishlistDetail]);
+  // ✅ selection should be based on what we actually loaded, not on /lists/:id
+  const wishlistSetNums = useMemo(() => new Set(sets.map((s) => String(s.set_num).trim())), [sets]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
 
-    const mine = await apiFetch<unknown>("/lists/me", { token, cache: "no-store" });
-    const arr: ListSummary[] = Array.isArray(mine) ? (mine as ListSummary[]) : [];
+    const data = await apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" });
+    const rows = Array.isArray(data) ? (data as unknown[]) : [];
 
-    const wish = arr.find((l) => String(l.system_key || "").toLowerCase() === "wishlist");
-    if (!wish) {
-      setWishlistDetail(null);
-      setSets([]);
-      return;
-    }
+    const parsed = rows.map(coerceSetLite).filter((x): x is SetLite => Boolean(x));
 
-    const detail = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(wish.id))}`, {
-      token,
-      cache: "no-store",
-    });
-
-    setWishlistDetail(detail ?? null);
-
-    const nums = toSetNums(detail);
-    const bulk = await fetchSetsBulk(nums, token);
-    setSets(bulk);
+    setSets(parsed);
+    setWishlistDetail({ items_count: parsed.length });
   }, [token]);
 
   const removeWishlist = useCallback(
