@@ -305,8 +305,26 @@ export async function GET() {
     { loc: `${base}/affiliate-disclosure`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/privacy`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
-    { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-  ];
+
+    // Theme “top” pages (Top 10 themes by set count)
+{ loc: `${base}/themes/Star-Wars/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Duplo/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/City/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Town/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Friends/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Educational-and-Dacta/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Creator/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Technic/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Ninjago/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/themes/Seasonal/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+
+// Year “top” pages (most recent 5)
+{ loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/years/2023/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+{ loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+];
 
   let setPaths: string[] = [];
   let themePaths: string[] = [];
