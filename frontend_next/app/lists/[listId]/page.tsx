@@ -423,48 +423,57 @@ export default async function Page({ params }: { params: Params | Promise<Params
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {relatedLists.slice(0, 9).map((l) => {
-              const id = String(l.id);
-              const owner = normalizeUsername(l.owner) || "unknown";
-              const count = typeof l.items_count === "number" ? l.items_count : 0;
+          {relatedLists.slice(0, 9).map((l) => {
+            const id = String(l.id);
+            const owner = normalizeUsername(l.owner) || "unknown";
+            const count = typeof l.items_count === "number" ? l.items_count : 0;
 
-              return (
-                <Link
-                  key={id}
-                  href={`/lists/${encodeURIComponent(id)}`}
-                  className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                        {l.title || `List #${id}`}
-                      </div>
+            return (
+              <div
+                key={id}
+                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/lists/${encodeURIComponent(id)}`}
+                      className="block truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                    >
+                      {l.title || `List #${id}`}
+                    </Link>
 
-                      <div className="mt-1 text-xs text-zinc-500">
-                        by{" "}
-                        <Link
-                          href={`/users/${encodeURIComponent(owner)}`}
-                          className="font-semibold hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {owner}
-                        </Link>
-                        <span className="mx-2">•</span>
-                        {count} set{count === 1 ? "" : "s"}
-                      </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      by{" "}
+                      <Link
+                        href={`/users/${encodeURIComponent(owner)}`}
+                        className="font-semibold hover:underline"
+                      >
+                        {owner}
+                      </Link>
+                      <span className="mx-2">•</span>
+                      {count} set{count === 1 ? "" : "s"}
                     </div>
-
-                    <div className="shrink-0 text-sm font-semibold">→</div>
                   </div>
 
-                  {l.description ? (
-                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
-                  )}
-                </Link>
-              );
-            })}
+                  <Link
+                    href={`/lists/${encodeURIComponent(id)}`}
+                    className="shrink-0 text-sm font-semibold"
+                    aria-label={`Open list ${l.title || id}`}
+                  >
+                    →
+                  </Link>
+                </div>
+
+                {l.description ? (
+                  <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    {l.description}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                )}
+              </div>
+            );
+          })}
           </div>
         </section>
       ) : null}
@@ -473,9 +482,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => (
-            <Link
+            <div
               key={s.set_num}
-              href={`/sets/${encodeURIComponent(s.set_num)}`}
               className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
             >
               <div className="flex gap-3">
@@ -492,18 +500,20 @@ export default async function Page({ params }: { params: Params | Promise<Params
                 </div>
 
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{s.name || s.set_num}</div>
+                  <Link
+                    href={`/sets/${encodeURIComponent(s.set_num)}`}
+                    className="block truncate text-sm font-semibold hover:underline"
+                  >
+                    {s.name || s.set_num}
+                  </Link>
 
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="font-semibold">{s.set_num}</span>
+
                     {typeof s.year === "number" ? (
                       <>
                         <span className="mx-1">•</span>
-                        <Link
-                          href={`/years/${s.year}`}
-                          className="font-semibold hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <Link href={`/years/${s.year}`} className="font-semibold hover:underline">
                           {s.year}
                         </Link>
                       </>
@@ -516,7 +526,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
                       <Link
                         href={`/themes/${themeToSlug(String(s.theme))}`}
                         className="font-semibold hover:underline"
-                        onClick={(e) => e.stopPropagation()}
                       >
                         {s.theme}
                       </Link>
@@ -524,7 +533,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   ) : null}
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       ) : (
