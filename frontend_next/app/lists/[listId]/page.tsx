@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { themeToSlug } from "@/lib/slug";
+import { cache } from "react";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -158,7 +159,7 @@ function canonicalForList(id: string) {
   return `/lists/${encodeURIComponent(id)}`;
 }
 
-async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" | "private"> {
+const fetchPublicListSSR = cache(async (id: string): Promise<ListDetail | "notfound" | "private"> => {
   const url = `${apiBase()}/lists/${encodeURIComponent(id)}`;
 
   let res: Response;
@@ -178,7 +179,7 @@ async function fetchPublicListSSR(id: string): Promise<ListDetail | "notfound" |
   if (!d.is_public) return "private";
 
   return d;
-}
+});
 
 async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   const nums = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
@@ -223,22 +224,59 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const safeId = normalized ?? "list";
   const canonicalPath = canonicalForList(safeId);
 
+  // If the param is invalid, keep metadata stable + noindex
+  if (!normalized) {
+    const title = `List not found | ${SITE_NAME}`;
+    const description = "This list does not exist.";
+    return {
+      title,
+      description,
+      metadataBase: new URL(siteBase()),
+      alternates: { canonical: canonicalPath },
+      robots: { index: false, follow: false },
+      openGraph: { title, description, url: canonicalPath, type: "website" },
+      twitter: { card: "summary", title, description },
+    };
+  }
+
+  const d = await fetchPublicListSSR(normalized);
+
+  // If private/missing, avoid indexing (page will 404)
+  if (d === "notfound" || d === "private") {
+    const title = `List ${normalized} not found | ${SITE_NAME}`;
+    const description = "This list does not exist or is private.";
+    return {
+      title,
+      description,
+      metadataBase: new URL(siteBase()),
+      alternates: { canonical: canonicalPath },
+      robots: { index: false, follow: false },
+      openGraph: { title, description, url: canonicalPath, type: "website" },
+      twitter: { card: "summary", title, description },
+    };
+  }
+
+  const ownerName = normalizeUsername(d.owner_username || d.owner);
+  const count =
+    typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
+
+  const listTitle = (d.title && d.title.trim()) || `List #${d.id}`;
+  const title = ownerName ? `${listTitle} by @${ownerName} | ${SITE_NAME}` : `${listTitle} | ${SITE_NAME}`;
+
+  const desc = (d.description && d.description.trim()) || "";
+  const description =
+    desc ||
+    (ownerName
+      ? `Public LEGO list by @${ownerName}. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim()
+      : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim());
+
   return {
-    title: `List ${safeId} | ${SITE_NAME}`,
-    description: `View LEGO list ${safeId}.`,
+    title,
+    description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
-    openGraph: {
-      title: `List ${safeId} | ${SITE_NAME}`,
-      description: `View LEGO list ${safeId}.`,
-      url: canonicalPath,
-      type: "website",
-    },
-    twitter: {
-      card: "summary",
-      title: `List ${safeId} | ${SITE_NAME}`,
-      description: `View LEGO list ${safeId}.`,
-    },
+    openGraph: { title, description, url: canonicalPath, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
