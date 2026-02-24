@@ -11,6 +11,21 @@ export const revalidate = 3600;
 export const dynamicParams = true;
 export const fetchCache = "force-cache";
 
+// Keep these in sync with sitemap.xml/route.ts
+const RECENT_YEARS = [2026, 2025, 2024, 2023, 2022] as const;
+const TOP_THEMES = [
+  "Star Wars",
+  "Duplo",
+  "City",
+  "Town",
+  "Friends",
+  "Educational and Dacta",
+  "Creator",
+  "Technic",
+  "Ninjago",
+  "Seasonal",
+] as const;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -109,15 +124,69 @@ async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "n
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
 }
 
-export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
+function RelatedLinks({ themeSlug }: { themeSlug: string }) {
+  const themeName = slugToTheme(themeSlug) || "";
+  const currentSlug = themeToSlug(themeName);
+  const otherThemeSlugs = TOP_THEMES.map((t) => themeToSlug(t)).filter((s) => s !== currentSlug);
+
+  return (
+    <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+      <h2 className="text-base font-semibold">Related pages</h2>
+
+      <div className="mt-3 grid gap-6 sm:grid-cols-2">
+        <div>
+          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Top themes</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+            {otherThemeSlugs.map((slug) => (
+              <li key={slug}>
+                <Link href={`/themes/${slug}/top`} className="hover:underline">
+                  Top sets in {slugToTheme(slug) || slug.replaceAll("-", " ")}
+                </Link>
+              </li>
+            ))}
+            <li className="pt-1">
+              <Link href="/themes" className="font-semibold hover:underline">
+                Browse all themes →
+              </Link>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Recent years</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+            {RECENT_YEARS.map((y) => (
+              <li key={y}>
+                <Link href={`/years/${y}/top`} className="hover:underline">
+                  Top sets of {y}
+                </Link>
+              </li>
+            ))}
+            <li className="pt-1">
+              <Link href="/years" className="font-semibold hover:underline">
+                Browse all years →
+              </Link>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Params | Promise<Params>;
+}): Promise<Metadata> {
   const { themeSlug } = await Promise.resolve(params);
   const themeName = slugToTheme(themeSlug);
 
-  // If slugToTheme can’t resolve, you can choose to noindex.
+  // Invalid slug -> noindex. (Page will 404 in the component anyway.)
   if (!themeName || !themeName.trim()) {
     return {
-      title: `Top LEGO sets by theme | ${SITE_NAME}`,
-      description: `Browse the highest-rated LEGO sets by theme.`,
+      title: "Top LEGO sets by theme",
+      description: "Browse the highest-rated LEGO sets by theme.",
       metadataBase: new URL(siteBase()),
       robots: { index: false, follow: false },
     };
@@ -127,13 +196,14 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const title = `Top LEGO sets in ${themeName}`;
   const description = `Browse the highest-rated LEGO sets in the ${themeName} theme.`;
 
+  // IMPORTANT: don't append SITE_NAME here (layout/template likely adds it)
   return {
-    title: `${title} | ${SITE_NAME}`,
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    openGraph: { title, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -277,6 +347,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
           })}
         </div>
       )}
+
+      <RelatedLinks themeSlug={themeSlug} />
     </div>
   );
 }
