@@ -9,19 +9,6 @@ import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 
-type ListSummary = {
-  id: number | string;
-  title?: string;
-  is_public?: boolean;
-  is_system?: boolean;
-  system_key?: string | null;
-  items_count?: number;
-};
-
-type ListDetail = ListSummary & {
-  items?: Array<{ set_num: string; added_at?: string; position?: number }>;
-};
-
 type SetLite = {
   set_num: string;
   name?: string;
@@ -39,17 +26,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function toSetNums(detail: ListDetail | null | undefined): string[] {
-  const items = Array.isArray(detail?.items) ? detail.items : [];
-  return items.map((x) => String(x.set_num ?? "").trim()).filter(Boolean);
-}
-
 function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
-}
-
-function toDash1(n: string): string {
-  return /-\d+$/.test(n) ? n : `${n}-1`;
 }
 
 function asSetLiteArray(v: unknown): SetLite[] {
@@ -64,50 +42,32 @@ function asSetLiteArray(v: unknown): SetLite[] {
 
     const maybeName = raw.name;
     const maybeYear = raw.year;
-    const maybeParts = raw.num_parts;
+
+    // backend might use num_parts OR pieces; accept either
+    const maybeNumParts = raw.num_parts;
+    const maybePieces = raw.pieces;
+
     const maybeTheme = raw.theme;
+
+    const num_parts =
+      typeof maybeNumParts === "number"
+        ? maybeNumParts
+        : typeof maybePieces === "number"
+          ? maybePieces
+          : undefined;
 
     // IMPORTANT: with exactOptionalPropertyTypes, do not assign undefined; omit instead
     out.push({
       set_num,
       ...(typeof maybeName === "string" ? { name: maybeName } : {}),
       ...(typeof maybeYear === "number" ? { year: maybeYear } : {}),
-      ...(typeof maybeParts === "number" ? { num_parts: maybeParts } : {}),
+      ...(typeof num_parts === "number" ? { num_parts } : {}),
       image_url: typeof raw.image_url === "string" ? raw.image_url : null,
       ...(typeof maybeTheme === "string" ? { theme: maybeTheme } : {}),
     });
   }
 
   return out;
-}
-
-async function fetchSetsBulk(setNums: string[], token: string): Promise<SetLite[]> {
-  const nums = setNums.map((x) => String(x ?? "").trim()).filter(Boolean);
-  if (nums.length === 0) return [];
-
-  const params = new URLSearchParams();
-  params.set("set_nums", nums.join(","));
-
-  const data = await apiFetch<unknown>(`/sets/bulk?${params.toString()}`, {
-    token,
-    cache: "no-store",
-  });
-
-  const arr = asSetLiteArray(data);
-  if (arr.length === 0) return [];
-
-  const byKey = new Map<string, SetLite>();
-  for (const s of arr) {
-    const sn = s.set_num.trim();
-    if (!sn) continue;
-    byKey.set(sn, s);
-    byKey.set(toPlain(sn), s);
-    byKey.set(toDash1(sn), s);
-  }
-
-  return nums
-    .map((n) => byKey.get(n) || byKey.get(toPlain(n)) || byKey.get(toDash1(n)))
-    .filter((x): x is SetLite => Boolean(x));
 }
 
 export default function CollectionOwnedClient() {
@@ -117,33 +77,15 @@ export default function CollectionOwnedClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
   const [sets, setSets] = useState<SetLite[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
     if (!token) return;
 
-    const mine = await apiFetch<ListSummary[]>("/lists/me", { token, cache: "no-store" });
-    const arr = Array.isArray(mine) ? mine : [];
-    const owned = arr.find((l) => String(l.system_key ?? "").toLowerCase() === "owned");
-
-    if (!owned) {
-      setOwnedDetail(null);
-      setSets([]);
-      return;
-    }
-
-    const detail = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(String(owned.id))}`, {
-      token,
-      cache: "no-store",
-    });
-
-    setOwnedDetail(detail ?? null);
-
-    const nums = toSetNums(detail);
-    const bulk = await fetchSetsBulk(nums, token);
-    setSets(bulk);
+    const data = await apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" });
+    const arr = asSetLiteArray(data);
+    setSets(arr);
   }, [token]);
 
   const removeOwned = useCallback(
@@ -205,13 +147,15 @@ export default function CollectionOwnedClient() {
     };
   }, [token, router, refresh]);
 
+  const count = sets.length;
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10 flex items-baseline justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Owned</h1>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            {ownedDetail?.items_count ? `${ownedDetail.items_count} sets` : "Your owned LEGO sets."}
+            {count ? `${count} set${count === 1 ? "" : "s"}` : "Your owned LEGO sets."}
           </p>
         </div>
 
@@ -234,11 +178,8 @@ export default function CollectionOwnedClient() {
             const plain = toPlain(s.set_num);
             return (
               <li key={s.set_num} className="space-y-2">
-                <SetCard
-                  set={s}
-                  variant="owned"
-                  footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : null}
-                />
+                <SetCard set={s} variant="owned" footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : null} />
+
                 <button
                   type="button"
                   onClick={() => void removeOwned(s.set_num)}

@@ -160,59 +160,82 @@ export default function CollectionClient() {
 
   const refreshAll = useCallback(async () => {
     if (!token) return;
-
+  
     setLoading(true);
     setErr(null);
-
+  
     try {
+      // Keep "My lists" working (custom lists live here)
       const mine = await apiFetch<ListSummary[]>("/lists/me", withToken(token, { cache: "no-store" }));
       const mineArr = Array.isArray(mine) ? mine : [];
       setLists(mineArr);
-
-      const owned = mineArr.find((l) => String(l.system_key ?? "").toLowerCase() === "owned");
-      const wish = mineArr.find((l) => String(l.system_key ?? "").toLowerCase() === "wishlist");
-
-      const [ownedD, wishD] = await Promise.all([
-        owned
-          ? apiFetch<ListDetail>(
-              `/lists/${encodeURIComponent(String(owned.id))}`,
-              withToken(token, { cache: "no-store" })
-            )
-          : Promise.resolve(null),
-        wish
-          ? apiFetch<ListDetail>(
-              `/lists/${encodeURIComponent(String(wish.id))}`,
-              withToken(token, { cache: "no-store" })
-            )
-          : Promise.resolve(null),
+  
+      // ✅ Source of truth for system collections
+      const [ownedRowsU, wishRowsU] = await Promise.all([
+        apiFetch<unknown>("/collections/me/owned", withToken(token, { cache: "no-store" })),
+        apiFetch<unknown>("/collections/me/wishlist", withToken(token, { cache: "no-store" })),
       ]);
-
-      setOwnedDetail(ownedD);
-      setWishlistDetail(wishD);
-
-      const ownedNums = toSetNums(ownedD).slice(0, PREVIEW_COUNT);
-      const wishNums = toSetNums(wishD).slice(0, PREVIEW_COUNT);
-
-      const [ownedSets, wishSets] = await Promise.all([
-        fetchSetsBulk(ownedNums, token),
-        fetchSetsBulk(wishNums, token),
-      ]);
-
-      setOwnedPreview(ownedSets);
-      setWishlistPreview(wishSets);
-
+  
+      const ownedRows = Array.isArray(ownedRowsU) ? (ownedRowsU as unknown[]) : [];
+      const wishRows = Array.isArray(wishRowsU) ? (wishRowsU as unknown[]) : [];
+  
+      const coerceSetLite = (raw: unknown): CardSetLite | null => {
+        if (typeof raw !== "object" || raw === null) return null;
+        const o = raw as any;
+  
+        const sn = typeof o.set_num === "string" ? o.set_num.trim() : "";
+        if (!sn) return null;
+  
+        const image_url = typeof o.image_url === "string" ? o.image_url : null;
+  
+        // CardSetLite supports different optional fields depending on your SetCard,
+        // so we only include fields when present.
+        return {
+          set_num: sn,
+          ...(typeof o.name === "string" ? { name: o.name } : {}),
+          ...(typeof o.year === "number" ? { year: o.year } : {}),
+          ...(typeof o.num_parts === "number" ? { num_parts: o.num_parts } : {}),
+          ...(typeof o.pieces === "number" ? { num_parts: o.pieces } : {}), // fallback if backend uses "pieces"
+          ...(typeof o.theme === "string" ? { theme: o.theme } : {}),
+          image_url,
+        } as CardSetLite;
+      };
+  
+      const ownedSetsAll = ownedRows.map(coerceSetLite).filter((x): x is CardSetLite => Boolean(x));
+      const wishSetsAll = wishRows.map(coerceSetLite).filter((x): x is CardSetLite => Boolean(x));
+  
+      // ✅ previews shown on /collection
+      setOwnedPreview(ownedSetsAll.slice(0, PREVIEW_COUNT));
+      setWishlistPreview(wishSetsAll.slice(0, PREVIEW_COUNT));
+  
+      // ✅ lightweight “detail” for subtitle/count on /collection
+      setOwnedDetail({
+        id: "owned",
+        title: "Owned",
+        system_key: "owned",
+        items_count: ownedSetsAll.length,
+      });
+  
+      setWishlistDetail({
+        id: "wishlist",
+        title: "Wishlist",
+        system_key: "wishlist",
+        items_count: wishSetsAll.length,
+      });
+  
+      // Custom list previews remain based on /lists/:id
       const customOnly = mineArr.filter((l) => !isSystemList(l));
-
+  
       const entries = await Promise.all(
         customOnly.map(async (l): Promise<{ id: string; sets: CardSetLite[] }> => {
           const id = String(l.id);
-
+  
           try {
             const d = await apiFetch<ListDetail>(
               `/lists/${encodeURIComponent(id)}`,
               withToken(token, { cache: "no-store" })
             );
-
+  
             const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
             const sets = await fetchSetsBulk(nums, token);
             return { id, sets };
@@ -221,7 +244,7 @@ export default function CollectionClient() {
           }
         })
       );
-
+  
       const map: Record<string, CardSetLite[]> = {};
       for (const e of entries) map[e.id] = e.sets;
       setCustomPreviewById(map);
