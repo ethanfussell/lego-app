@@ -108,15 +108,17 @@ async function fetchFeaturedListsSSR(): Promise<PublicListRow[]> {
       const data: any = await res.json().catch(() => null);
       if (!data || typeof data !== "object") return null;
 
+      const owner =
+        (typeof data.owner_username === "string" && data.owner_username.trim()) ||
+        (typeof data.owner === "string" && data.owner.trim()) ||
+        "unknown";
+
       const row: PublicListRow = {
         id: typeof data.id === "number" ? data.id : Number(f.id),
-        title: typeof data.title === "string" ? data.title : `List #${id}`,
-        description: typeof data.description === "string" ? data.description : null,
-        owner:
-          (typeof data.owner_username === "string" && data.owner_username) ||
-          (typeof data.owner === "string" && data.owner) ||
-          "unknown",
-        items_count: typeof data.items_count === "number" ? data.items_count : 0,
+        title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : `List #${id}`,
+        description: typeof data.description === "string" && data.description.trim() ? data.description.trim() : null,
+        owner,
+        items_count: typeof data.items_count === "number" && Number.isFinite(data.items_count) ? data.items_count : 0,
         created_at: typeof data.created_at === "string" ? data.created_at : null,
         updated_at: typeof data.updated_at === "string" ? data.updated_at : null,
       };
@@ -174,13 +176,12 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
   const initialSort = parseSort(first(sp, "sort") || "updated_desc");
   const initialPage = Math.max(1, toInt(first(sp, "page") || "1", 1));
 
+  const shouldShowFeatured = !initialOwner && !initialQ && initialPage === 1;
+
   const [r, featured] = await Promise.all([
     fetchPublicListsSSR({ owner: initialOwner, q: initialQ, sort: initialSort, page: initialPage }),
-    // Only load featured when not filtering (so it doesn't look "broken")
-    !initialOwner && !initialQ && initialPage === 1 ? fetchFeaturedListsSSR() : Promise.resolve([] as PublicListRow[]),
+    shouldShowFeatured ? fetchFeaturedListsSSR() : Promise.resolve([] as PublicListRow[]),
   ]);
-
-  const showFeatured = featured.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -190,7 +191,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
       </div>
 
       {/* Featured section (Task 8 + Task 9) */}
-      {showFeatured ? (
+      {featured.length > 0 ? (
         <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -205,26 +206,31 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
             </Link>
           </div>
 
+          {/* NOTE: Server Component — no onClick, and avoid nested Links */}
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {featured.map((l) => {
               const id = String(l.id);
               const count = pickCount(l);
 
               return (
-                <Link
+                <div
                   key={id}
-                  href={`/lists/${encodeURIComponent(id)}`}
-                  className="block rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                  className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{l.title}</div>
+                      <Link
+                        href={`/lists/${encodeURIComponent(id)}`}
+                        className="block truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                      >
+                        {l.title}
+                      </Link>
+
                       <div className="mt-1 text-xs text-zinc-500">
                         by{" "}
                         <Link
                           href={`/users/${encodeURIComponent(l.owner)}`}
                           className="font-semibold hover:underline"
-                          onClick={(e) => e.stopPropagation()}
                         >
                           {l.owner}
                         </Link>
@@ -239,9 +245,16 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
                   {l.description ? (
                     <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
                   ) : (
-                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                    <div className="mt-3">
+                      <Link
+                        href={`/lists/${encodeURIComponent(id)}`}
+                        className="text-sm font-semibold text-zinc-500 hover:underline"
+                      >
+                        View list →
+                      </Link>
+                    </div>
                   )}
-                </Link>
+                </div>
               );
             })}
           </div>
