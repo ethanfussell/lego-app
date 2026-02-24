@@ -2,8 +2,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { themeToSlug } from "@/lib/slug";
 import { cache } from "react";
+import { themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -68,27 +68,13 @@ type PublicListRow = {
   updated_at?: string | null;
 };
 
-type ApiResp = { results?: unknown; total_pages?: unknown; page?: unknown };
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isPublicListRow(x: unknown): x is PublicListRow {
-  if (!isRecord(x)) return false;
-  const o = x as any;
-  return (
-    typeof o.id === "number" &&
-    Number.isFinite(o.id) &&
-    typeof o.title === "string" &&
-    typeof o.owner === "string"
-  );
-}
-
-function toRows(x: unknown): PublicListRow[] {
-  if (Array.isArray(x)) return x.filter(isPublicListRow);
-  if (isRecord(x) && Array.isArray((x as any).results)) return ((x as any).results as unknown[]).filter(isPublicListRow);
-  return [];
+// ✅ Option A helper (no tricky type-predicate on PublicListRow)
+function notNull<T>(v: T | null | undefined): v is T {
+  return v != null;
 }
 
 function coerceListDetail(x: unknown): ListDetail | null {
@@ -97,7 +83,9 @@ function coerceListDetail(x: unknown): ListDetail | null {
   const id = (x as any).id;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
 
-  const title = typeof (x as any).title === "string" ? (x as any).title : (x as any).title == null ? null : String((x as any).title);
+  const title =
+    typeof (x as any).title === "string" ? (x as any).title : (x as any).title == null ? null : String((x as any).title);
+
   const description =
     typeof (x as any).description === "string"
       ? (x as any).description
@@ -107,7 +95,9 @@ function coerceListDetail(x: unknown): ListDetail | null {
 
   const is_public = typeof (x as any).is_public === "boolean" ? (x as any).is_public : false;
 
-  const owner = typeof (x as any).owner === "string" ? (x as any).owner : (x as any).owner == null ? null : String((x as any).owner);
+  const owner =
+    typeof (x as any).owner === "string" ? (x as any).owner : (x as any).owner == null ? null : String((x as any).owner);
+
   const owner_username =
     typeof (x as any).owner_username === "string"
       ? (x as any).owner_username
@@ -217,6 +207,151 @@ async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   return capped.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
 }
 
+function topCounts<T extends string | number>(items: T[], max = 3): Array<{ key: T; count: number }> {
+  const m = new Map<T, number>();
+  for (const it of items) m.set(it, (m.get(it) ?? 0) + 1);
+  return Array.from(m.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, Math.max(0, max));
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+async function fetchMoreListsByOwnerSSR(opts: { owner: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
+  const owner = String(opts.owner || "").trim();
+  if (!owner) return [];
+
+  const qs = new URLSearchParams();
+  qs.set("owner", owner);
+  qs.set("sort", "updated_desc");
+  qs.set("page", "1");
+  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 6) + 6)))); // buffer for exclude
+
+  const url = `${apiBase()}/lists/public?${qs.toString()}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+
+  const data: unknown = await res.json().catch(() => null);
+  const raw: unknown[] = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray((data as any).results)
+      ? ((data as any).results as unknown[])
+      : [];
+
+  const rows = raw
+    .filter(isRecord)
+    .map((o) => {
+      const id = (o as any).id;
+      if (typeof id !== "number" || !Number.isFinite(id)) return null;
+
+      const title =
+        typeof (o as any).title === "string" && (o as any).title.trim()
+          ? String((o as any).title).trim()
+          : `List #${id}`;
+
+      const ownerName =
+        (typeof (o as any).owner_username === "string" && (o as any).owner_username.trim()) ||
+        (typeof (o as any).owner === "string" && (o as any).owner.trim()) ||
+        "unknown";
+
+      const items_count =
+        typeof (o as any).items_count === "number" && Number.isFinite((o as any).items_count)
+          ? Math.max(0, Math.floor((o as any).items_count))
+          : 0;
+
+      const description = typeof (o as any).description === "string" ? (o as any).description : null;
+
+      return {
+        id,
+        title,
+        description,
+        owner: ownerName,
+        items_count,
+        created_at: typeof (o as any).created_at === "string" ? (o as any).created_at : null,
+        updated_at: typeof (o as any).updated_at === "string" ? (o as any).updated_at : null,
+      } as PublicListRow;
+    })
+    .filter(notNull);
+
+  return rows.filter((r) => r.id !== opts.excludeId).slice(0, Math.max(1, Math.min(12, opts.limit ?? 6)));
+}
+
+async function fetchRelatedListsByThemeSSR(opts: { theme: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
+  const theme = String(opts.theme || "").trim();
+  if (!theme) return [];
+
+  const qs = new URLSearchParams();
+  qs.set("theme", theme);
+  qs.set("sort", "count_desc");
+  qs.set("page", "1");
+  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 9) + 6)))); // buffer for exclude
+
+  const url = `${apiBase()}/lists/public?${qs.toString()}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+
+  const data: unknown = await res.json().catch(() => null);
+  const raw: unknown[] = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray((data as any).results)
+      ? ((data as any).results as unknown[])
+      : [];
+
+  const rows = raw
+    .filter(isRecord)
+    .map((o) => {
+      const id = (o as any).id;
+      if (typeof id !== "number" || !Number.isFinite(id)) return null;
+
+      const title =
+        typeof (o as any).title === "string" && (o as any).title.trim()
+          ? String((o as any).title).trim()
+          : `List #${id}`;
+
+      const ownerName =
+        (typeof (o as any).owner_username === "string" && (o as any).owner_username.trim()) ||
+        (typeof (o as any).owner === "string" && (o as any).owner.trim()) ||
+        "unknown";
+
+      const items_count =
+        typeof (o as any).items_count === "number" && Number.isFinite((o as any).items_count)
+          ? Math.max(0, Math.floor((o as any).items_count))
+          : 0;
+
+      const description = typeof (o as any).description === "string" ? (o as any).description : null;
+
+      return {
+        id,
+        title,
+        description,
+        owner: ownerName,
+        items_count,
+        created_at: typeof (o as any).created_at === "string" ? (o as any).created_at : null,
+        updated_at: typeof (o as any).updated_at === "string" ? (o as any).updated_at : null,
+      } as PublicListRow;
+    })
+    .filter(notNull);
+
+  return rows.filter((r) => r.id !== opts.excludeId).slice(0, Math.max(1, Math.min(12, opts.limit ?? 9)));
+}
+
+// ---- Metadata ----
+
 export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { listId } = await Promise.resolve(params);
   const normalized = normalizeListId(listId);
@@ -224,7 +359,6 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const safeId = normalized ?? "list";
   const canonicalPath = canonicalForList(safeId);
 
-  // If the param is invalid, keep metadata stable + noindex
   if (!normalized) {
     const title = `List not found | ${SITE_NAME}`;
     const description = "This list does not exist.";
@@ -241,7 +375,6 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
 
   const d = await fetchPublicListSSR(normalized);
 
-  // If private/missing, avoid indexing (page will 404)
   if (d === "notfound" || d === "private") {
     const title = `List ${normalized} not found | ${SITE_NAME}`;
     const description = "This list does not exist or is private.";
@@ -268,9 +401,8 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     ownerName
       ? `Public LEGO list by @${ownerName}. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim()
       : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim();
-  
-  // If desc is too short, use the richer fallback
-  const description = desc.length >= 40 ? desc : (desc ? `${desc} — ${fallback}` : fallback);
+
+  const description = desc.length >= 40 ? desc : desc ? `${desc} — ${fallback}` : fallback;
 
   return {
     title,
@@ -282,51 +414,7 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   };
 }
 
-function topCounts<T extends string | number>(items: T[], max = 3): Array<{ key: T; count: number }> {
-  const m = new Map<T, number>();
-  for (const it of items) m.set(it, (m.get(it) ?? 0) + 1);
-  return Array.from(m.entries())
-    .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, Math.max(0, max));
-}
-
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
-/**
- * Related lists (simple heuristic):
- * - pick top theme from this list
- * - query /api/lists/public?q=<theme>&sort=count_desc&page=1
- * - filter out current list id
- * - cap to 9 links
- */
-async function fetchRelatedListsSSR(opts: { owner: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
-  const owner = String(opts.owner || "").trim();
-  if (!owner) return [];
-
-  const qs = new URLSearchParams();
-  qs.set("owner", owner);
-  qs.set("sort", "updated_desc");
-  qs.set("page", "1");
-
-  const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
-
-  let res: Response;
-  try {
-    res = await fetch(url, { next: { revalidate } });
-  } catch {
-    return [];
-  }
-  if (!res.ok) return [];
-
-  const data: ApiResp | unknown = await res.json().catch(() => null);
-  const rows = toRows(data);
-
-  const out = rows.filter((r) => r.id !== opts.excludeId);
-  return out.slice(0, Math.max(1, Math.min(12, opts.limit ?? 9)));
-}
+// ---- Page ----
 
 export default async function Page({ params }: { params: Params | Promise<Params> }) {
   const { listId } = await Promise.resolve(params);
@@ -334,8 +422,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
   if (!normalized) notFound();
 
   const d = await fetchPublicListSSR(normalized);
-  if (d === "notfound") notFound();
-  if (d === "private") notFound();
+  if (d === "notfound" || d === "private") notFound();
 
   const setNums = toSetNums(d);
   const sets = await fetchSetsBulkSSR(setNums);
@@ -356,10 +443,9 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
   const count = typeof d.items_count === "number" ? d.items_count : setNums.length;
 
-  const relatedOwner = ownerName || "";
-  const relatedLists = relatedOwner
-    ? await fetchRelatedListsSSR({ owner: relatedOwner, excludeId: d.id, limit: 9 })
-    : [];
+  const moreByOwner = ownerName ? await fetchMoreListsByOwnerSSR({ owner: ownerName, excludeId: d.id, limit: 6 }) : [];
+  const relatedTheme = topThemes[0]?.key ? String(topThemes[0].key) : "";
+  const relatedByTheme = relatedTheme ? await fetchRelatedListsByThemeSSR({ theme: relatedTheme, excludeId: d.id, limit: 9 }) : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -400,7 +486,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </div>
       </div>
 
-      {/* ✅ Internal links: lists → themes/years */}
+      {/* Lists → Themes / Years */}
       {topThemes.length > 0 || topYears.length > 0 ? (
         <section className="mt-6 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <h2 className="m-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">Explore related pages</h2>
@@ -449,13 +535,15 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </section>
       ) : null}
 
-      {/* ✅ Related lists */}
-      {relatedLists.length > 0 ? (
+      {/* Related lists by theme */}
+      {relatedByTheme.length > 0 ? (
         <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="m-0 text-lg font-semibold">More lists by {ownerName ? `@${ownerName}` : "this user"}</h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Other public lists from the same creator.</p>
+              <h2 className="m-0 text-lg font-semibold">Related lists</h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Similar lists (theme: <span className="font-semibold">{relatedTheme}</span>)
+              </p>
             </div>
             <Link href="/lists/public" className="text-sm font-semibold hover:underline">
               Browse all →
@@ -463,10 +551,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {relatedLists.slice(0, 9).map((l) => {
+            {relatedByTheme.slice(0, 9).map((l) => {
               const id = String(l.id);
               const owner = normalizeUsername(l.owner) || "unknown";
-              const count = typeof l.items_count === "number" ? l.items_count : 0;
+              const c = Number(l.items_count ?? 0);
 
               return (
                 <div
@@ -488,7 +576,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                           {owner}
                         </Link>
                         <span className="mx-2">•</span>
-                        {count} set{count === 1 ? "" : "s"}
+                        {Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0} set{c === 1 ? "" : "s"}
                       </div>
                     </div>
 
@@ -512,7 +600,70 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </section>
       ) : null}
 
-      {/* ✅ Strong set links (Task 5) */}
+      {/* More lists by owner */}
+      {moreByOwner.length > 0 && ownerName ? (
+        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="m-0 text-lg font-semibold">More lists by @{ownerName}</h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Other public lists from the same creator.</p>
+            </div>
+            <Link href="/lists/public" className="text-sm font-semibold hover:underline">
+              Browse all →
+            </Link>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {moreByOwner.slice(0, 6).map((l) => {
+              const id = String(l.id);
+              const owner = normalizeUsername(l.owner) || "unknown";
+              const c = Number(l.items_count ?? 0);
+
+              return (
+                <div
+                  key={id}
+                  className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/lists/${encodeURIComponent(id)}`}
+                        className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                      >
+                        {l.title || `List #${id}`}
+                      </Link>
+
+                      <div className="mt-1 text-xs text-zinc-500">
+                        by{" "}
+                        <Link href={`/users/${encodeURIComponent(owner)}`} className="font-semibold hover:underline">
+                          {owner}
+                        </Link>
+                        <span className="mx-2">•</span>
+                        {Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0} set{c === 1 ? "" : "s"}
+                      </div>
+                    </div>
+
+                    <Link
+                      href={`/lists/${encodeURIComponent(id)}`}
+                      className="shrink-0 text-sm font-semibold text-zinc-700 hover:underline dark:text-zinc-200"
+                    >
+                      →
+                    </Link>
+                  </div>
+
+                  {l.description ? (
+                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Strong set links */}
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => (
@@ -534,10 +685,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                 </div>
 
                 <div className="min-w-0">
-                  <Link
-                    href={`/sets/${encodeURIComponent(s.set_num)}`}
-                    className="block truncate text-sm font-semibold hover:underline"
-                  >
+                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
                     {s.name || s.set_num}
                   </Link>
 
@@ -557,10 +705,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   {s.theme ? (
                     <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                       Theme:{" "}
-                      <Link
-                        href={`/themes/${themeToSlug(String(s.theme))}`}
-                        className="font-semibold hover:underline"
-                      >
+                      <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
                         {s.theme}
                       </Link>
                     </div>
