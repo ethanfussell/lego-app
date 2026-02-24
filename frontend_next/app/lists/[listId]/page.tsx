@@ -262,13 +262,13 @@ function isNonEmptyString(v: unknown): v is string {
  * - filter out current list id
  * - cap to 9 links
  */
-async function fetchRelatedListsSSR(opts: { q: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
-  const q = String(opts.q || "").trim();
-  if (!q) return [];
+async function fetchRelatedListsSSR(opts: { owner: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
+  const owner = String(opts.owner || "").trim();
+  if (!owner) return [];
 
   const qs = new URLSearchParams();
-  qs.set("q", q);
-  qs.set("sort", "count_desc");
+  qs.set("owner", owner);
+  qs.set("sort", "updated_desc");
   qs.set("page", "1");
 
   const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
@@ -316,8 +316,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
   const count = typeof d.items_count === "number" ? d.items_count : setNums.length;
 
-  const relatedQuery = topThemes[0]?.key ? String(topThemes[0].key) : "";
-  const relatedLists = relatedQuery ? await fetchRelatedListsSSR({ q: relatedQuery, excludeId: d.id, limit: 9 }) : [];
+  const relatedOwner = ownerName || "";
+  const relatedLists = relatedOwner
+    ? await fetchRelatedListsSSR({ owner: relatedOwner, excludeId: d.id, limit: 9 })
+    : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -407,15 +409,13 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </section>
       ) : null}
 
-      {/* ✅ Related lists (Task 13–15) */}
+      {/* ✅ Related lists */}
       {relatedLists.length > 0 ? (
         <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="m-0 text-lg font-semibold">Related lists</h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Similar lists (based on theme: <span className="font-semibold">{relatedQuery}</span>).
-              </p>
+              <h2 className="m-0 text-lg font-semibold">More lists by {ownerName ? `@${ownerName}` : "this user"}</h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Other public lists from the same creator.</p>
             </div>
             <Link href="/lists/public" className="text-sm font-semibold hover:underline">
               Browse all →
@@ -423,57 +423,51 @@ export default async function Page({ params }: { params: Params | Promise<Params
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {relatedLists.slice(0, 9).map((l) => {
-            const id = String(l.id);
-            const owner = normalizeUsername(l.owner) || "unknown";
-            const count = typeof l.items_count === "number" ? l.items_count : 0;
+            {relatedLists.slice(0, 9).map((l) => {
+              const id = String(l.id);
+              const owner = normalizeUsername(l.owner) || "unknown";
+              const count = typeof l.items_count === "number" ? l.items_count : 0;
 
-            return (
-              <div
-                key={id}
-                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+              return (
+                <div
+                  key={id}
+                  className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/lists/${encodeURIComponent(id)}`}
+                        className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                      >
+                        {l.title || `List #${id}`}
+                      </Link>
+
+                      <div className="mt-1 text-xs text-zinc-500">
+                        by{" "}
+                        <Link href={`/users/${encodeURIComponent(owner)}`} className="font-semibold hover:underline">
+                          {owner}
+                        </Link>
+                        <span className="mx-2">•</span>
+                        {count} set{count === 1 ? "" : "s"}
+                      </div>
+                    </div>
+
                     <Link
                       href={`/lists/${encodeURIComponent(id)}`}
-                      className="block truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                      className="shrink-0 text-sm font-semibold text-zinc-700 hover:underline dark:text-zinc-200"
                     >
-                      {l.title || `List #${id}`}
+                      →
                     </Link>
-
-                    <div className="mt-1 text-xs text-zinc-500">
-                      by{" "}
-                      <Link
-                        href={`/users/${encodeURIComponent(owner)}`}
-                        className="font-semibold hover:underline"
-                      >
-                        {owner}
-                      </Link>
-                      <span className="mx-2">•</span>
-                      {count} set{count === 1 ? "" : "s"}
-                    </div>
                   </div>
 
-                  <Link
-                    href={`/lists/${encodeURIComponent(id)}`}
-                    className="shrink-0 text-sm font-semibold"
-                    aria-label={`Open list ${l.title || id}`}
-                  >
-                    →
-                  </Link>
+                  {l.description ? (
+                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
+                  )}
                 </div>
-
-                {l.description ? (
-                  <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
-                    {l.description}
-                  </p>
-                ) : (
-                  <p className="mt-3 text-sm text-zinc-500">View list →</p>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         </section>
       ) : null}
