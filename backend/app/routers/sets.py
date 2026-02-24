@@ -320,6 +320,17 @@ def list_sets(
     min_year: Optional[int] = Query(None, ge=1900, le=2100),
     max_year: Optional[int] = Query(None, ge=1900, le=2100),
 
+    # pieces filtering (aliases supported)
+    pieces: Optional[int] = Query(None, ge=0),
+    min_pieces: Optional[int] = Query(None, ge=0),
+    max_pieces: Optional[int] = Query(None, ge=0),
+
+    # aliases (some callers say "parts")
+    min_parts: Optional[int] = Query(None, ge=0),
+    max_parts: Optional[int] = Query(None, ge=0),
+    min_num_parts: Optional[int] = Query(None, ge=0),
+    max_num_parts: Optional[int] = Query(None, ge=0),
+
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("relevance"),
@@ -357,6 +368,28 @@ def list_sets(
             y1 = int(max_year)
             sets = [s for s in sets if int(s.get("year") or 0) <= y1]
 
+    # ---------------- pieces filtering ----------------
+    # "pieces" exact match
+    if pieces is not None:
+        p = int(pieces)
+        sets = [s for s in sets if int(s.get("pieces") or 0) == p]
+    else:
+        # prefer explicit min_pieces/max_pieces, but accept aliases
+        lo = min_pieces
+        hi = max_pieces
+
+        if lo is None:
+            lo = min_parts if min_parts is not None else min_num_parts
+        if hi is None:
+            hi = max_parts if max_parts is not None else max_num_parts
+
+        if lo is not None:
+            p0 = int(lo)
+            sets = [s for s in sets if int(s.get("pieces") or 0) >= p0]
+        if hi is not None:
+            p1 = int(hi)
+            sets = [s for s in sets if int(s.get("pieces") or 0) <= p1]
+            
     # ---------------- rating + review enrichment ----------------
     ratings = _ratings_map(db)              # set_num -> (avg, rating_count)
     review_counts = _review_counts_map(db)  # set_num -> review_count (text)
