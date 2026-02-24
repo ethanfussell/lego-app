@@ -8,6 +8,8 @@ const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
+export const dynamicParams = true;
+export const fetchCache = "force-cache";
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -56,8 +58,7 @@ function coerceSetRow(x: unknown): SetRow | null {
   const year = typeof x.year === "number" && Number.isFinite(x.year) ? x.year : undefined;
   const pieces = typeof x.pieces === "number" && Number.isFinite(x.pieces) ? x.pieces : undefined;
 
-  const theme =
-    typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
+  const theme = typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
 
   const image_url = typeof x.image_url === "string" ? x.image_url : null;
 
@@ -109,7 +110,11 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
-  const rows = Array.isArray(data) ? data : (isRecord(data) && Array.isArray((data as any).results) ? (data as any).results : []);
+  const rows = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray((data as any).results)
+      ? (data as any).results
+      : [];
   if (!Array.isArray(rows)) return [];
 
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
@@ -118,12 +123,20 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
 export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { year } = await Promise.resolve(params);
   const y = normalizeYear(year);
-  const safeYear = y ?? 2025;
 
-  const canonical = canonicalForYearTop(safeYear);
-  const title = `Top LEGO sets of ${safeYear}`;
-  const description = `Browse the highest-rated LEGO sets from ${safeYear}.`;
-
+  if (!y) {
+    return {
+      title: `Top LEGO sets by year | ${SITE_NAME}`,
+      description: `Browse the highest-rated LEGO sets by year.`,
+      metadataBase: new URL(siteBase()),
+      robots: { index: false, follow: false },
+    };
+  }
+  
+  const canonical = canonicalForYearTop(y);
+  const title = `Top LEGO sets of ${y}`;
+  const description = `Browse the highest-rated LEGO sets from ${y}.`;
+  
   return {
     title: `${title} | ${SITE_NAME}`,
     description,
@@ -131,7 +144,6 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     alternates: { canonical },
     openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
     twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
-    ...(y ? {} : { robots: { index: false, follow: false } }),
   };
 }
 
@@ -146,7 +158,24 @@ export default async function Page({ params }: { params: Params | Promise<Params
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        {/* Simple breadcrumbs (internal links) */}
+        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+          <Link href="/" className="font-semibold hover:underline">
+            Home
+          </Link>
+          <span className="mx-2">›</span>
+          <Link href="/years" className="font-semibold hover:underline">
+            Years
+          </Link>
+          <span className="mx-2">›</span>
+          <Link href={`/years/${y}`} className="font-semibold hover:underline">
+            {y}
+          </Link>
+          <span className="mx-2">›</span>
+          <span className="text-zinc-900 dark:text-zinc-50">Top sets</span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Top sets of {y}</h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -178,10 +207,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
-            const rating =
-              typeof s.average_rating === "number" ? s.average_rating.toFixed(1) : null;
-            const rcount =
-              typeof s.rating_count === "number" ? s.rating_count : null;
+            const rating = typeof s.average_rating === "number" ? s.average_rating.toFixed(1) : null;
+            const rcount = typeof s.rating_count === "number" ? s.rating_count : null;
 
             return (
               <div
@@ -202,10 +229,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   </div>
 
                   <div className="min-w-0">
-                    <Link
-                      href={`/sets/${encodeURIComponent(s.set_num)}`}
-                      className="block truncate text-sm font-semibold hover:underline"
-                    >
+                    <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
                       {s.name}
                     </Link>
 
@@ -226,7 +250,9 @@ export default async function Page({ params }: { params: Params | Promise<Params
                           {rcount != null ? (
                             <>
                               <span className="mx-1">•</span>
-                              <span>{rcount.toLocaleString()} rating{rcount === 1 ? "" : "s"}</span>
+                              <span>
+                                {rcount.toLocaleString()} rating{rcount === 1 ? "" : "s"}
+                              </span>
                             </>
                           ) : null}
                         </>
@@ -238,10 +264,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     {s.theme ? (
                       <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                         Theme:{" "}
-                        <Link
-                          href={`/themes/${themeToSlug(String(s.theme))}`}
-                          className="font-semibold hover:underline"
-                        >
+                        <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
                           {s.theme}
                         </Link>
                       </div>
