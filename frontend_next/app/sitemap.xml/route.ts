@@ -305,6 +305,7 @@ export async function GET() {
     { loc: `${base}/affiliate-disclosure`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/privacy`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
+    { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
   ];
 
   let setPaths: string[] = [];
