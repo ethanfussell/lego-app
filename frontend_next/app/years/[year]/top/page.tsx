@@ -11,6 +11,21 @@ export const revalidate = 3600;
 export const dynamicParams = true;
 export const fetchCache = "force-cache";
 
+// Keep these in sync with sitemap.xml/route.ts
+const RECENT_YEARS = [2026, 2025, 2024, 2023, 2022] as const;
+const TOP_THEMES = [
+  "Star Wars",
+  "Duplo",
+  "City",
+  "Town",
+  "Friends",
+  "Educational and Dacta",
+  "Creator",
+  "Technic",
+  "Ninjago",
+  "Seasonal",
+] as const;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -117,6 +132,57 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
 
   if (!Array.isArray(rows)) return [];
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
+}
+
+function RelatedLinks({ year }: { year: number }) {
+  const otherYears = RECENT_YEARS.filter((y) => y !== year);
+
+  return (
+    <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+      <h2 className="text-base font-semibold">Related pages</h2>
+
+      <div className="mt-3 grid gap-6 sm:grid-cols-2">
+        <div>
+          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">More years</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+            {otherYears.map((y) => (
+              <li key={y}>
+                <Link href={`/years/${y}/top`} className="hover:underline">
+                  Top sets of {y}
+                </Link>
+              </li>
+            ))}
+            <li className="pt-1">
+              <Link href="/years" className="font-semibold hover:underline">
+                Browse all years →
+              </Link>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Top themes</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+            {TOP_THEMES.map((t) => {
+              const slug = themeToSlug(t);
+              return (
+                <li key={slug}>
+                  <Link href={`/themes/${slug}/top`} className="hover:underline">
+                    Top sets in {t}
+                  </Link>
+                </li>
+              );
+            })}
+            <li className="pt-1">
+              <Link href="/themes" className="font-semibold hover:underline">
+                Browse all themes →
+              </Link>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export async function generateMetadata({
@@ -287,6 +353,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
           })}
         </div>
       )}
+
+      <RelatedLinks year={y} />
     </div>
   );
 }
