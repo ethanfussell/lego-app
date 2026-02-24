@@ -59,7 +59,6 @@ function coerceSetRow(x: unknown): SetRow | null {
   const pieces = typeof x.pieces === "number" && Number.isFinite(x.pieces) ? x.pieces : undefined;
 
   const theme = typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
-
   const image_url = typeof x.image_url === "string" ? x.image_url : null;
 
   const average_rating =
@@ -115,35 +114,41 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
     : isRecord(data) && Array.isArray((data as any).results)
       ? (data as any).results
       : [];
-  if (!Array.isArray(rows)) return [];
 
+  if (!Array.isArray(rows)) return [];
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
 }
 
-export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Params | Promise<Params>;
+}): Promise<Metadata> {
   const { year } = await Promise.resolve(params);
   const y = normalizeYear(year);
 
+  // Invalid param: return non-indexable metadata (page itself will 404 via notFound()).
   if (!y) {
     return {
-      title: `Top LEGO sets by year | ${SITE_NAME}`,
+      title: `Top LEGO sets by year`,
       description: `Browse the highest-rated LEGO sets by year.`,
       metadataBase: new URL(siteBase()),
       robots: { index: false, follow: false },
     };
   }
-  
+
   const canonical = canonicalForYearTop(y);
   const title = `Top LEGO sets of ${y}`;
   const description = `Browse the highest-rated LEGO sets from ${y}.`;
-  
+
+  // IMPORTANT: do NOT append SITE_NAME here (layout/template likely already does it).
   return {
-    title: `${title} | ${SITE_NAME}`,
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    openGraph: { title, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -229,7 +234,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   </div>
 
                   <div className="min-w-0">
-                    <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
+                    <Link
+                      href={`/sets/${encodeURIComponent(s.set_num)}`}
+                      className="block truncate text-sm font-semibold hover:underline"
+                    >
                       {s.name}
                     </Link>
 
@@ -264,7 +272,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     {s.theme ? (
                       <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                         Theme:{" "}
-                        <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
+                        <Link
+                          href={`/themes/${themeToSlug(String(s.theme))}`}
+                          className="font-semibold hover:underline"
+                        >
                           {s.theme}
                         </Link>
                       </div>
