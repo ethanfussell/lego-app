@@ -6,6 +6,7 @@ import Breadcrumbs from "@/app/components/Breadcrumbs";
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 type JsonLdObject = Record<string, unknown>;
+type SP = Record<string, string | string[] | undefined>;
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -13,7 +14,6 @@ function siteBase() {
 
 function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
   const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
-
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -30,23 +30,51 @@ function yearBounds() {
   return { min: 1980, max: new Date().getFullYear() };
 }
 
-export const metadata: Metadata = {
-  title: "Browse by year",
-  description: `Browse LEGO sets by release year on ${SITE_NAME}.`,
-  metadataBase: new URL(siteBase()),
-  alternates: { canonical: "/years" },
-  openGraph: {
-    title: `Browse by year | ${SITE_NAME}`,
-    description: `Browse LEGO sets by release year on ${SITE_NAME}.`,
-    url: "/years",
-    type: "website",
-  },
-  twitter: {
-    card: "summary",
-    title: `Browse by year | ${SITE_NAME}`,
-    description: `Browse LEGO sets by release year on ${SITE_NAME}.`,
-  },
-};
+function first(sp: SP, key: string): string {
+  const raw = sp[key];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return String(v ?? "").trim();
+}
+
+function toInt(raw: string, fallback: number) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: SP | Promise<SP>;
+}): Promise<Metadata> {
+  const sp = (await searchParams) ?? ({} as SP);
+  const page = toInt(first(sp, "page") || "1", 1);
+
+  const title = "Browse by year";
+  const description = `Browse LEGO sets by release year on ${SITE_NAME}.`;
+  const canonicalPath = "/years";
+
+  // Paginated pages should be noindex to avoid duplicate indexable content.
+  const robots = page > 1 ? ({ index: false, follow: true } as const) : undefined;
+
+  return {
+    title, // ✅ layout template will append " | LEGO App"
+    description,
+    metadataBase: new URL(siteBase()),
+    alternates: { canonical: canonicalPath },
+    robots,
+    openGraph: {
+      title,
+      description,
+      url: canonicalPath,
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title,
+      description,
+    },
+  };
+}
 
 export default function YearsPage() {
   const { min, max } = yearBounds();
@@ -59,7 +87,6 @@ export default function YearsPage() {
     siteBase()
   );
 
-  // newest -> oldest
   const years: number[] = [];
   for (let y = max; y >= min; y--) years.push(y);
 
@@ -76,7 +103,6 @@ export default function YearsPage() {
             Pick a year from {min} to {max}.
           </p>
 
-          {/* Task 8: internal links (SEO) */}
           <div className="mt-3 flex flex-wrap gap-3 text-sm font-semibold">
             <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
               Browse themes →

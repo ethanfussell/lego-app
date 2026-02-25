@@ -19,10 +19,10 @@ type PublicListRow = {
   updated_at?: string | null;
 };
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
 export const dynamic = "force-static";
 export const revalidate = 3600;
+
+const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 function siteBase() {
   // MUST be absolute for SSR fetch during prerender
@@ -35,8 +35,8 @@ function normalizeUsername(raw: string): string | null {
   const decoded = decodeURIComponent(String(raw || "")).trim();
   if (!decoded) return null;
 
-  // Keep this simple + safe for URLs/caching.
-  // Adjust if your usernames allow hyphens, etc.
+  // Safe, cache-friendly username pattern.
+  // Adjust if you want hyphens/dots/etc.
   if (!/^[A-Za-z0-9_]{2,30}$/.test(decoded)) return null;
 
   return decoded;
@@ -48,8 +48,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function coerceUser(x: unknown): PublicUser | null {
   if (!isRecord(x)) return null;
-  const id = x.id;
-  const username = x.username;
+
+  const id = (x as any).id;
+  const username = (x as any).username;
 
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (typeof username !== "string" || !username.trim()) return null;
@@ -58,7 +59,7 @@ function coerceUser(x: unknown): PublicUser | null {
 }
 
 function coercePublicLists(x: unknown): PublicListRow[] {
-  // your /api/lists/public can be either [] or { results: [] }
+  // /api/lists/public can be either [] or { results: [] }
   const arr = Array.isArray(x)
     ? x
     : isRecord(x) && Array.isArray((x as any).results)
@@ -68,9 +69,10 @@ function coercePublicLists(x: unknown): PublicListRow[] {
   const out: PublicListRow[] = [];
   for (const it of arr) {
     if (!isRecord(it)) continue;
-    const id = it.id;
-    const title = it.title;
-    const owner = it.owner;
+
+    const id = (it as any).id;
+    const title = (it as any).title;
+    const owner = (it as any).owner;
 
     if (typeof id !== "number" || !Number.isFinite(id)) continue;
     if (typeof title !== "string" || !title.trim()) continue;
@@ -79,11 +81,19 @@ function coercePublicLists(x: unknown): PublicListRow[] {
     out.push({
       id,
       title: title.trim(),
-      description: typeof it.description === "string" ? it.description : it.description == null ? null : String(it.description),
+      description:
+        typeof (it as any).description === "string"
+          ? (it as any).description
+          : (it as any).description == null
+            ? null
+            : String((it as any).description),
       owner: owner.trim(),
-      items_count: typeof it.items_count === "number" && Number.isFinite(it.items_count) ? Math.floor(it.items_count) : 0,
-      created_at: typeof it.created_at === "string" ? it.created_at : null,
-      updated_at: typeof it.updated_at === "string" ? it.updated_at : null,
+      items_count:
+        typeof (it as any).items_count === "number" && Number.isFinite((it as any).items_count)
+          ? Math.max(0, Math.floor((it as any).items_count))
+          : 0,
+      created_at: typeof (it as any).created_at === "string" ? (it as any).created_at : null,
+      updated_at: typeof (it as any).updated_at === "string" ? (it as any).updated_at : null,
     });
   }
   return out;
@@ -91,7 +101,7 @@ function coercePublicLists(x: unknown): PublicListRow[] {
 
 const fetchUserSSR = cache(async (username: string): Promise<PublicUser | null> => {
   const url = new URL(`/api/users/${encodeURIComponent(username)}`, siteBase()).toString();
-  const res = await fetch(url, { next: { revalidate } });
+  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
 
   if (res.status === 404) return null;
   if (!res.ok) return null;
@@ -101,33 +111,26 @@ const fetchUserSSR = cache(async (username: string): Promise<PublicUser | null> 
 });
 
 const fetchPublicListsByOwnerSSR = cache(async (username: string): Promise<PublicListRow[]> => {
-  // Use your existing public lists endpoint so this is guaranteed public + crawlable
   const qs = new URLSearchParams();
   qs.set("owner", username);
   qs.set("sort", "updated_desc");
   qs.set("page", "1");
 
   const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
-  const res = await fetch(url, { next: { revalidate } });
+  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
   return coercePublicLists(data);
 });
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params | Promise<Params>;
-}): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const p = await Promise.resolve(params);
   const normalized = normalizeUsername(p.username);
 
-  // If invalid, keep metadata sane; page will 404.
   const safe = normalized ?? "user";
   const canonicalPath = `/users/${encodeURIComponent(safe)}`;
 
-  // We *can* try to fetch to personalize the title/desc; if not found we’ll noindex.
   const user = normalized ? await fetchUserSSR(normalized) : null;
 
   if (!normalized || !user) {
@@ -145,7 +148,7 @@ export async function generateMetadata({
   }
 
   const title = `@${user.username}`;
-  const description = `Public profile for @${user.username} on ${SITE_NAME}.`;
+  const description = `Public profile for @${user.username}.`;
 
   return {
     title,
@@ -157,34 +160,22 @@ export async function generateMetadata({
   };
 }
 
-export default async function Page({
-  params,
-}: {
-  params: Params | Promise<Params>;
-}) {
+export default async function Page({ params }: { params: Params | Promise<Params> }) {
   const p = await Promise.resolve(params);
   const username = normalizeUsername(p.username);
   if (!username) notFound();
 
-  const [user, lists] = await Promise.all([
-    fetchUserSSR(username),
-    fetchPublicListsByOwnerSSR(username),
-  ]);
-
+  const [user, lists] = await Promise.all([fetchUserSSR(username), fetchPublicListsByOwnerSSR(username)]);
   if (!user) notFound();
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">
-          {SITE_NAME}
-        </div>
+        <div className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">{SITE_NAME}</div>
 
         <h1 className="mt-2 text-3xl font-bold">@{user.username}</h1>
 
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Public lists by this user
-        </p>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Public lists by this user</p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
@@ -215,9 +206,7 @@ export default async function Page({
                   </Link>
 
                   {l.description ? (
-                    <p className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
-                      {l.description}
-                    </p>
+                    <p className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
                   ) : null}
 
                   <div className="mt-2 text-xs text-zinc-500">

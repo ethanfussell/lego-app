@@ -51,15 +51,22 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function coerceSetRow(x: unknown): SetRow | null {
   if (!isRecord(x)) return null;
 
-  const set_num = typeof x.set_num === "string" ? x.set_num.trim() : "";
-  const name = typeof x.name === "string" ? x.name.trim() : "";
+  const set_num = typeof (x as any).set_num === "string" ? String((x as any).set_num).trim() : "";
+  const name = typeof (x as any).name === "string" ? String((x as any).name).trim() : "";
   if (!set_num || !name) return null;
 
-  const year = typeof x.year === "number" && Number.isFinite(x.year) ? x.year : undefined;
-  const pieces = typeof x.pieces === "number" && Number.isFinite(x.pieces) ? x.pieces : undefined;
+  const year = typeof (x as any).year === "number" && Number.isFinite((x as any).year) ? (x as any).year : undefined;
+  const pieces =
+    typeof (x as any).pieces === "number" && Number.isFinite((x as any).pieces) ? (x as any).pieces : undefined;
 
-  const theme = typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
-  const image_url = typeof x.image_url === "string" ? x.image_url : null;
+  const theme =
+    typeof (x as any).theme === "string"
+      ? String((x as any).theme)
+      : (x as any).theme == null
+        ? null
+        : String((x as any).theme);
+
+  const image_url = typeof (x as any).image_url === "string" ? String((x as any).image_url) : null;
 
   const average_rating =
     typeof (x as any).average_rating === "number" && Number.isFinite((x as any).average_rating)
@@ -121,8 +128,8 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
 
   if (!n) {
     return {
-      title: `Best LEGO sets under N pieces | ${SITE_NAME}`,
-      description: `Browse the best LEGO sets under a piece count.`,
+      title: "Best LEGO sets under N pieces",
+      description: "Browse the best LEGO sets under a piece count.",
       metadataBase: new URL(siteBase()),
       robots: { index: false, follow: false },
     };
@@ -132,13 +139,15 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const title = `Best LEGO sets under ${n.toLocaleString()} pieces`;
   const description = `Browse top-rated LEGO sets with ${n.toLocaleString()} pieces or fewer.`;
 
+  // NOTE: layout.tsx already applies `%s | ${SITE_NAME}` via title.template.
+  // So we return plain titles here (no `| ${SITE_NAME}`).
   return {
-    title: `${title} | ${SITE_NAME}`,
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    openGraph: { title, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -153,7 +162,9 @@ export default async function Page({ params }: { params: Params | Promise<Params
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <div className="text-sm text-zinc-600 dark:text-zinc-400">
-          <Link href="/" className="font-semibold hover:underline">Home</Link>
+          <Link href="/" className="font-semibold hover:underline">
+            Home
+          </Link>
           <span className="mx-2">›</span>
           <span className="text-zinc-900 dark:text-zinc-50">Pieces</span>
           <span className="mx-2">›</span>
@@ -163,9 +174,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
         <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Best sets under {n.toLocaleString()} pieces</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Sorted by average rating, then rating count.
-            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Sorted by average rating, then rating count.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

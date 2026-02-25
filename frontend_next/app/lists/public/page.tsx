@@ -21,14 +21,14 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteBase()),
   alternates: { canonical: "/lists/public" },
   openGraph: {
-    title: `Public Lists | ${SITE_NAME}`,
+    title: "Public Lists",
     description: "Browse lists shared by the community.",
     url: "/lists/public",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: `Public Lists | ${SITE_NAME}`,
+    title: "Public Lists",
     description: "Browse lists shared by the community.",
   },
 };

@@ -81,7 +81,6 @@ function qsBase(year: number, p: number) {
   return qs ? `/years/${year}?${qs}` : `/years/${year}`;
 }
 
-// numbered pagination with ellipses, e.g. 1 … 6 7 [8] 9 10 … 30
 function buildPageList(current: number, totalPages: number) {
   const out: Array<number | "..."> = [];
   const add = (x: number | "...") => {
@@ -146,7 +145,6 @@ async function fetchSetsByYear(year: number, page: number, limit: number): Promi
   if (page > 1) params.set("page", String(page));
   params.set("limit", String(limit));
 
-  // Server component: go to backend directly (avoids proxy/cache surprises).
   const url = `${apiBase()}/sets?${params.toString()}`;
 
   let res: Response;
@@ -179,7 +177,6 @@ async function fetchSetsByYear(year: number, page: number, limit: number): Promi
   return { kind: "ok", rows, totalCount };
 }
 
-// ✅ metadata depends ONLY on params (cache-friendly)
 export async function generateMetadata({
   params,
 }: {
@@ -193,26 +190,23 @@ export async function generateMetadata({
   const validYear = Number.isFinite(y) && y >= min && y <= max;
 
   const title = validYear ? `Sets from ${y}` : "Sets by year";
-  const description = validYear
-    ? `Browse LEGO sets released in ${y}.`
-    : `Browse LEGO sets by release year on ${SITE_NAME}.`;
-
+  const description = validYear ? `Browse LEGO sets released in ${y}.` : `Browse LEGO sets by release year on ${SITE_NAME}.`;
   const canonical = validYear ? qsBase(y, 1) : "/years";
 
   return {
-    title,
+    title, // ✅ layout template will append
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
     openGraph: {
-      title: `${title} | ${SITE_NAME}`,
+      title,
       description,
       url: canonical,
       type: "website",
     },
     twitter: {
       card: "summary",
-      title: `${title} | ${SITE_NAME}`,
+      title,
       description,
     },
   };
@@ -231,23 +225,12 @@ export default async function YearPage({
   const { min, max } = yearBounds();
   const y = toInt(String(year), NaN);
 
-  // Invalid year
   if (!Number.isFinite(y) || y < min || y > max) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <Breadcrumbs
-          items={[
-            { label: "Home", href: "/" },
-            { label: "Years", href: "/years" },
-            { label: "Invalid year" },
-          ]}
-        />
-
+        <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: "Invalid year" }]} />
         <h1 className="mt-4 text-2xl font-semibold tracking-tight">Invalid year</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Please choose a year between {min} and {max}.
-        </p>
-
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Please choose a year between {min} and {max}.</p>
         <Link href="/years" className="mt-4 inline-block text-sm font-semibold hover:underline">
           ← Back to years
         </Link>
@@ -260,10 +243,8 @@ export default async function YearPage({
 
   const firstPass = await fetchSetsByYear(y, requestedPage, limit);
 
-  // Only true invalid year from backend -> 404
   if (firstPass.kind === "notfound") notFound();
 
-  // Degraded: DO NOT crash, DO NOT soft-404. Render page with empty grid + hints.
   if (firstPass.kind === "degraded") {
     const breadcrumbItems = [
       { label: "Home", href: "/" },
@@ -287,9 +268,7 @@ export default async function YearPage({
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{y}</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              We couldn’t load sets right now. Try refreshing in a bit.
-            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">We couldn’t load sets right now. Try refreshing in a bit.</p>
           </div>
 
           <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
@@ -304,11 +283,8 @@ export default async function YearPage({
     );
   }
 
-  // Ok path
-  const totalPages =
-    firstPass.totalCount != null ? Math.max(1, Math.ceil(firstPass.totalCount / limit)) : null;
+  const totalPages = firstPass.totalCount != null ? Math.max(1, Math.ceil(firstPass.totalCount / limit)) : null;
 
-  // If we know total pages and the user requested > last page, redirect to canonical last page
   if (totalPages != null && requestedPage > totalPages) {
     redirect(qsBase(y, totalPages));
   }
@@ -327,7 +303,6 @@ export default async function YearPage({
 
   const topThemes = topThemesFromRows(rows, 3);
 
-  // No results (page 1 only)
   if (page === 1 && rows.length === 0) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-12">

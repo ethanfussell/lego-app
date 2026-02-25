@@ -4,7 +4,7 @@ import PublicListsClient from "./PublicListsClient";
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: "Discover Lists | LEGO App",
+    title: "Discover Lists",
     description: "Browse public LEGO lists from the community.",
     alternates: { canonical: "/discover/lists" },
   };

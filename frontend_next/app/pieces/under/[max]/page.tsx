@@ -124,7 +124,7 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
 
   if (!m) {
     return {
-      title: `Best LEGO sets by piece count | ${SITE_NAME}`,
+      title: "Best LEGO sets by piece count",
       description: `Browse top LEGO sets under different piece counts.`,
       metadataBase: new URL(siteBase()),
       robots: { index: false, follow: false },
@@ -136,12 +136,12 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const description = `Browse the highest-rated LEGO sets with ${m.toLocaleString()} pieces or fewer.`;
 
   return {
-    title: `${title} | ${SITE_NAME}`,
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: { title: `${title} | ${SITE_NAME}`, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title: `${title} | ${SITE_NAME}`, description },
+    openGraph: { title, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
