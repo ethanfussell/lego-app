@@ -8,7 +8,7 @@ export const revalidate = 3600; // ISR (1 hour)
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: "Discover | LEGO App",
+    title: "Discover",
     description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
     alternates: { canonical: "/discover" },
   };
@@ -122,20 +122,14 @@ async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limi
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
 
-  const total =
-    !Array.isArray(data) && typeof data.total === "number"
-      ? data.total
-      : results.length;
+  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
 
   const totalPages =
     !Array.isArray(data) && typeof data.total_pages === "number"
       ? data.total_pages
       : Math.max(1, Math.ceil(Math.max(1, total) / Math.max(1, opts.limit)));
 
-  const page =
-    !Array.isArray(data) && typeof data.page === "number"
-      ? data.page
-      : opts.page;
+  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
 
   return { results, total, totalPages, page, error: null as string | null };
 }
