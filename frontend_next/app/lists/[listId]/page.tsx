@@ -394,7 +394,7 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
 
   const listTitle = (d.title && d.title.trim()) || `List #${d.id}`;
-  const title = ownerName ? `${listTitle} by @${ownerName} | ${SITE_NAME}` : `${listTitle} | ${SITE_NAME}`;
+  const title = ownerName ? `${listTitle} by @${ownerName}` : `${listTitle}`;
 
   const desc = (d.description && d.description.trim()) || "";
   const fallback =
