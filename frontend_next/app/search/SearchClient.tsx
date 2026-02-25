@@ -173,17 +173,18 @@ function buildCleanSearchUrl(params: URLSearchParams) {
   return qs ? `/search?${qs}` : "/search";
 }
 
-export default function SearchClient({
-  initialQ,
-  initialSort,
-  initialOrder,
-  initialPage,
-}: {
+type Props = {
   initialQ: string;
   initialSort: string;
   initialOrder?: string;
   initialPage: number;
-}) {
+
+  // optional overrides (used by /sets page)
+  heading?: string;
+  description?: string;
+};
+
+export default function SearchClient({ initialQ, initialSort, initialOrder, initialPage, heading, description }: Props) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -293,7 +294,7 @@ export default function SearchClient({
       if (sort0 !== "relevance") next.set("sort", sort0);
 
       const def = defaultOrderForSort(sort0);
-      const useOrder = sort0 === "relevance" ? "" : (order0 || def);
+      const useOrder = sort0 === "relevance" ? "" : order0 || def;
       if (sort0 !== "relevance" && useOrder && useOrder !== def) next.set("order", useOrder);
 
       if (page0 > 1) next.set("page", String(page0));
@@ -425,17 +426,18 @@ export default function SearchClient({
     };
   }, [q, sortParam, orderParam, page, pushUrl]);
 
-  const heading = q ? `Search: "${q}"` : "Search";
+  const computedHeading = heading ?? (q ? `Search: "${q}"` : "Search");
+  const computedDescription =
+    description ?? (q && total != null ? `${total.toLocaleString()} result${total === 1 ? "" : "s"}` : "");
+
   const showEmptyPrompt = !loading && !err && !q;
   const showNoResults = !loading && !err && !!q && results.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 pb-16">
       <div className="pt-10">
-        <h1 className="m-0 text-2xl font-semibold tracking-tight">{heading}</h1>
-        <div className="mt-2 text-sm text-zinc-500">
-          {q && total != null ? `${total.toLocaleString()} result${total === 1 ? "" : "s"}` : null}
-        </div>
+        <h1 className="m-0 text-2xl font-semibold tracking-tight">{computedHeading}</h1>
+        <div className="mt-2 text-sm text-zinc-500">{computedDescription || null}</div>
 
         <form
           onSubmit={(e) => {
@@ -447,7 +449,7 @@ export default function SearchClient({
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder='Search sets (e.g. castle, space, technic)…'
+            placeholder="Search sets (e.g. castle, space, technic)…"
             className="h-12 w-full flex-1 rounded-2xl border border-black/[.10] bg-white px-4 text-sm outline-none dark:border-white/[.14] dark:bg-zinc-950"
           />
           <button
