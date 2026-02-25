@@ -35,24 +35,6 @@ function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, ba
   };
 }
 
-export const metadata: Metadata = {
-  title: "Themes",
-  description: `Browse LEGO themes on ${SITE_NAME}.`,
-  metadataBase: new URL(siteBase()),
-  alternates: { canonical: "/themes" },
-  openGraph: {
-    title: `Themes | ${SITE_NAME}`,
-    description: `Browse LEGO themes on ${SITE_NAME}.`,
-    url: "/themes",
-    type: "website",
-  },
-  twitter: {
-    card: "summary",
-    title: `Themes | ${SITE_NAME}`,
-    description: `Browse LEGO themes on ${SITE_NAME}.`,
-  },
-};
-
 function first(sp: SP, key: string): string {
   const raw = sp[key];
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -113,6 +95,41 @@ async function fetchThemes(q: string, page: number, limit: number): Promise<{ ro
   const totalCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 
   return { rows, totalCount };
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: SP | Promise<SP>;
+}): Promise<Metadata> {
+  const sp = (await searchParams) ?? ({} as SP);
+  const page = toInt(first(sp, "page") || "1", 1);
+
+  const title = "Themes";
+  const description = `Browse LEGO themes on ${SITE_NAME}.`;
+  const canonicalPath = "/themes";
+
+  // ✅ Key change: paginated pages should be noindex (avoid duplicates)
+  const robots = page > 1 ? ({ index: false, follow: true } as const) : undefined;
+
+  return {
+    title,
+    description,
+    metadataBase: new URL(siteBase()),
+    alternates: { canonical: canonicalPath },
+    robots,
+    openGraph: {
+      title: `Themes | ${SITE_NAME}`,
+      description,
+      url: canonicalPath,
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: `Themes | ${SITE_NAME}`,
+      description,
+    },
+  };
 }
 
 export default async function ThemesIndexPage({ searchParams }: { searchParams?: SP | Promise<SP> }) {
