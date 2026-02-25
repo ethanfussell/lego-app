@@ -72,17 +72,8 @@ export async function generateMetadata({
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
-    openGraph: {
-      title: `${title} | ${SITE_NAME}`,
-      description,
-      url: canonical,
-      type: "website",
-    },
-    twitter: {
-      card: "summary",
-      title: `${title} | ${SITE_NAME}`,
-      description,
-    },
+    twitter: { card: "summary", title, description },
+    openGraph: { title, description, url: canonical, type: "website" },
   };
 }
 

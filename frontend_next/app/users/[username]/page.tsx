@@ -144,7 +144,7 @@ export async function generateMetadata({
     };
   }
 
-  const title = `@${user.username} | ${SITE_NAME}`;
+  const title = `@${user.username}`;
   const description = `Public profile for @${user.username} on ${SITE_NAME}.`;
 
   return {
