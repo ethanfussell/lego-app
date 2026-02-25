@@ -105,11 +105,11 @@ export async function generateMetadata({
   const sp = (await searchParams) ?? ({} as SP);
   const page = toInt(first(sp, "page") || "1", 1);
 
-  const title = "Themes";
-  const description = `Browse LEGO themes on ${SITE_NAME}.`;
+  const title = "Browse LEGO themes";
+  const description = "Browse LEGO themes and find sets by theme.";
   const canonicalPath = "/themes";
 
-  // ✅ Key change: paginated pages should be noindex (avoid duplicates)
+  // paginated pages should be noindex (avoid duplicates)
   const robots = page > 1 ? ({ index: false, follow: true } as const) : undefined;
 
   return {
@@ -119,14 +119,14 @@ export async function generateMetadata({
     alternates: { canonical: canonicalPath },
     robots,
     openGraph: {
-      title: `Themes | ${SITE_NAME}`,
+      title: `Browse LEGO themes | ${SITE_NAME}`,
       description,
       url: canonicalPath,
       type: "website",
     },
     twitter: {
       card: "summary",
-      title: `Themes | ${SITE_NAME}`,
+      title: `Browse LEGO themes | ${SITE_NAME}`,
       description,
     },
   };
