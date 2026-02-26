@@ -39,3 +39,9 @@ logs/
 .env*.local
 *.save
 backend/scripts/dev_seed_user.py
+
+# local audit artifacts
+all_theme_slugs.txt
+sitemap.xml
+themes_audit.tsv
+themes_audit_v2.tsv
