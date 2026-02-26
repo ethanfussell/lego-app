@@ -23,8 +23,8 @@ function apiBase() {
  * Next route params are decoded (e.g. "Make-&-Create"), but canonical URLs
  * should use the encoded path segment (e.g. "Make-%26-Create").
  */
-function canonicalFor(decodedThemeSlug: string) {
-  return `/themes/${encodeURIComponent(decodedThemeSlug)}`;
+function canonicalFor(themeSlug: string) {
+  return new URL(`/themes/${themeSlug}`, siteBase()).toString();
 }
 
 type SetSummary = {
@@ -75,9 +75,9 @@ export async function generateMetadata({
     title,
     description,
     metadataBase: new URL(siteBase()),
-    alternates: { canonical },
+    alternates: { canonical },              // ✅ absolute
     twitter: { card: "summary", title, description },
-    openGraph: { title, description, url: canonical, type: "website" },
+    openGraph: { title, description, url: canonical, type: "website" }, // ✅ absolute
   };
 }
 
