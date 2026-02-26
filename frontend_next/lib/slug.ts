@@ -1,15 +1,16 @@
 // frontend_next/lib/slug.ts
 
+// frontend_next/lib/slug.ts
+
 export function themeToSlug(theme: unknown): string {
-  const s = String(theme ?? "").trim();
-  if (!s) return "";
+  const raw = typeof theme === "string" ? theme : String(theme ?? "");
+  const cleaned = raw.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "Theme";
 
-  // Escape real hyphens first, then convert spaces to hyphens.
-  // This makes the transform reversible.
-  const escaped = s.replace(/-/g, "--").replace(/\s+/g, "-");
-
-  // Encode anything else (&, /, etc.) safely.
-  return encodeURIComponent(escaped);
+  // URL-safe and reversible:
+  // "Make & Create" -> "Make-%26-Create"
+  // "Star Wars" -> "Star-Wars"
+  return encodeURIComponent(cleaned).replace(/%20/g, "-");
 }
 
 export function slugToTheme(slug: unknown): string {
