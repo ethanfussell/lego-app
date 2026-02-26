@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
-import { slugToTheme } from "@/lib/slug";
+import { slugToTheme, themeToSlug } from "@/lib/slug";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
@@ -18,13 +18,9 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-/**
- * IMPORTANT:
- * Next route params are decoded (e.g. "Make-&-Create"), but canonical URLs
- * should use the encoded path segment (e.g. "Make-%26-Create").
- */
 function canonicalFor(themeSlug: string) {
-  return new URL(`/themes/${themeSlug}`, siteBase()).toString();
+  // themeSlug must already be URL-safe (encoded) here
+  return `/themes/${themeSlug}`;
 }
 
 type SetSummary = {
@@ -66,18 +62,23 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { themeSlug } = await params;
 
+  // Params are already decoded-ish by Next; convert to the real theme name
   const themeName = slugToTheme(themeSlug);
+
   const title = `${themeName} sets`;
   const description = `Browse LEGO sets in the ${themeName} theme.`;
-  const canonical = canonicalFor(themeSlug);
+
+  // Always compute the canonical slug from the name (one source of truth)
+  const canonicalSlug = themeToSlug(themeName);
+  const canonicalPath = canonicalFor(canonicalSlug);
 
   return {
     title,
     description,
     metadataBase: new URL(siteBase()),
-    alternates: { canonical },              // ✅ absolute
+    alternates: { canonical: canonicalPath }, // relative; metadataBase makes it absolute
     twitter: { card: "summary", title, description },
-    openGraph: { title, description, url: canonical, type: "website" }, // ✅ absolute
+    openGraph: { title, description, url: canonicalPath, type: "website" }, // OK as relative
   };
 }
 
@@ -106,19 +107,12 @@ async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfo
   if (res.status === 404) return "notfound";
   if (!res.ok) return []; // degraded: still render the page (not 404)
 
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch {
-    return [];
-  }
-
+  const data: unknown = await res.json().catch(() => null);
   return toSetSummaryArray(data);
 }
 
 // ✅ try to make route cacheable via ISR
 export const revalidate = 3600;
-// 🔑 force static shell (otherwise Next/Vercel will keep sending private/no-store)
 export const dynamic = "force-static";
 export const dynamicParams = true;
 export const fetchCache = "force-cache";
@@ -130,16 +124,13 @@ export default async function ThemeSetsPage({
 }) {
   const { themeSlug } = await params;
 
-  // themeSlug is decoded from the URL segment; convert to display name for UI + API calls.
   const themeName = slugToTheme(themeSlug);
+  const canonicalSlug = themeToSlug(themeName);
 
   const rows = await fetchThemePage1(themeName);
   if (rows === "notfound") notFound();
 
   const initialQuery: Query = { page: 1, limit: DEFAULT_LIMIT, sort: "relevance", order: "desc" };
-
-  // Pass an encoded slug to the client so any URL building stays correct (& -> %26, etc.)
-  const themeSlugEncoded = encodeURIComponent(themeSlug);
 
   return (
     <>
@@ -162,7 +153,8 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      <ThemeDetailClient themeSlug={themeSlugEncoded} initialSets={rows} initialQuery={initialQuery} />
+      {/* Pass canonical slug so client builds correct URLs (%, --, etc.) */}
+      <ThemeDetailClient themeSlug={canonicalSlug} initialSets={rows} initialQuery={initialQuery} />
     </>
   );
 }

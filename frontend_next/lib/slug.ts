@@ -1,37 +1,55 @@
 // frontend_next/lib/slug.ts
 
-/**
- * Theme slug rules (reversible):
- * - Spaces become "-"
- * - Characters like "&" and ":" stay URL-encoded (e.g. %26, %3A)
- * - REAL hyphens in the original theme name are double-encoded to avoid ambiguity:
- *     "Exo-Force" -> "Exo%252DForce"
- *   so we can safely decode back to the exact original theme string.
- */
-
-export function themeToSlug(theme: unknown): string {
-  const raw = typeof theme === "string" ? theme : String(theme ?? "");
-  const cleaned = raw.trim().replace(/\s+/g, " ");
-  if (!cleaned) return "Theme";
-
-  // 1) Encode everything safely (spaces -> %20, hyphen -> -, etc)
-  // 2) Make it pretty + reversible:
-  //    - protect real hyphens by double-encoding them
-  //    - turn spaces into hyphens
-  return encodeURIComponent(cleaned).replace(/-/g, "%252D").replace(/%20/g, "-");
+function normalizeSpaces(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Theme name -> URL-safe slug (stable + reversible)
+ *
+ * Rules:
+ * - Spaces become "-"
+ * - Literal hyphen "-" becomes "--" (escape so it doesn't turn into a space when decoding)
+ * - Then we URI-encode the whole thing so "&" -> %26, "'" -> %27, "!" -> %21, "/" -> %2F, etc.
+ *
+ * Examples:
+ * - "Star Wars" -> "Star-Wars"
+ * - "Exo-Force" -> "Exo--Force"
+ * - "Scooby-Doo" -> "Scooby--Doo"
+ * - "Make & Create" -> "Make-%26-Create"
+ * - "Gabby's Dollhouse" -> "Gabby%27s-Dollhouse"
+ * - "Unikitty!" -> "Unikitty%21"
+ */
+export function themeToSlug(theme: unknown): string {
+  const raw = typeof theme === "string" ? theme : String(theme ?? "");
+  const cleaned = normalizeSpaces(raw);
+  if (!cleaned) return "Theme";
+
+  // Escape literal hyphens so they survive round-trip
+  const escaped = cleaned.replace(/-/g, "--").replace(/ /g, "-");
+  return encodeURIComponent(escaped);
+}
+
+/**
+ * Slug -> Theme name (reversible)
+ *
+ * Reverse of themeToSlug:
+ * - decodeURIComponent
+ * - turn "-" back into spaces
+ * - turn "--" back into literal "-"
+ */
 export function slugToTheme(slug: unknown): string {
   const raw = String(slug ?? "").trim();
   if (!raw) return "";
 
-  // Reverse:
-  // - pretty "-" back to "%20" (spaces)
-  // - decodeURIComponent turns "%2D" into "-" (this happens after Next decodes once)
+  let decoded = raw;
   try {
-    return decodeURIComponent(raw.replace(/-/g, "%20")).trim();
+    decoded = decodeURIComponent(raw);
   } catch {
-    // If decoding fails, fall back to a best-effort string
-    return raw.replace(/-/g, " ").trim();
+    // keep raw if decode fails
   }
+
+  // Protect escaped hyphens, then convert separators to spaces, then restore hyphens
+  const HY = "\u0000"; // placeholder
+  return decoded.replace(/--/g, HY).replace(/-/g, " ").replaceAll(HY, "-").trim();
 }
