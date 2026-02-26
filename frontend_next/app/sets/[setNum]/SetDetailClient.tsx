@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
@@ -17,7 +16,9 @@ import { themeToSlug } from "@/lib/slug";
 
 function normalizeUsername(raw: unknown): string | null {
   const u = String(raw ?? "").trim();
-  return u ? u : null;
+  if (!u) return null;
+  // keep permissive; your route handles decode
+  return u;
 }
 
 type ReviewItem = {
@@ -107,15 +108,6 @@ function normalizeSetLiteArray(data: unknown): SetLite[] {
   }
 
   return [];
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function pickString(o: Record<string, unknown>, key: string): string | undefined {
-  const v = o[key];
-  return typeof v === "string" ? v : undefined;
 }
 
 export default function SetDetailClient(props: Props) {
@@ -232,6 +224,7 @@ export default function SetDetailClient(props: Props) {
     return () => window.clearTimeout(t);
   }, [sp, loading]);
 
+  // Helpers
   async function fetchReviewsForSet(currentSetNum: string) {
     setReviewsLoading(true);
     setReviewsError(null);
@@ -282,13 +275,9 @@ export default function SetDetailClient(props: Props) {
 
       const arr = Array.isArray(data) ? (data as unknown[]) : [];
       const cleaned: Offer[] = arr
-        .filter(isRecord)
-        .map((o) => {
-          const url = pickString(o, "url")?.trim();
-          if (!url) return null;
-          return o as Offer;
-        })
-        .filter((x): x is Offer => !!x);
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .filter((x) => typeof x.url === "string" && x.url.trim() !== "")
+        .map((x) => x as Offer);
 
       setOffers(cleaned);
     } catch (e: unknown) {
@@ -341,7 +330,7 @@ export default function SetDetailClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-  // Similar sets (by theme) — uses proxy route /api/themes/[theme]/sets
+  // Similar sets (by theme) — uses /themes/{theme}/sets
   useEffect(() => {
     const theme = String(setDetail?.theme ?? "").trim();
 
@@ -379,11 +368,13 @@ export default function SetDetailClient(props: Props) {
         if (!res.ok) throw new Error(`Failed to load similar sets (${res.status})`);
 
         const data: unknown = await res.json();
+
         const items = normalizeSetLiteArray(data);
         const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
 
         if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
       } catch (e: unknown) {
+        // Harmless mismatch/theme-not-found should not spam console.
         if (e instanceof APIError && e.status === 404) {
           if (!cancelled) {
             setSimilarSets([]);
@@ -404,6 +395,7 @@ export default function SetDetailClient(props: Props) {
     };
   }, [setDetail?.theme, setNum]);
 
+  // Reviews: create/update
   async function upsertMyReview(payload: { rating: number | null; text: string | null }) {
     if (!token) {
       router.push("/login");
@@ -440,6 +432,7 @@ export default function SetDetailClient(props: Props) {
     if (typeof myReview?.rating === "number") setUserRating(myReview.rating);
   }
 
+  // Delete my review
   async function deleteMyReview() {
     if (!token) {
       router.push("/login");
@@ -470,6 +463,7 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
+  // Save rating-only (text null)
   async function saveRating(newRating: number) {
     if (!isLoggedIn) {
       router.push("/login");
@@ -502,6 +496,7 @@ export default function SetDetailClient(props: Props) {
     await saveRating(value);
   }
 
+  // Review submit
   async function handleReviewSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -533,12 +528,14 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
+  // Similar row scrolling
   function scrollSimilar(direction: number) {
     const node = similarRowRef.current;
     if (!node) return;
     node.scrollBy({ left: direction * 240, behavior: "smooth" });
   }
 
+  // Loading / error / not found
   if (!setNum) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
@@ -562,7 +559,8 @@ export default function SetDetailClient(props: Props) {
           items={[
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
-            ...(setDetail?.theme ? [{ label: String(setDetail.theme), href: `/themes/${themeToSlug(setDetail.theme)}` }] : []),
+            ...(setDetail?.theme
+              ? [{ label: String(setDetail.theme), href: `/themes/${themeToSlug(setDetail.theme)}` }]              : []),
             { label: setNum || "Set" },
           ]}
         />
@@ -604,6 +602,7 @@ export default function SetDetailClient(props: Props) {
 
   const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
+
   const isRetired = setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
 
   return (
@@ -613,7 +612,8 @@ export default function SetDetailClient(props: Props) {
           items={[
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
-            ...(theme ? [{ label: String(theme), href: `/themes/${themeToSlug(theme)}` }] : []),
+            ...(theme
+              ? [{ label: String(theme), href: `/themes/${themeToSlug(theme)}` }]              : []),
             { label: name || setNum },
           ]}
         />
@@ -631,17 +631,8 @@ export default function SetDetailClient(props: Props) {
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
             {image_url ? (
-              <div className="relative h-[260px] w-full">
-                {/* Next/Image fixes Lighthouse “Improve image delivery” a lot */}
-                <Image
-                  src={image_url}
-                  alt={name || setNum}
-                  fill
-                  sizes="(max-width: 768px) 90vw, 360px"
-                  priority
-                  className="object-contain"
-                />
-              </div>
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image_url} alt={name || setNum} className="block max-h-[320px] w-full object-contain" />
             ) : (
               <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
                 No image available
@@ -652,14 +643,18 @@ export default function SetDetailClient(props: Props) {
 
         <div>
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
-
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             <span className="font-semibold text-zinc-900 dark:text-zinc-100">{setNum}</span>
+
             {typeof year === "number" ? (
               <>
                 {" "}
                 •{" "}
-                <Link href={`/years/${year}`} prefetch={false} className="font-semibold hover:underline">
+                <Link
+                  href={`/years/${year}`}
+                  prefetch={false}
+                  className="font-semibold hover:underline"
+                >
                   {year}
                 </Link>
               </>
@@ -675,13 +670,9 @@ export default function SetDetailClient(props: Props) {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? (
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p>
-          ) : null}
+          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? (
-            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
-          ) : null}
+          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
@@ -733,9 +724,7 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
-              ) : null}
+              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -774,7 +763,7 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${themeToSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
+              <Link href={`/themes/${themeToSlug(setDetail.theme ?? "")}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </li>
@@ -865,24 +854,26 @@ export default function SetDetailClient(props: Props) {
                   className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                      {(() => {
-                        const u = normalizeUsername(r.user);
-                        if (!u) {
-                          return <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>;
-                        }
-
+                  <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {(() => {
+                      const u = normalizeUsername(r.user);
+                      if (!u) {
                         return (
-                          <Link
-                            href={`/users/${encodeURIComponent(u)}`}
-                            className="font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
-                          >
-                            {u}
-                          </Link>
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>
                         );
-                      })()}
-                      {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
-                    </div>
+                      }
+
+                      return (
+                        <Link
+                          href={`/users/${encodeURIComponent(u)}`}
+                          className="font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
+                        >
+                          {u}
+                        </Link>
+                      );
+                    })()}
+                    {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
+                  </div>
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
