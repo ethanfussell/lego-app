@@ -1,27 +1,20 @@
 // frontend_next/lib/slug.ts
 
+const SLASH_TOKEN = "__SLASH__";
+
 function normalizeSpaces(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }
-
-/**
- * We must never produce a slug that contains "%2F" (encoded "/"),
- * because many routers treat it like a real path separator and the
- * dynamic route won't match (causes 404).
- *
- * So we encode "/" as a safe token inside the slug and reverse it later.
- */
-const SLASH_TOKEN = "__SLASH__";
 
 /**
  * Theme name -> URL-safe slug (stable + reversible)
  *
  * Rules:
  * - Normalize spaces
- * - Replace "/" with SLASH_TOKEN (prevents %2F in the slug)
+ * - Convert "/" (with or without surrounding spaces) into the token "__SLASH__"
+ * - Escape literal "-" as "--"
  * - Spaces become "-"
- * - Literal hyphen "-" becomes "--" (escape so it doesn't decode as a space)
- * - Then URI-encode the whole thing so "&" -> %26, "'" -> %27, "!" -> %21, etc.
+ * - Then encodeURIComponent so "&" -> %26, "'" -> %27, "!" -> %21, etc.
  *
  * Examples:
  * - "Star Wars" -> "Star-Wars"
@@ -34,28 +27,25 @@ const SLASH_TOKEN = "__SLASH__";
  */
 export function themeToSlug(theme: unknown): string {
   const raw = typeof theme === "string" ? theme : String(theme ?? "");
-  const cleaned = normalizeSpaces(raw);
+  let cleaned = normalizeSpaces(raw);
   if (!cleaned) return "Theme";
 
-  // Prevent %2F in slugs
-  const noSlash = cleaned.replace(/\//g, SLASH_TOKEN);
+  // Normalize slashes into a token so the slug is path-safe
+  cleaned = cleaned.replace(/\s*\/\s*/g, ` ${SLASH_TOKEN} `);
+  cleaned = normalizeSpaces(cleaned);
 
-  // Escape literal hyphens so they survive round-trip, then spaces -> "-"
-  const escaped = noSlash.replace(/-/g, "--").replace(/ /g, "-");
+  // Escape literal hyphens so they survive round-trip
+  const escapedHyphens = cleaned.replace(/-/g, "--");
 
-  // Encode everything that might be unsafe (but NOT "/" because it no longer exists here)
-  return encodeURIComponent(escaped);
+  // Spaces become hyphens
+  const withDashes = escapedHyphens.replace(/ /g, "-");
+
+  // Encode everything else (&, ', !, etc.)
+  return encodeURIComponent(withDashes);
 }
 
 /**
- * Slug -> Theme name (reversible)
- *
- * Reverse of themeToSlug:
- * - decodeURIComponent
- * - protect "--" (escaped hyphen)
- * - "-" -> spaces
- * - restore "--" to "-"
- * - restore SLASH_TOKEN -> "/"
+ * Slug -> Theme name (reverse of themeToSlug)
  */
 export function slugToTheme(slug: unknown): string {
   const raw = String(slug ?? "").trim();
@@ -68,9 +58,19 @@ export function slugToTheme(slug: unknown): string {
     // keep raw if decode fails
   }
 
-  const HY = "\u0000"; // placeholder for escaped hyphens
-  const withSpaces = decoded.replace(/--/g, HY).replace(/-/g, " ").replaceAll(HY, "-").trim();
+  // Protect escaped hyphens first
+  const HY = "\u0000"; // placeholder
+  let s = decoded.replace(/--/g, HY);
 
-  // Restore "/" last
-  return withSpaces.replaceAll(SLASH_TOKEN, "/").trim();
+  // Turn separators back into spaces
+  s = s.replace(/-/g, " ");
+
+  // Restore literal hyphens
+  s = s.replaceAll(HY, "-");
+
+  // Restore slash token (keep nice spacing)
+  s = s.replaceAll(SLASH_TOKEN, "/");
+  s = s.replace(/\s*\/\s*/g, " / ");
+
+  return normalizeSpaces(s);
 }
