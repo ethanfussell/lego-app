@@ -15,7 +15,15 @@ function siteUrl(req: NextRequest) {
 export function GET(req: NextRequest) {
   const base = siteUrl(req);
 
-  const body = [
+  const lines = [
+    // Let Googlebot load API resources for rendering (URL Inspection / Live Test).
+    // This does NOT mean Google will index /api/ (it’s just fetch permission).
+    "User-agent: Googlebot",
+    "Allow: /api/",
+    "Allow: /",
+    "",
+
+    // Default rule set for everyone else
     "User-agent: *",
     "Allow: /",
     "",
@@ -26,15 +34,13 @@ export function GET(req: NextRequest) {
     "Disallow: /signup",
     "Disallow: /me",
     "",
-    // Point Search Console to the index sitemap (recommended)
     `Sitemap: ${base}/sitemap_index.xml`,
     "",
-  ].join("\n");
+  ];
 
-  return new Response(body, {
+  return new Response(lines.join("\n"), {
     headers: {
       "content-type": "text/plain; charset=utf-8",
-      // Cache is fine for robots; keep it shortish so changes propagate
       "cache-control": "public, max-age=3600, s-maxage=3600",
     },
   });
