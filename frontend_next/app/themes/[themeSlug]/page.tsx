@@ -18,9 +18,13 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
-function canonicalFor(themeSlug: string) {
-  // Keep canonical stable (no ?page=...) so metadata stays cache-friendly
-  return `/themes/${themeSlug}`;
+/**
+ * IMPORTANT:
+ * Next route params are decoded (e.g. "Make-&-Create"), but canonical URLs
+ * should use the encoded path segment (e.g. "Make-%26-Create").
+ */
+function canonicalFor(decodedThemeSlug: string) {
+  return `/themes/${encodeURIComponent(decodedThemeSlug)}`;
 }
 
 type SetSummary = {
@@ -125,12 +129,17 @@ export default async function ThemeSetsPage({
   params: { themeSlug: string } | Promise<{ themeSlug: string }>;
 }) {
   const { themeSlug } = await params;
+
+  // themeSlug is decoded from the URL segment; convert to display name for UI + API calls.
   const themeName = slugToTheme(themeSlug);
 
   const rows = await fetchThemePage1(themeName);
   if (rows === "notfound") notFound();
 
   const initialQuery: Query = { page: 1, limit: DEFAULT_LIMIT, sort: "relevance", order: "desc" };
+
+  // Pass an encoded slug to the client so any URL building stays correct (& -> %26, etc.)
+  const themeSlugEncoded = encodeURIComponent(themeSlug);
 
   return (
     <>
@@ -153,7 +162,7 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      <ThemeDetailClient themeSlug={themeSlug} initialSets={rows} initialQuery={initialQuery} />
+      <ThemeDetailClient themeSlug={themeSlugEncoded} initialSets={rows} initialQuery={initialQuery} />
     </>
   );
 }
