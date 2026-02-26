@@ -114,6 +114,12 @@ function toSitemapXml(entries: UrlEntry[]) {
 // Theme exists in /themes list, but /themes/{name}/sets 404s -> keep out of sitemap.
 const SITEMAP_THEME_DENYLIST = new Set<string>(["Dino Attack / Dino 2010"]);
 
+function yearRange(min = 1980, max = new Date().getFullYear()): number[] {
+  const out: number[] = [];
+  for (let y = max; y >= min; y--) out.push(y);
+  return out;
+}
+
 async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> {
   const limit = 100;
   const firstUrl = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=1`;
@@ -197,7 +203,7 @@ async function collectThemeUrls(): Promise<{
     }
 
     try {
-      const slug = themeToSlug(t); // MUST be the same slug your app uses (handles &, ', !, etc.)
+      const slug = themeToSlug(t); // MUST match app routing
       if (typeof slug === "string" && slug.trim()) themePaths.push(`/themes/${slug}`);
       else badSlugThemes.push(t);
     } catch {
@@ -326,12 +332,33 @@ export async function GET() {
     { loc: `${base}/themes/Ninjago/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/themes/Seasonal/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
 
-    // Year “top” pages (most recent 5)
+    // Keep these since you already like them (but they’ll also be included below anyway)
     { loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2023/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+  ];
+
+  // ✅ include ALL year pages + year top pages
+  const years = yearRange(1980, new Date().getFullYear());
+  const yearEntries: UrlEntry[] = [
+    ...years.map(
+      (y): UrlEntry => ({
+        loc: `${base}/years/${y}`,
+        changefreq: "weekly",
+        priority: 0.4,
+        lastmod: now,
+      })
+    ),
+    ...years.map(
+      (y): UrlEntry => ({
+        loc: `${base}/years/${y}/top`,
+        changefreq: "weekly",
+        priority: 0.5,
+        lastmod: now,
+      })
+    ),
   ];
 
   let setPaths: string[] = [];
@@ -380,7 +407,17 @@ export async function GET() {
     ...userProfilePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.3 })),
   ];
 
-  const xml = toSitemapXml([...staticEntries, ...dynamicEntries]);
+  // Optional: de-dupe (staticEntries already includes 2022-2026 /top; this keeps sitemap clean)
+  const allEntries = [...staticEntries, ...yearEntries, ...dynamicEntries];
+  const seen = new Set<string>();
+  const uniqEntries = allEntries.filter((e) => {
+    const key = e.loc;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const xml = toSitemapXml(uniqEntries);
 
   return new NextResponse(xml, {
     status: 200,
@@ -388,7 +425,7 @@ export async function GET() {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-      "X-Sitemap-Route": "v5",
+      "X-Sitemap-Route": "v6",
       "X-Sitemap-ApiBase": api,
 
       "X-Sitemap-ThemesURL": themesProbeUrl,
@@ -414,6 +451,9 @@ export async function GET() {
 
       "X-Sitemap-Users": String(userProfilePaths.length),
       "X-Sitemap-UsersRaw": String(usersRawCount),
+
+      // Helpful debugging
+      "X-Sitemap-Years": String(years.length),
     },
   });
 }
