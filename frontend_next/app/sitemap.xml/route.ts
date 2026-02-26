@@ -52,9 +52,7 @@ async function fetchWithTimeout(url: string, opts: RequestInit & { timeoutMs?: n
   }
 }
 
-async function fetchJsonWithCount(
-  url: string
-): Promise<{ data: unknown; totalCount: number | null; status: number }> {
+async function fetchJsonWithCount(url: string): Promise<{ data: unknown; totalCount: number | null; status: number }> {
   let res: Response;
   try {
     res = await fetchWithTimeout(url, { cache: "no-store", timeoutMs: 8000 });
@@ -113,6 +111,9 @@ function toSitemapXml(entries: UrlEntry[]) {
   );
 }
 
+// Theme exists in /themes list, but /themes/{name}/sets 404s -> keep out of sitemap.
+const SITEMAP_THEME_DENYLIST = new Set<string>(["Dino Attack / Dino 2010"]);
+
 async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> {
   const limit = 100;
   const firstUrl = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=1`;
@@ -158,6 +159,7 @@ async function collectThemeUrls(): Promise<{
   paths: string[];
   rawThemes: string[];
   badSlugThemes: string[];
+  skippedThemes: string[];
 }> {
   const limit = 100;
   const firstUrl = `${apiBase()}${THEMES_INDEX}?limit=${limit}&page=1`;
@@ -185,11 +187,17 @@ async function collectThemeUrls(): Promise<{
   const uniqThemes = Array.from(new Set(themes));
 
   const badSlugThemes: string[] = [];
+  const skippedThemes: string[] = [];
   const themePaths: string[] = [];
 
   for (const t of uniqThemes) {
+    if (SITEMAP_THEME_DENYLIST.has(t)) {
+      skippedThemes.push(t);
+      continue;
+    }
+
     try {
-      const slug = themeToSlug(t);
+      const slug = themeToSlug(t); // MUST be the same slug your app uses (handles &, ', !, etc.)
       if (typeof slug === "string" && slug.trim()) themePaths.push(`/themes/${slug}`);
       else badSlugThemes.push(t);
     } catch {
@@ -197,7 +205,7 @@ async function collectThemeUrls(): Promise<{
     }
   }
 
-  return { paths: themePaths, rawThemes: uniqThemes, badSlugThemes };
+  return { paths: themePaths, rawThemes: uniqThemes, badSlugThemes, skippedThemes };
 }
 
 /**
@@ -307,24 +315,24 @@ export async function GET() {
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
 
     // Theme “top” pages (Top 10 themes by set count)
-{ loc: `${base}/themes/Star-Wars/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Duplo/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/City/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Town/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Friends/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Educational-and-Dacta/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Creator/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Technic/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Ninjago/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/themes/Seasonal/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Star-Wars/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Duplo/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/City/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Town/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Friends/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Educational-and-Dacta/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Creator/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Technic/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Ninjago/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/themes/Seasonal/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
 
-// Year “top” pages (most recent 5)
-{ loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/years/2023/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-{ loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-];
+    // Year “top” pages (most recent 5)
+    { loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/years/2023/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    { loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+  ];
 
   let setPaths: string[] = [];
   let themePaths: string[] = [];
@@ -335,6 +343,8 @@ export async function GET() {
   let themesRawCount = 0;
   let themesBadSlugCount = 0;
   let themesBadSlugSample = "";
+  let themesSkippedCount = 0;
+  let themesSkippedSample = "";
 
   let publicListsRawCount = 0;
   let usersRawCount = 0;
@@ -351,6 +361,8 @@ export async function GET() {
     themesRawCount = themes.rawThemes.length;
     themesBadSlugCount = themes.badSlugThemes.length;
     themesBadSlugSample = themes.badSlugThemes[0] ? String(themes.badSlugThemes[0]).slice(0, 120) : "";
+    themesSkippedCount = themes.skippedThemes.length;
+    themesSkippedSample = themes.skippedThemes[0] ? String(themes.skippedThemes[0]).slice(0, 120) : "";
   } catch {}
 
   try {
@@ -376,7 +388,7 @@ export async function GET() {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-      "X-Sitemap-Route": "v4",
+      "X-Sitemap-Route": "v5",
       "X-Sitemap-ApiBase": api,
 
       "X-Sitemap-ThemesURL": themesProbeUrl,
@@ -391,6 +403,8 @@ export async function GET() {
       "X-Sitemap-ThemesRaw": String(themesRawCount),
       "X-Sitemap-ThemesBadSlug": String(themesBadSlugCount),
       "X-Sitemap-ThemesBadSlugSample": themesBadSlugSample,
+      "X-Sitemap-ThemesSkipped": String(themesSkippedCount),
+      "X-Sitemap-ThemesSkippedSample": themesSkippedSample,
 
       "X-Sitemap-Sets": String(setPaths.length),
       "X-Sitemap-SetsRaw": String(setsRawCount),
