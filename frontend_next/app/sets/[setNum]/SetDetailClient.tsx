@@ -13,6 +13,7 @@ import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection from "@/app/components/OffersSection";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
+import Image from "next/image";
 
 function normalizeUsername(raw: unknown): string | null {
   const u = String(raw ?? "").trim();
@@ -630,14 +631,22 @@ export default function SetDetailClient(props: Props) {
       <section className="mt-6 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
-            {image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={image_url} alt={name || setNum} className="block max-h-[320px] w-full object-contain" />
-            ) : (
-              <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
-                No image available
-              </div>
-            )}
+          {image_url ? (
+            <div className="relative h-[260px] w-full">
+              <Image
+                src={image_url}
+                alt={name || setNum}
+                fill
+                sizes="(max-width: 768px) 90vw, 360px"
+                className="object-contain"
+                priority
+              />
+            </div>
+          ) : (
+            <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
+              No image available
+            </div>
+          )}
           </div>
         </div>
 
