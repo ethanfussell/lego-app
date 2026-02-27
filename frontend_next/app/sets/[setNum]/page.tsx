@@ -50,6 +50,11 @@ function canonicalForSet(setNum: string): string {
   return `/sets/${encodeURIComponent(decoded)}`;
 }
 
+function ogImageForSet(setNum: string): string {
+  const decoded = String(setNum ?? "").trim();
+  return `/sets/${encodeURIComponent(decoded)}/opengraph-image`;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -112,25 +117,27 @@ function buildDescription(setNum: string, data: LegoSet | null): string {
 }
 
 function buildReviewJsonLd(reviews: ReviewLite[]): JsonLdObject[] {
-  return reviews.map((r) => {
-    const base: JsonLdObject = {
-      "@type": "Review",
-      author: { "@type": "Person", name: r.user },
-      datePublished: r.created_at,
-      reviewBody: String(r.text || "").trim(),
-    };
-
-    if (typeof r.rating === "number" && Number.isFinite(r.rating)) {
-      base.reviewRating = {
-        "@type": "Rating",
-        ratingValue: Number(r.rating.toFixed(1)),
-        bestRating: 5,
-        worstRating: 1,
+  return reviews
+    .filter(isReviewLite)
+    .map((r) => {
+      const base: JsonLdObject = {
+        "@type": "Review",
+        author: { "@type": "Person", name: r.user },
+        datePublished: r.created_at,
+        reviewBody: String(r.text || "").trim(),
       };
-    }
 
-    return base;
-  });
+      if (typeof r.rating === "number" && Number.isFinite(r.rating)) {
+        base.reviewRating = {
+          "@type": "Rating",
+          ratingValue: Number(r.rating.toFixed(1)),
+          bestRating: 5,
+          worstRating: 1,
+        };
+      }
+
+      return base;
+    });
 }
 
 function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): JsonLdObject {
@@ -239,7 +246,6 @@ const fetchTopTextReviews = cache(async (_setNum: string, _limit = 10): Promise<
   return [];
 });
 
-
 // ---- Metadata ----
 
 export async function generateMetadata({
@@ -257,8 +263,9 @@ export async function generateMetadata({
   const canonicalPath = canonicalForSet(decoded);
   const title = `LEGO ${decoded} — ${name}`;
 
-  const ogImage = `/sets/${encodeURIComponent(decoded)}/opengraph-image`;
-  
+  // ✅ Always use the per-set OG endpoint (it can still render the set image inside)
+  const ogImagePath = ogImageForSet(decoded);
+
   return {
     title,
     description,
@@ -269,13 +276,13 @@ export async function generateMetadata({
       description,
       url: canonicalPath,
       type: "website",
-      ...(data?.image_url ? { images: [{ url: data.image_url, alt: name }] } : {}),
+      images: [{ url: ogImagePath, width: 1200, height: 630, alt: name }],
     },
     twitter: {
-      card: data?.image_url ? "summary_large_image" : "summary",
+      card: "summary_large_image",
       title,
       description,
-      ...(data?.image_url ? { images: [data.image_url] } : {}),
+      images: [ogImagePath],
     },
   };
 }
@@ -298,9 +305,7 @@ export default async function Page({
   const breadcrumbItems = [
     { label: "Home", href: "/" },
     { label: "Themes", href: "/themes" },
-    ...(data.theme
-      ? [{ label: String(data.theme), href: `/themes/${themeToSlug(String(data.theme))}` }]
-      : []),
+    ...(data.theme ? [{ label: String(data.theme), href: `/themes/${themeToSlug(String(data.theme))}` }] : []),
     { label: decoded, href: canonicalPath },
   ];
 
