@@ -40,8 +40,8 @@ function normalizeYear(raw: string): number | null {
   if (!/^\d{4}$/.test(s)) return null;
   const y = Number(s);
   if (!Number.isFinite(y)) return null;
-  if (y < 1900 || y > 2100) return null;
-  return y;
+  const max = new Date().getFullYear();
+  if (y < 1980 || y > max) return null;  return y;
 }
 
 function canonicalForYearTop(year: number) {

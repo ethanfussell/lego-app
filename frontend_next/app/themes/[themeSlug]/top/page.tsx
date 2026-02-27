@@ -4,8 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { slugToTheme, themeToSlug } from "@/lib/slug";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
 export const dynamic = "force-static";
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -26,6 +24,8 @@ const TOP_THEMES = [
   "Seasonal",
 ] as const;
 
+const DEFAULT_LIMIT = 36;
+
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -35,8 +35,8 @@ function apiBase() {
 
 type Params = { themeSlug: string };
 
-function canonicalForThemeTop(themeSlug: string) {
-  return `/themes/${themeSlug}/top`;
+function canonicalForThemeTop(themeSlugEncoded: string) {
+  return `/themes/${themeSlugEncoded}/top`;
 }
 
 type SetRow = {
@@ -57,14 +57,23 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function coerceSetRow(x: unknown): SetRow | null {
   if (!isRecord(x)) return null;
 
-  const set_num = typeof x.set_num === "string" ? x.set_num.trim() : "";
-  const name = typeof x.name === "string" ? x.name.trim() : "";
+  const set_num = typeof (x as any).set_num === "string" ? String((x as any).set_num).trim() : "";
+  const name = typeof (x as any).name === "string" ? String((x as any).name).trim() : "";
   if (!set_num || !name) return null;
 
-  const year = typeof x.year === "number" && Number.isFinite(x.year) ? x.year : undefined;
-  const pieces = typeof x.pieces === "number" && Number.isFinite(x.pieces) ? x.pieces : undefined;
-  const theme = typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
-  const image_url = typeof x.image_url === "string" ? x.image_url : null;
+  const year =
+    typeof (x as any).year === "number" && Number.isFinite((x as any).year) ? (x as any).year : undefined;
+  const pieces =
+    typeof (x as any).pieces === "number" && Number.isFinite((x as any).pieces) ? (x as any).pieces : undefined;
+
+  const theme =
+    typeof (x as any).theme === "string"
+      ? String((x as any).theme)
+      : (x as any).theme == null
+        ? null
+        : String((x as any).theme);
+
+  const image_url = typeof (x as any).image_url === "string" ? String((x as any).image_url) : null;
 
   const average_rating =
     typeof (x as any).average_rating === "number" && Number.isFinite((x as any).average_rating)
@@ -92,13 +101,13 @@ function coerceSetRow(x: unknown): SetRow | null {
 
 async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "notfound"> {
   const qs = new URLSearchParams();
-  qs.set("q", themeName); // matches_query checks `q in theme`
+  qs.set("page", "1");
+  qs.set("limit", String(DEFAULT_LIMIT));
   qs.set("sort", "rating");
   qs.set("order", "desc");
-  qs.set("page", "1");
-  qs.set("limit", "36");
 
-  const url = `${apiBase()}/sets?${qs.toString()}`;
+  // IMPORTANT: use theme endpoint (exact theme) not fuzzy /sets?q=
+  const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
   let res: Response;
   try {
@@ -124,8 +133,7 @@ async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "n
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
 }
 
-function RelatedLinks({ themeSlug }: { themeSlug: string }) {
-  const themeName = slugToTheme(themeSlug) || "";
+function RelatedLinks({ themeName }: { themeName: string }) {
   const currentSlug = themeToSlug(themeName);
   const otherThemeSlugs = TOP_THEMES.map((t) => themeToSlug(t)).filter((s) => s !== currentSlug);
 
@@ -174,15 +182,10 @@ function RelatedLinks({ themeSlug }: { themeSlug: string }) {
   );
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params | Promise<Params>;
-}): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { themeSlug } = await Promise.resolve(params);
   const themeName = slugToTheme(themeSlug);
 
-  // Invalid slug -> noindex. (Page will 404 in the component anyway.)
   if (!themeName || !themeName.trim()) {
     return {
       title: "Top LEGO sets by theme",
@@ -192,11 +195,11 @@ export async function generateMetadata({
     };
   }
 
-  const canonical = canonicalForThemeTop(themeSlug);
+  const canonicalSlug = themeToSlug(themeName);
+  const canonical = canonicalForThemeTop(canonicalSlug);
   const title = `Top LEGO sets in ${themeName}`;
   const description = `Browse the highest-rated LEGO sets in the ${themeName} theme.`;
 
-  // IMPORTANT: don't append SITE_NAME here (layout/template likely adds it)
   return {
     title,
     description,
@@ -212,13 +215,14 @@ export default async function Page({ params }: { params: Params | Promise<Params
   const themeName = slugToTheme(themeSlug);
   if (!themeName || !themeName.trim()) notFound();
 
+  const canonicalSlug = themeToSlug(themeName);
+
   const sets = await fetchTopSetsForThemeSSR(themeName);
   if (sets === "notfound") notFound();
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        {/* breadcrumbs */}
         <div className="text-sm text-zinc-600 dark:text-zinc-400">
           <Link href="/" className="font-semibold hover:underline">
             Home
@@ -228,7 +232,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
             Themes
           </Link>
           <span className="mx-2">›</span>
-          <Link href={`/themes/${encodeURIComponent(themeSlug)}`} className="font-semibold hover:underline">
+          <Link href={`/themes/${canonicalSlug}`} className="font-semibold hover:underline">
             {themeName}
           </Link>
           <span className="mx-2">›</span>
@@ -245,7 +249,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href={`/themes/${encodeURIComponent(themeSlug)}`}
+              href={`/themes/${canonicalSlug}`}
               className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
             >
               ← Theme
@@ -279,20 +283,12 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
                     {s.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={s.image_url}
-                        alt={s.name || s.set_num}
-                        className="h-full w-full object-contain p-2"
-                        loading="lazy"
-                      />
+                      <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-2" loading="lazy" />
                     ) : null}
                   </div>
 
                   <div className="min-w-0">
-                    <Link
-                      href={`/sets/${encodeURIComponent(s.set_num)}`}
-                      className="block truncate text-sm font-semibold hover:underline"
-                    >
+                    <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
                       {s.name}
                     </Link>
 
@@ -348,7 +344,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </div>
       )}
 
-      <RelatedLinks themeSlug={themeSlug} />
+      <RelatedLinks themeName={themeName} />
     </div>
   );
 }
