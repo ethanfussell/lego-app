@@ -45,3 +45,7 @@ all_theme_slugs.txt
 sitemap.xml
 themes_audit.tsv
 themes_audit_v2.tsv
+
+# local audit artifacts
+sitemap_norm.xml
+sitemap_year_urls.txt
