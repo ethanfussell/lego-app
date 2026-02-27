@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { apiFetch } from "@/lib/api";
 
 export type SetLite = {
@@ -153,6 +154,13 @@ function TitleTwoLines({ title }: { title: string }) {
   );
 }
 
+function imageSizesForVariant(variant: Props["variant"]) {
+  // Cards are typically in 1-col on mobile, 2-col on small screens, 3-col on large.
+  // This keeps the requested image width close to reality, which improves LCP + bandwidth.
+  if (variant === "feed") return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 420px";
+  return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 320px";
+}
+
 export default function SetCard({ set, variant = "default", footer, token }: Props) {
   const title = set.name || set.set_num;
   const year = set.year ? String(set.year) : "—";
@@ -162,9 +170,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const ratingCount = pickRatingCount(set);
 
   const initialUser =
-    typeof set.user_rating === "number" && Number.isFinite(set.user_rating)
-      ? clamp(set.user_rating, 0, 5)
-      : null;
+    typeof set.user_rating === "number" && Number.isFinite(set.user_rating) ? clamp(set.user_rating, 0, 5) : null;
 
   const [userRating, setUserRating] = useState<number | null>(initialUser);
   const [showRate, setShowRate] = useState(false);
@@ -222,14 +228,25 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     }
   }
 
+  const imgSrc = typeof set.image_url === "string" && set.image_url.trim() ? set.image_url.trim() : null;
+
   return (
     <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
         <div className="aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
-          {set.image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={set.image_url} alt={title} className="h-full w-full object-contain p-4" loading="lazy" />
+          {imgSrc ? (
+            <div className="relative h-full w-full">
+              <Image
+                src={imgSrc}
+                alt={title}
+                fill
+                sizes={imageSizesForVariant(variant)}
+                className="object-contain p-4"
+                // avoid priority on grid cards; let the page choose its true hero images
+                loading="lazy"
+              />
+            </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>
           )}
