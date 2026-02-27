@@ -2,24 +2,25 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
-import SetCard from "@/app/components/SetCard";
-import type { SetLite } from "@/app/components/SetCard";
+import SetCard, { type SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection from "@/app/components/OffersSection";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
-import Image from "next/image";
+import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
+
+function asTrimmedString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
 function normalizeUsername(raw: unknown): string | null {
-  const u = String(raw ?? "").trim();
-  if (!u) return null;
-  // keep permissive; your route handles decode
-  return u;
+  return asTrimmedString(raw);
 }
 
 type ReviewItem = {
@@ -75,9 +76,10 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function formatReviewDate(value?: string) {
-  if (!value) return null;
-  const d = new Date(value);
+function formatReviewDate(value?: string | null) {
+  const s = asTrimmedString(value);
+  if (!s) return null;
+  const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(d);
 }
@@ -102,12 +104,10 @@ function isSetLite(x: unknown): x is SetLite {
 
 function normalizeSetLiteArray(data: unknown): SetLite[] {
   if (Array.isArray(data)) return data.filter(isSetLite);
-
   if (typeof data === "object" && data !== null) {
     const results = (data as { results?: unknown }).results;
     return Array.isArray(results) ? results.filter(isSetLite) : [];
   }
-
   return [];
 }
 
@@ -122,10 +122,10 @@ export default function SetDetailClient(props: Props) {
     ? decodeURIComponent(routeSetNumRaw[0] || "")
     : decodeURIComponent(routeSetNumRaw || "");
 
-  const setNum = (props.setNum?.trim() || routeSetNum).trim();
+  const setNum = (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim();
 
   const { token, hydrated } = useAuth();
-  const isLoggedIn = hydrated && !!token;
+  const isLoggedIn = hydrated && typeof token === "string" && token.trim().length > 0;
 
   const PREVIEW_SIMILAR_LIMIT = 12;
 
@@ -171,14 +171,13 @@ export default function SetDetailClient(props: Props) {
   const [similarError, setSimilarError] = useState<string | null>(null);
   const similarRowRef = useRef<HTMLDivElement | null>(null);
 
-  // Derived review subsets
   const myReview = useMemo(() => {
     if (!isLoggedIn || !meUsername) return null;
     return reviews.find((r) => r.user === meUsername) || null;
   }, [reviews, isLoggedIn, meUsername]);
 
   const visibleReviews = useMemo(() => {
-    return reviews.filter((r) => r.text && String(r.text).trim() !== "");
+    return reviews.filter((r) => asTrimmedString(r.text));
   }, [reviews]);
 
   // Load /users/me (only when logged in)
@@ -187,6 +186,7 @@ export default function SetDetailClient(props: Props) {
 
     async function loadMe() {
       if (!hydrated) return;
+
       if (!token) {
         setMeUsername(null);
         return;
@@ -194,7 +194,7 @@ export default function SetDetailClient(props: Props) {
 
       try {
         const me = await apiFetch<{ username: string }>("/users/me", { token, cache: "no-store" });
-        if (!cancelled) setMeUsername(me?.username ?? null);
+        if (!cancelled) setMeUsername(asTrimmedString(me?.username));
       } catch {
         if (!cancelled) setMeUsername(null);
       }
@@ -225,7 +225,6 @@ export default function SetDetailClient(props: Props) {
     return () => window.clearTimeout(t);
   }, [sp, loading]);
 
-  // Helpers
   async function fetchReviewsForSet(currentSetNum: string) {
     setReviewsLoading(true);
     setReviewsError(null);
@@ -331,11 +330,11 @@ export default function SetDetailClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-  // Similar sets (by theme) — uses /themes/{theme}/sets
+  // Similar sets (by theme) — uses /api/themes/{theme}/sets
   useEffect(() => {
-    const theme = String(setDetail?.theme ?? "").trim();
+    const themeName = typeof setDetail?.theme === "string" ? setDetail.theme.trim() : "";
 
-    if (!theme) {
+    if (!themeName) {
       setSimilarSets([]);
       setSimilarError(null);
       setSimilarLoading(false);
@@ -355,7 +354,7 @@ export default function SetDetailClient(props: Props) {
         p.set("sort", "relevance");
         p.set("order", "desc");
 
-        const url = `/api/themes/${encodeURIComponent(theme)}/sets?${p.toString()}`;
+        const url = `/api/themes/${encodeURIComponent(themeName)}/sets?${p.toString()}`;
         const res = await fetch(url, { cache: "no-store" });
 
         if (res.status === 404) {
@@ -369,13 +368,11 @@ export default function SetDetailClient(props: Props) {
         if (!res.ok) throw new Error(`Failed to load similar sets (${res.status})`);
 
         const data: unknown = await res.json();
-
         const items = normalizeSetLiteArray(data);
         const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
 
         if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
       } catch (e: unknown) {
-        // Harmless mismatch/theme-not-found should not spam console.
         if (e instanceof APIError && e.status === 404) {
           if (!cancelled) {
             setSimilarSets([]);
@@ -390,7 +387,6 @@ export default function SetDetailClient(props: Props) {
     }
 
     void fetchSimilar();
-
     return () => {
       cancelled = true;
     };
@@ -433,7 +429,6 @@ export default function SetDetailClient(props: Props) {
     if (typeof myReview?.rating === "number") setUserRating(myReview.rating);
   }
 
-  // Delete my review
   async function deleteMyReview() {
     if (!token) {
       router.push("/login");
@@ -464,7 +459,6 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
-  // Save rating-only (text null)
   async function saveRating(newRating: number) {
     if (!isLoggedIn) {
       router.push("/login");
@@ -497,7 +491,6 @@ export default function SetDetailClient(props: Props) {
     await saveRating(value);
   }
 
-  // Review submit
   async function handleReviewSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -529,14 +522,12 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
-  // Similar row scrolling
   function scrollSimilar(direction: number) {
     const node = similarRowRef.current;
     if (!node) return;
     node.scrollBy({ left: direction * 240, behavior: "smooth" });
   }
 
-  // Loading / error / not found
   if (!setNum) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
@@ -560,8 +551,7 @@ export default function SetDetailClient(props: Props) {
           items={[
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
-            ...(setDetail?.theme
-              ? [{ label: String(setDetail.theme), href: `/themes/${themeToSlug(setDetail.theme)}` }]              : []),
+            ...(setDetail?.theme ? [{ label: String(setDetail.theme), href: `/themes/${themeToSlug(setDetail.theme)}` }] : []),
             { label: setNum || "Set" },
           ]}
         />
@@ -588,9 +578,7 @@ export default function SetDetailClient(props: Props) {
             { label: setNum || "Set not found" },
           ]}
         />
-
         <p className="mt-4 text-sm">Set not found.</p>
-
         <button
           onClick={() => router.back()}
           className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
@@ -603,8 +591,9 @@ export default function SetDetailClient(props: Props) {
 
   const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
-
   const isRetired = setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
+
+  const heroImgSrc = asTrimmedString(image_url);
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
@@ -613,8 +602,7 @@ export default function SetDetailClient(props: Props) {
           items={[
             { label: "Home", href: "/" },
             { label: "Themes", href: "/themes" },
-            ...(theme
-              ? [{ label: String(theme), href: `/themes/${themeToSlug(theme)}` }]              : []),
+            ...(theme ? [{ label: String(theme), href: `/themes/${themeToSlug(theme)}` }] : []),
             { label: name || setNum },
           ]}
         />
@@ -631,39 +619,35 @@ export default function SetDetailClient(props: Props) {
       <section className="mt-6 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
-          {image_url ? (
-            <div className="relative h-[260px] w-full">
+            {heroImgSrc ? (
               <Image
-                src={image_url}
+                src={heroImgSrc}
                 alt={name || setNum}
-                fill
-                sizes="(max-width: 768px) 90vw, 360px"
-                className="object-contain"
+                width={720}
+                height={540}
+                sizes={heroImageSizes()}
+                className="h-auto w-full object-contain"
                 priority
+                quality={IMAGE_QUALITY}
               />
-            </div>
-          ) : (
-            <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
-              No image available
-            </div>
-          )}
+            ) : (
+              <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
+                No image available
+              </div>
+            )}
           </div>
         </div>
 
         <div>
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
+
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             <span className="font-semibold text-zinc-900 dark:text-zinc-100">{setNum}</span>
-
             {typeof year === "number" ? (
               <>
                 {" "}
                 •{" "}
-                <Link
-                  href={`/years/${year}`}
-                  prefetch={false}
-                  className="font-semibold hover:underline"
-                >
+                <Link href={`/years/${year}`} prefetch={false} className="font-semibold hover:underline">
                   {year}
                 </Link>
               </>
@@ -681,7 +665,9 @@ export default function SetDetailClient(props: Props) {
 
           {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
+          {isRetired ? (
+            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
+          ) : null}
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
@@ -733,7 +719,9 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
+              {userRating != null ? (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
+              ) : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -755,6 +743,8 @@ export default function SetDetailClient(props: Props) {
 
               {!isLoggedIn ? <span className="text-sm text-zinc-500">Log in to rate or review this set.</span> : null}
             </div>
+
+            {ratingError ? <p className="mt-2 text-sm text-red-600">{ratingError}</p> : null}
           </section>
         </div>
       </section>
@@ -772,7 +762,7 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${themeToSlug(setDetail.theme ?? "")}`} prefetch={false} className="font-semibold hover:underline">
+              <Link href={`/themes/${themeToSlug(String(theme))}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </li>
@@ -856,6 +846,7 @@ export default function SetDetailClient(props: Props) {
             {visibleReviews.map((r) => {
               const isMine = isLoggedIn && meUsername && r.user === meUsername;
               const when = formatReviewDate(r.created_at);
+              const u = normalizeUsername(r.user);
 
               return (
                 <li
@@ -863,26 +854,19 @@ export default function SetDetailClient(props: Props) {
                   className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {(() => {
-                      const u = normalizeUsername(r.user);
-                      if (!u) {
-                        return (
-                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>
-                        );
-                      }
-
-                      return (
+                    <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                      {u ? (
                         <Link
                           href={`/users/${encodeURIComponent(u)}`}
                           className="font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
                         >
                           {u}
                         </Link>
-                      );
-                    })()}
-                    {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
-                  </div>
+                      ) : (
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>
+                      )}
+                      {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
+                    </div>
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
@@ -912,7 +896,7 @@ export default function SetDetailClient(props: Props) {
                     </div>
                   </div>
 
-                  {r.text ? <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{r.text}</p> : null}
+                  {asTrimmedString(r.text) ? <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{r.text}</p> : null}
                 </li>
               );
             })}
@@ -928,7 +912,7 @@ export default function SetDetailClient(props: Props) {
 
             {setDetail?.theme ? (
               <Link
-                href={`/themes/${themeToSlug(setDetail.theme)}`}
+                href={`/themes/${themeToSlug(String(setDetail.theme))}`}
                 prefetch={false}
                 className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
               >

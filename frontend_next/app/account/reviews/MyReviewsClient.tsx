@@ -2,13 +2,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 
-// ✅ Use the component's prop type, so we can't mismatch.
 type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
 
 type ReviewRow = {
@@ -32,24 +33,27 @@ type ReviewStatsApi = {
   rated_reviews?: number | null;
   avg_rating?: number | null;
   rating_histogram?: unknown;
-  recent?: unknown;
 };
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? fallback);
 }
 
-function formatRating(rating: unknown) {
-  if (rating === null || rating === undefined) return "—";
-  const n = Number(rating);
-  if (Number.isNaN(n)) return "—";
-  return n.toFixed(1);
+function asTrimmedString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-function formatDate(iso: unknown) {
-  if (!iso) return "";
+function formatRating(rating: unknown): string {
+  if (rating === null || rating === undefined) return "—";
+  const n = Number(rating);
+  return Number.isFinite(n) ? n.toFixed(1) : "—";
+}
+
+function formatDate(iso: unknown): string {
+  const s = asTrimmedString(iso);
+  if (!s) return "";
   try {
-    return new Date(String(iso)).toLocaleDateString();
+    return new Date(s).toLocaleDateString();
   } catch {
     return "";
   }
@@ -65,25 +69,19 @@ function asNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// ✅ Normalize API unknown -> exact HistogramProp type expected by RatingHistogram
 function normalizeHistogram(v: unknown): HistogramProp | null {
-  // Most histogram components accept either:
-  // - a record like { "5": 10, "4": 3 }
-  // - or an array like [{ rating: 5, count: 10 }, ...]
-  // But since we don't want a mismatched named type, we just build a compatible shape.
-
   if (Array.isArray(v)) {
     const arr = v
       .map((x) => {
         if (!isRecord(x)) return null;
-        const rating = Number(x.rating);
-        const count = Number(x.count);
+        const rating = Number((x as Record<string, unknown>).rating);
+        const count = Number((x as Record<string, unknown>).count);
         if (!Number.isFinite(rating) || !Number.isFinite(count)) return null;
         return { rating, count };
       })
       .filter((x): x is { rating: number; count: number } => Boolean(x));
 
-    return (arr.length ? (arr as unknown as HistogramProp) : null);
+    return arr.length ? (arr as unknown as HistogramProp) : null;
   }
 
   if (isRecord(v)) {
@@ -92,7 +90,7 @@ function normalizeHistogram(v: unknown): HistogramProp | null {
       const n = Number(val);
       if (Number.isFinite(n)) out[String(k)] = n;
     }
-    return (Object.keys(out).length ? (out as unknown as HistogramProp) : null);
+    return Object.keys(out).length ? (out as unknown as HistogramProp) : null;
   }
 
   return null;
@@ -127,7 +125,6 @@ function MiniStat({
   );
 
   if (!href) return base;
-
   return (
     <Link href={href} className="block no-underline">
       {base}
@@ -136,25 +133,32 @@ function MiniStat({
 }
 
 function MiniSetReviewCard({ r }: { r: ReviewRow }) {
-  const setNum = String(r.set_num ?? "").trim();
-  const setName = String(r.set_name ?? "").trim() || "Unknown set";
+  const setNum = asTrimmedString(r.set_num) ?? "";
+  const setName = asTrimmedString(r.set_name) ?? "Unknown set";
   const rating = formatRating(r.rating);
   const text = String(r.text ?? "").trim();
   const when = formatDate(r.updated_at ?? r.created_at);
 
-  const imageUrl =
-    r.image_url ?? r.imageUrl ?? r.set_image_url ?? r.setImageUrl ?? r.set_image ?? r.setImage ?? null;
+  const imgSrc =
+    asTrimmedString(r.image_url) ??
+    asTrimmedString(r.imageUrl) ??
+    asTrimmedString(r.set_image_url) ??
+    asTrimmedString(r.setImageUrl) ??
+    asTrimmedString(r.set_image) ??
+    asTrimmedString(r.setImage) ??
+    null;
 
   return (
     <Link
-      href={`/sets/${encodeURIComponent(setNum)}`}
+      href={setNum ? `/sets/${encodeURIComponent(setNum)}` : "/sets"}
       className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
     >
       <div className="grid grid-cols-[72px_1fr] gap-3">
-        <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-white dark:border-white/[.14] dark:bg-zinc-950">
-          {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl} alt="" className="h-full w-full object-contain" loading="lazy" />
+        <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-zinc-50 dark:border-white/[.14] dark:bg-white/5">
+          {imgSrc ? (
+            <div className="relative h-full w-full">
+              <Image src={imgSrc} alt="" fill sizes="72px" className="object-contain p-1" />
+            </div>
           ) : (
             <div className="text-xs font-bold text-zinc-400">—</div>
           )}
@@ -172,7 +176,8 @@ function MiniSetReviewCard({ r }: { r: ReviewRow }) {
           </div>
 
           <div className="mt-1 text-sm text-zinc-500">
-            {setNum} {when ? `• ${when}` : ""}
+            {setNum}
+            {when ? ` • ${when}` : ""}
           </div>
 
           {text ? (
@@ -193,11 +198,9 @@ export default function MyReviewsClient() {
   const sp = useSearchParams();
   const { token, me, hydrated } = useAuth();
 
-  const isLoggedIn = hydrated && !!token;
+  const isLoggedIn = hydrated && !!asTrimmedString(token);
 
-  const username = useMemo(() => {
-    return me?.username ? String(me.username) : "Account";
-  }, [me?.username]);
+  const username = useMemo(() => (me?.username ? String(me.username) : "Account"), [me?.username]);
 
   const filterParam = String(sp.get("filter") || "").toLowerCase();
   const [onlyRated, setOnlyRated] = useState(filterParam.includes("rated"));
@@ -304,15 +307,13 @@ export default function MyReviewsClient() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => router.push("/account")}
-            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-          >
-            ← Back to Account
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push("/account")}
+          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+        >
+          ← Back to Account
+        </button>
       </div>
 
       {!isLoggedIn ? (
@@ -330,19 +331,13 @@ export default function MyReviewsClient() {
           <section className="mt-6">
             <div className="flex flex-wrap items-stretch gap-3">
               <div className="min-w-[220px] flex-1">
-                <MiniStat
-                  label="Total reviews"
-                  value={totalReviews}
-                  sub={onlyRated || onlyWithText ? "Click to clear filters" : "Click to view all"}
-                  href="/account/reviews"
-                />
+                <MiniStat label="Total reviews" value={totalReviews} href="/account/reviews" />
               </div>
 
               <div className="min-w-[220px] flex-1">
                 <MiniStat
                   label="Rated reviews"
                   value={ratedReviews == null ? "—" : ratedReviews}
-                  sub={onlyRated && !onlyWithText ? "Click to clear filter" : "Click to filter"}
                   href={onlyRated && !onlyWithText ? "/account/reviews" : "/account/reviews?filter=rated"}
                 />
               </div>
@@ -361,14 +356,7 @@ export default function MyReviewsClient() {
                     {statsErr ? (
                       <div className="text-sm text-red-600">Error loading</div>
                     ) : histogram ? (
-                      <RatingHistogram
-                        histogram={histogram}
-                        height={52}
-                        barWidth={18}
-                        gap={8}
-                        showLabels={false}
-                        maxWidth={420}
-                      />
+                      <RatingHistogram histogram={histogram} height={52} barWidth={18} gap={8} showLabels={false} maxWidth={420} />
                     ) : (
                       <div className="text-sm text-zinc-500">Loading…</div>
                     )}

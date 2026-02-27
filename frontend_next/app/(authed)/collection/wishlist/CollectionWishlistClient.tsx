@@ -6,51 +6,75 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
-import SetCard from "@/app/components/SetCard";
+import SetCard, { type SetLite as SetCardSetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  num_parts?: number;
-  pieces?: number; // backend sometimes uses pieces
-  image_url?: string | null;
-  theme?: string;
-};
 
 type WishlistDetail = {
   items_count: number;
 };
 
 function errorMessage(e: unknown, fallback = "Something went wrong") {
-  return e instanceof Error ? e.message : String(e || fallback);
+  return e instanceof Error ? e.message : String(e ?? fallback);
 }
 
 function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function coerceSetLite(raw: unknown): SetLite | null {
+function asTrimmedString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function asFiniteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function coerceSetLite(raw: unknown): SetCardSetLite | null {
   if (!isRecord(raw)) return null;
 
-  const sn = typeof (raw as any).set_num === "string" ? String((raw as any).set_num).trim() : "";
-  if (!sn) return null;
+  const set_num = asTrimmedString(raw.set_num);
+  if (!set_num) return null;
 
-  const o: any = raw;
+  const name = asTrimmedString(raw.name) ?? undefined;
+  const year = asFiniteNumber(raw.year) ?? undefined;
+
+  // backend might use num_parts OR pieces; accept either
+  const num_parts =
+    asFiniteNumber(raw.num_parts) ??
+    asFiniteNumber(raw.pieces) ??
+    null;
+
+  const theme = asTrimmedString(raw.theme) ?? undefined;
+  const image_url = asTrimmedString(raw.image_url);
+
+  // Note: SetCard supports pieces OR num_parts; we can pass both if present.
+  // Prefer `pieces` when available for UI wording; otherwise fall back to num_parts.
+  const pieces =
+    asFiniteNumber(raw.pieces) ??
+    (num_parts != null ? num_parts : null);
+
+  // Optional pricing/ratings fields (if backend ever sends them)
+  const rating_avg = asFiniteNumber(raw.rating_avg);
+  const average_rating = asFiniteNumber(raw.average_rating);
+  const rating_count = asFiniteNumber(raw.rating_count);
 
   return {
-    set_num: sn,
-    ...(typeof o.name === "string" ? { name: o.name } : {}),
-    ...(typeof o.year === "number" ? { year: o.year } : {}),
-    ...(typeof o.num_parts === "number" ? { num_parts: o.num_parts } : {}),
-    ...(typeof o.pieces === "number" ? { pieces: o.pieces } : {}),
-    image_url: typeof o.image_url === "string" ? o.image_url : null,
-    ...(typeof o.theme === "string" ? { theme: o.theme } : {}),
+    set_num,
+    ...(name ? { name } : {}),
+    ...(typeof year === "number" ? { year } : {}),
+    ...(typeof pieces === "number" ? { pieces } : {}),
+    ...(typeof num_parts === "number" ? { num_parts } : {}),
+    ...(theme ? { theme } : {}),
+    image_url: image_url ?? null,
+    ...(typeof rating_avg === "number" ? { rating_avg } : {}),
+    ...(typeof average_rating === "number" ? { average_rating } : {}),
+    ...(typeof rating_count === "number" ? { rating_count } : {}),
   };
 }
 
@@ -62,19 +86,19 @@ export default function CollectionWishlistClient() {
   const [err, setErr] = useState<string | null>(null);
 
   const [wishlistDetail, setWishlistDetail] = useState<WishlistDetail | null>(null);
-  const [sets, setSets] = useState<SetLite[]>([]);
+  const [sets, setSets] = useState<SetCardSetLite[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
-  // ✅ selection should be based on what we actually loaded, not on /lists/:id
+  // Selection should be based on what we actually loaded
   const wishlistSetNums = useMemo(() => new Set(sets.map((s) => String(s.set_num).trim())), [sets]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
 
     const data = await apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" });
-    const rows = Array.isArray(data) ? (data as unknown[]) : [];
+    const rows = Array.isArray(data) ? data : [];
 
-    const parsed = rows.map(coerceSetLite).filter((x): x is SetLite => Boolean(x));
+    const parsed = rows.map(coerceSetLite).filter((x): x is SetCardSetLite => x != null);
 
     setSets(parsed);
     setWishlistDetail({ items_count: parsed.length });
@@ -141,7 +165,7 @@ export default function CollectionWishlistClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="pt-10 flex items-baseline justify-between gap-4">
+      <div className="flex items-baseline justify-between gap-4 pt-10">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Wishlist</h1>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -169,7 +193,8 @@ export default function CollectionWishlistClient() {
             return (
               <li key={s.set_num} className="space-y-2">
                 <SetCard
-                  set={s as unknown as React.ComponentProps<typeof SetCard>["set"]}
+                  set={s}
+                  variant="wishlist"
                   footer={
                     token ? (
                       <AddToListMenu
@@ -180,6 +205,7 @@ export default function CollectionWishlistClient() {
                     ) : null
                   }
                 />
+
                 <button
                   type="button"
                   onClick={() => void removeWishlist(s.set_num)}

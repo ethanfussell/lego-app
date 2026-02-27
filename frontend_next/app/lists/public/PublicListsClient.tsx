@@ -1,3 +1,4 @@
+// frontend_next/app/lists/public/PublicListsClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -19,11 +20,11 @@ type PublicListRow = {
 };
 
 type SortKey = "updated_desc" | "name_asc" | "count_desc";
-type SearchParams = Record<string, string | string[] | undefined>;
 
-function first(sp: SearchParams, key: string): string {
-  const v = sp[key];
-  return (Array.isArray(v) ? v[0] : v || "").toString().trim();
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function pickOwner(r: PublicListRow) {
@@ -34,7 +35,7 @@ function pickCount(r: PublicListRow) {
   const a = typeof r.items_count === "number" ? r.items_count : null;
   const b = typeof r.set_count === "number" ? r.set_count : null;
   const c = typeof r.item_count === "number" ? r.item_count : null;
-  return Math.max(0, (a ?? b ?? c ?? 0) | 0);
+  return Math.max(0, Math.floor(a ?? b ?? c ?? 0));
 }
 
 function pickUpdatedTs(r: PublicListRow) {
@@ -46,8 +47,10 @@ function pickUpdatedTs(r: PublicListRow) {
 function formatUpdated(r: PublicListRow): string | null {
   const s = String(r.updated_at ?? r.created_at ?? "").trim();
   if (!s) return null;
+
   const t = Date.parse(s);
   if (!Number.isFinite(t)) return null;
+
   try {
     return new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   } catch {
@@ -57,12 +60,14 @@ function formatUpdated(r: PublicListRow): string | null {
 
 function sortLists(rows: PublicListRow[], sort: SortKey) {
   const copy = [...rows];
+
   if (sort === "name_asc") {
     copy.sort((a, b) =>
       String(a.title ?? a.name ?? "").localeCompare(String(b.title ?? b.name ?? ""), undefined, { sensitivity: "base" })
     );
     return copy;
   }
+
   if (sort === "count_desc") {
     copy.sort(
       (a, b) =>
@@ -71,9 +76,86 @@ function sortLists(rows: PublicListRow[], sort: SortKey) {
     );
     return copy;
   }
+
   // updated_desc
   copy.sort((a, b) => pickUpdatedTs(b) - pickUpdatedTs(a) || pickCount(b) - pickCount(a));
   return copy;
+}
+
+function isSortKey(x: unknown): x is SortKey {
+  return x === "updated_desc" || x === "count_desc" || x === "name_asc";
+}
+
+function toInt(raw: string, fallback: number) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
+function coerceRow(x: unknown): PublicListRow | null {
+  if (!isRecord(x)) return null;
+
+  const id = x.id;
+  if (typeof id !== "string" && typeof id !== "number") return null;
+
+  // Accept common fields; keep optional so UI can render safely
+  const row: PublicListRow = {
+    id,
+    title: typeof x.title === "string" ? x.title : x.title == null ? null : String(x.title),
+    name: typeof x.name === "string" ? x.name : x.name == null ? null : String(x.name),
+    description:
+      typeof x.description === "string" ? x.description : x.description == null ? null : String(x.description),
+    owner: typeof x.owner === "string" ? x.owner : x.owner == null ? null : String(x.owner),
+    username: typeof x.username === "string" ? x.username : x.username == null ? null : String(x.username),
+    updated_at: typeof x.updated_at === "string" ? x.updated_at : x.updated_at == null ? null : String(x.updated_at),
+    created_at: typeof x.created_at === "string" ? x.created_at : x.created_at == null ? null : String(x.created_at),
+    items_count: typeof x.items_count === "number" && Number.isFinite(x.items_count) ? x.items_count : null,
+    set_count: typeof x.set_count === "number" && Number.isFinite(x.set_count) ? x.set_count : null,
+    item_count: typeof x.item_count === "number" && Number.isFinite(x.item_count) ? x.item_count : null,
+  };
+
+  return row;
+}
+
+function toRows(data: unknown): PublicListRow[] {
+  if (Array.isArray(data)) {
+    return data.map(coerceRow).filter((x): x is PublicListRow => Boolean(x));
+  }
+
+  if (isRecord(data) && Array.isArray(data.results)) {
+    return (data.results as unknown[]).map(coerceRow).filter((x): x is PublicListRow => Boolean(x));
+  }
+
+  return [];
+}
+
+// Clickable card without nested <a> inside <a>
+function ClickCard({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+
+  return (
+    <div
+      role="link"
+      tabIndex={0}
+      className={className}
+      onClick={() => router.push(href)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          router.push(href);
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function PublicListsClient(props: {
@@ -85,15 +167,7 @@ export default function PublicListsClient(props: {
   initialLists: PublicListRow[];
   initialError: string | null;
 }) {
-  const {
-    initialOwner,
-    initialQ,
-    initialSort,
-    initialPage,
-    initialTotalPages,
-    initialLists,
-    initialError,
-  } = props;
+  const { initialOwner, initialQ, initialSort, initialPage, initialTotalPages, initialLists, initialError } = props;
 
   const router = useRouter();
   const sp = useSearchParams();
@@ -112,16 +186,13 @@ export default function PublicListsClient(props: {
   const canonical = useMemo(() => {
     const ownerQ = (sp.get("owner") ?? "").trim();
     const qq = (sp.get("q") ?? "").trim();
-    const s = (sp.get("sort") ?? "updated_desc").trim() as SortKey;
-    const pRaw = (sp.get("page") ?? "1").trim();
-    const p = Math.max(1, Number.isFinite(Number(pRaw)) ? Math.floor(Number(pRaw)) : 1);
+    const sortRaw = (sp.get("sort") ?? "updated_desc").trim();
+    const s: SortKey = isSortKey(sortRaw) ? sortRaw : "updated_desc";
 
-    return {
-      owner: ownerQ,
-      q: qq,
-      sort: s === "name_asc" || s === "count_desc" || s === "updated_desc" ? s : "updated_desc",
-      page: p,
-    };
+    const pRaw = (sp.get("page") ?? "1").trim();
+    const p = Math.max(1, toInt(pRaw, 1));
+
+    return { owner: ownerQ, q: qq, sort: s, page: p };
   }, [sp]);
 
   // keep inputs in sync on back/forward
@@ -188,21 +259,25 @@ export default function PublicListsClient(props: {
           return;
         }
 
-        const data: any = await res.json().catch(() => null);
-        const rows: PublicListRow[] = Array.isArray(data)
-          ? data
-          : data && Array.isArray(data.results)
-            ? data.results
-            : [];
+        const data: unknown = await res.json().catch(() => null);
 
-        const tp = typeof data?.total_pages === "number" ? Math.max(1, Math.floor(data.total_pages)) : 1;
-        const pg = typeof data?.page === "number" ? Math.max(1, Math.floor(data.page)) : canonical.page;
+        const rows = toRows(data);
+
+        const tp =
+          isRecord(data) && typeof data.total_pages === "number" && Number.isFinite(data.total_pages)
+            ? Math.max(1, Math.floor(data.total_pages))
+            : 1;
+
+        const pg =
+          isRecord(data) && typeof data.page === "number" && Number.isFinite(data.page)
+            ? Math.max(1, Math.floor(data.page))
+            : canonical.page;
 
         setTotalPages(tp);
         setPage(pg);
         setLists(rows);
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
         setWarning("Couldn’t refresh right now. Showing cached results.");
       } finally {
         setLoading(false);
@@ -221,9 +296,7 @@ export default function PublicListsClient(props: {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Public lists</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Browse lists shared by the community.
-            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
           </div>
           <Link href="/discover" className="text-sm font-semibold hover:underline">
             Browse sets →
@@ -283,7 +356,7 @@ export default function PublicListsClient(props: {
             <select
               value={sort}
               onChange={(e) => {
-                const next = e.target.value as SortKey;
+                const next = (isSortKey(e.target.value) ? e.target.value : "updated_desc") as SortKey;
                 setSort(next);
                 pushToUrl({ owner: canonical.owner, q: canonical.q, sort: next, page: 1 });
               }}
@@ -317,10 +390,10 @@ export default function PublicListsClient(props: {
                 const ownerHref = ownerName ? `/users/${encodeURIComponent(ownerName)}` : null;
 
                 return (
-                  <Link
+                  <ClickCard
                     key={id}
                     href={href}
-                    className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                    className="cursor-pointer rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -339,7 +412,9 @@ export default function PublicListsClient(props: {
                               </Link>
                             </>
                           ) : (
-                            <>by <span className="font-semibold">{ownerName || "unknown"}</span></>
+                            <>
+                              by <span className="font-semibold">{ownerName || "unknown"}</span>
+                            </>
                           )}
 
                           {updated ? <span className="ml-2">• Updated {updated}</span> : null}
@@ -358,7 +433,7 @@ export default function PublicListsClient(props: {
                     ) : (
                       <p className="mt-3 text-sm text-zinc-500">View list →</p>
                     )}
-                  </Link>
+                  </ClickCard>
                 );
               })}
             </div>
@@ -367,7 +442,14 @@ export default function PublicListsClient(props: {
               <button
                 type="button"
                 disabled={page <= 1}
-                onClick={() => pushToUrl({ owner: canonical.owner, q: canonical.q, sort: canonical.sort, page: Math.max(1, page - 1) })}
+                onClick={() =>
+                  pushToUrl({
+                    owner: canonical.owner,
+                    q: canonical.q,
+                    sort: canonical.sort,
+                    page: Math.max(1, page - 1),
+                  })
+                }
                 className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
               >
                 ← Prev
@@ -381,7 +463,14 @@ export default function PublicListsClient(props: {
               <button
                 type="button"
                 disabled={page >= totalPages}
-                onClick={() => pushToUrl({ owner: canonical.owner, q: canonical.q, sort: canonical.sort, page: Math.min(totalPages, page + 1) })}
+                onClick={() =>
+                  pushToUrl({
+                    owner: canonical.owner,
+                    q: canonical.q,
+                    sort: canonical.sort,
+                    page: Math.min(totalPages, page + 1),
+                  })
+                }
                 className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
               >
                 Next →

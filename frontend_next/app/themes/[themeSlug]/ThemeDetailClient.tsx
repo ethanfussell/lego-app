@@ -1,6 +1,8 @@
+// frontend_next/app/themes/[themeSlug]/ThemeDetailClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 type SetSummary = {
@@ -21,6 +23,12 @@ type Query = {
   sort: string;
   order: string;
 };
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);
@@ -53,12 +61,21 @@ function sameQuery(a: Query, b: Query) {
   return a.page === b.page && a.limit === b.limit && a.sort === b.sort && a.order === b.order;
 }
 
+function isSetSummary(x: unknown): x is SetSummary {
+  if (!isRecord(x)) return false;
+  const sn = x.set_num;
+  const name = x.name;
+  return typeof sn === "string" && sn.trim().length > 0 && typeof name === "string" && name.trim().length > 0;
+}
+
 function toSetSummaryArray(x: unknown): SetSummary[] {
-  if (Array.isArray(x)) return x as SetSummary[];
-  if (typeof x === "object" && x !== null) {
-    const r = (x as any).results;
-    return Array.isArray(r) ? (r as SetSummary[]) : [];
+  if (Array.isArray(x)) return x.filter(isSetSummary);
+
+  if (isRecord(x)) {
+    const r = x.results;
+    return Array.isArray(r) ? r.filter(isSetSummary) : [];
   }
+
   return [];
 }
 
@@ -101,7 +118,6 @@ export default function ThemeDetailClient(props: {
 
         const res = await fetch(url, {
           signal: controller.signal,
-          // no-store is fine on the client; the key is not to replace the grid with an error
           cache: "no-store",
         });
 
@@ -111,12 +127,13 @@ export default function ThemeDetailClient(props: {
           return;
         }
 
-        const data: unknown = await res.json();
+        const data: unknown = await res.json().catch(() => null);
         const rows = toSetSummaryArray(data);
         if (rows.length > 0) setSets(rows);
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Keep existing sets; just show a small warning
-        if (e?.name === "AbortError") return;
+        const name = isRecord(e) ? e.name : null;
+        if (name === "AbortError") return;
         setRefreshWarning("Couldn’t refresh right now. Showing cached results.");
       } finally {
         setLoading(false);
@@ -135,9 +152,7 @@ export default function ThemeDetailClient(props: {
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
             {loading ? <span>Refreshing…</span> : <span> </span>}
-            {refreshWarning ? (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{refreshWarning}</span>
-            ) : null}
+            {refreshWarning ? <span className="text-xs text-zinc-500 dark:text-zinc-400">{refreshWarning}</span> : null}
           </div>
         </div>
 
@@ -149,40 +164,48 @@ export default function ThemeDetailClient(props: {
       {/* Always render the grid if we have any sets */}
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sets.map((s) => (
-            <div key={s.set_num} className="h-full">
-              <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-                <Link className="block flex-1" href={`/sets/${encodeURIComponent(s.set_num)}`}>
-                  <div className="aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
-                    {s.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={s.image_url}
-                        alt={s.name}
-                        className="h-full w-full object-contain p-4"
-                        loading="lazy"
-                      />
-                    ) : null}
-                  </div>
-                  <div className="px-4 pb-4 pt-3">
-                    <div className="text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-50">{s.name}</div>
-                    <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-                      <span className="truncate">{s.set_num}</span>
-                      {s.year ? (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span className="shrink-0">{s.year}</span>
-                        </>
+          {sets.map((s) => {
+            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
+
+            return (
+              <div key={s.set_num} className="h-full">
+                <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+                  <Link className="block flex-1" href={`/sets/${encodeURIComponent(s.set_num)}`}>
+                    <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
+                      {imgSrc ? (
+                        <Image
+                          src={imgSrc}
+                          alt={s.name}
+                          fill
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                          className="object-contain p-4"
+                          loading="lazy"
+                        />
                       ) : null}
                     </div>
-                    {typeof s.pieces === "number" ? (
-                      <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{s.pieces} pcs</div>
-                    ) : null}
-                  </div>
-                </Link>
+
+                    <div className="px-4 pb-4 pt-3">
+                      <div className="text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-50">{s.name}</div>
+
+                      <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                        <span className="truncate">{s.set_num}</span>
+                        {s.year ? (
+                          <>
+                            <span aria-hidden="true">•</span>
+                            <span className="shrink-0">{s.year}</span>
+                          </>
+                        ) : null}
+                      </div>
+
+                      {typeof s.pieces === "number" ? (
+                        <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{s.pieces} pcs</div>
+                      ) : null}
+                    </div>
+                  </Link>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="mt-6">

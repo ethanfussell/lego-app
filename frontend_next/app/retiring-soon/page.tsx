@@ -35,8 +35,13 @@ function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
+type UnknownRecord = Record<string, unknown>;
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function isPromiseLike<T>(v: unknown): v is PromiseLike<T> {
-  return typeof v === "object" && v !== null && "then" in v && typeof (v as any).then === "function";
+  return isRecord(v) && typeof v.then === "function";
 }
 
 async function unwrapSearchParams<T extends object>(p?: T | Promise<T>): Promise<T> {
@@ -85,7 +90,7 @@ function errorMessage(e: unknown) {
 }
 
 function isSetLite(x: unknown): x is SetLite {
-  return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
+  return isRecord(x) && typeof x.set_num === "string";
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
@@ -94,10 +99,7 @@ function toSetLiteArray(x: unknown): SetLite[] {
 
 function asFeedResponse(x: unknown): FeedResponse {
   if (Array.isArray(x)) return toSetLiteArray(x);
-  if (typeof x === "object" && x !== null) {
-    const o = x as { results?: unknown };
-    return { results: o.results };
-  }
+  if (isRecord(x)) return { results: x.results };
   return [];
 }
 

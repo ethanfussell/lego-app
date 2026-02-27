@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
 
   images: {
     formats: ["image/avif", "image/webp"],
+    // ✅ allow the qualities we’re using in <Image quality={...}>
+    qualities: [70, 75, 80],
     remotePatterns: [
       // Rebrickable CDN (prod)
       {

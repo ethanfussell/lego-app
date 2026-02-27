@@ -38,8 +38,13 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 }
 
+type UnknownRecord = Record<string, unknown>;
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function isPromiseLike<T>(v: unknown): v is PromiseLike<T> {
-  return typeof v === "object" && v !== null && "then" in v && typeof (v as any).then === "function";
+  return isRecord(v) && typeof v.then === "function";
 }
 
 async function unwrapSearchParams<T extends object>(p?: T | Promise<T>): Promise<T> {
@@ -88,9 +93,7 @@ function errorMessage(e: unknown) {
 }
 
 function isSetLite(x: unknown): x is SetLite {
-  if (typeof x !== "object" || x === null) return false;
-  const sn = (x as { set_num?: unknown }).set_num;
-  return typeof sn === "string" && sn.trim().length > 0;
+  return isRecord(x) && typeof x.set_num === "string" && x.set_num.trim().length > 0;
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
@@ -99,12 +102,9 @@ function toSetLiteArray(x: unknown): SetLite[] {
 
 function asFeedResponse(x: unknown): FeedResponse {
   if (Array.isArray(x)) return toSetLiteArray(x);
-
-  if (typeof x === "object" && x !== null) {
-    const o = x as { results?: unknown; total?: unknown; total_pages?: unknown; page?: unknown };
-    return { results: o.results, total: o.total, total_pages: o.total_pages, page: o.page };
+  if (isRecord(x)) {
+    return { results: x.results, total: x.total, total_pages: x.total_pages, page: x.page };
   }
-
   return [];
 }
 

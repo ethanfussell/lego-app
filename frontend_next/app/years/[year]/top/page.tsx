@@ -4,8 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { themeToSlug } from "@/lib/slug";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
 export const dynamic = "force-static";
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -38,10 +36,14 @@ type Params = { year: string };
 function normalizeYear(raw: string): number | null {
   const s = decodeURIComponent(String(raw || "")).trim();
   if (!/^\d{4}$/.test(s)) return null;
+
   const y = Number(s);
   if (!Number.isFinite(y)) return null;
+
   const max = new Date().getFullYear();
-  if (y < 1980 || y > max) return null;  return y;
+  if (y < 1980 || y > max) return null;
+
+  return y;
 }
 
 function canonicalForYearTop(year: number) {
@@ -59,45 +61,68 @@ type SetRow = {
   rating_count?: number | null;
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function getNumber(o: UnknownRecord, key: string): number | null {
+  const v = o[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function getNullableString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
 }
 
 function coerceSetRow(x: unknown): SetRow | null {
   if (!isRecord(x)) return null;
 
-  const set_num = typeof x.set_num === "string" ? x.set_num.trim() : "";
-  const name = typeof x.name === "string" ? x.name.trim() : "";
+  const set_num = getString(x, "set_num") ?? getString(x, "setNum") ?? getString(x, "set_number");
+  const name = getString(x, "name");
   if (!set_num || !name) return null;
 
-  const year = typeof x.year === "number" && Number.isFinite(x.year) ? x.year : undefined;
-  const pieces = typeof x.pieces === "number" && Number.isFinite(x.pieces) ? x.pieces : undefined;
+  const year = getNumber(x, "year") ?? undefined;
+  const pieces = getNumber(x, "pieces") ?? getNumber(x, "num_parts") ?? undefined;
 
-  const theme = typeof x.theme === "string" ? x.theme : x.theme == null ? null : String(x.theme);
-  const image_url = typeof x.image_url === "string" ? x.image_url : null;
+  const theme = getNullableString(x, "theme");
+  const image_url = getString(x, "image_url");
 
   const average_rating =
-    typeof (x as any).average_rating === "number" && Number.isFinite((x as any).average_rating)
-      ? (x as any).average_rating
-      : typeof (x as any).rating_avg === "number" && Number.isFinite((x as any).rating_avg)
-        ? (x as any).rating_avg
-        : null;
+    getNumber(x, "average_rating") ??
+    getNumber(x, "rating_avg") ??
+    null;
 
-  const rating_count =
-    typeof (x as any).rating_count === "number" && Number.isFinite((x as any).rating_count)
-      ? Math.max(0, Math.floor((x as any).rating_count))
-      : null;
+  const rating_count = (() => {
+    const rc = getNumber(x, "rating_count");
+    return rc != null ? Math.max(0, Math.floor(rc)) : null;
+  })();
 
   return {
     set_num,
     name,
     ...(typeof year === "number" ? { year } : {}),
     ...(typeof pieces === "number" ? { pieces } : {}),
-    theme: theme?.trim() ? theme.trim() : null,
-    image_url,
+    theme,
+    image_url: image_url ?? null,
     average_rating,
     rating_count,
   };
+}
+
+function pickRows(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
+  return [];
 }
 
 async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfound"> {
@@ -112,10 +137,7 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: { accept: "application/json" },
-      next: { revalidate },
-    });
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
   } catch {
     return [];
   }
@@ -124,13 +146,8 @@ async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfoun
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
-  const rows = Array.isArray(data)
-    ? data
-    : isRecord(data) && Array.isArray((data as any).results)
-      ? (data as any).results
-      : [];
+  const rows = pickRows(data);
 
-  if (!Array.isArray(rows)) return [];
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
 }
 
@@ -185,19 +202,14 @@ function RelatedLinks({ year }: { year: number }) {
   );
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params | Promise<Params>;
-}): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { year } = await Promise.resolve(params);
   const y = normalizeYear(year);
 
-  // Invalid param: return non-indexable metadata (page itself will 404 via notFound()).
   if (!y) {
     return {
-      title: `Top LEGO sets by year`,
-      description: `Browse the highest-rated LEGO sets by year.`,
+      title: "Top LEGO sets by year",
+      description: "Browse the highest-rated LEGO sets by year.",
       metadataBase: new URL(siteBase()),
       robots: { index: false, follow: false },
     };
@@ -207,7 +219,6 @@ export async function generateMetadata({
   const title = `Top LEGO sets of ${y}`;
   const description = `Browse the highest-rated LEGO sets from ${y}.`;
 
-  // IMPORTANT: do NOT append SITE_NAME here (layout/template likely already does it).
   return {
     title,
     description,
@@ -229,7 +240,6 @@ export default async function Page({ params }: { params: Params | Promise<Params
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        {/* Simple breadcrumbs (internal links) */}
         <div className="text-sm text-zinc-600 dark:text-zinc-400">
           <Link href="/" className="font-semibold hover:underline">
             Home
@@ -338,10 +348,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     {s.theme ? (
                       <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                         Theme:{" "}
-                        <Link
-                          href={`/themes/${themeToSlug(String(s.theme))}`}
-                          className="font-semibold hover:underline"
-                        >
+                        <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
                           {s.theme}
                         </Link>
                       </div>

@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -12,21 +13,21 @@ import RequireAuth from "@/app/components/RequireAuth";
 type ReviewRow = {
   id?: number | string;
 
-  set_num?: string;
-  setNum?: string;
+  set_num?: string | null;
+  setNum?: string | null;
 
-  set_name?: string;
-  setName?: string;
+  set_name?: string | null;
+  setName?: string | null;
 
   rating?: number | null;
   text?: string | null;
 
-  created_at?: string;
-  createdAt?: string;
+  created_at?: string | null;
+  createdAt?: string | null;
 
-  // optional enrichment
   image_url?: string | null;
   imageUrl?: string | null;
+
   theme?: string | null;
   year?: number | null;
   pieces?: number | null;
@@ -45,30 +46,25 @@ function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
 }
 
-function fmtDate(value?: string) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(d);
+function asTrimmedString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-function normalizeReview(r: ReviewRow) {
-  const set_num = r.set_num ?? r.setNum ?? "";
-  const set_name = r.set_name ?? r.setName ?? "";
-  const created_at = r.created_at ?? r.createdAt ?? "";
+function fmtDate(value?: string | null): string {
+  const s = asTrimmedString(value);
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(d);
+}
+
+function normalizeReview(r: ReviewRow): ReviewRow {
+  const set_num = asTrimmedString(r.set_num) ?? asTrimmedString(r.setNum) ?? "";
+  const set_name = asTrimmedString(r.set_name) ?? asTrimmedString(r.setName) ?? "";
+  const created_at = asTrimmedString(r.created_at) ?? asTrimmedString(r.createdAt) ?? "";
   return { ...r, set_num, set_name, created_at };
 }
 
-/**
- * apiFetch sometimes returns:
- *   - an array
- *   - { results: [...] }
- *   - something else
- */
 function coerceArray<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
   if (value && typeof value === "object" && "results" in value) {
@@ -97,7 +93,6 @@ async function fetchMyReviews(token: string): Promise<ReviewRow[]> {
   const qs = new URLSearchParams();
   qs.set("limit", "200");
 
-  // backend mounted under /sets
   const url = qs.toString() ? `/sets/reviews/me?${qs.toString()}` : "/sets/reviews/me";
   const rowsUnknown: unknown = await apiFetch(url, { token, cache: "no-store" });
 
@@ -107,8 +102,8 @@ async function fetchMyReviews(token: string): Promise<ReviewRow[]> {
 
 async function enrichWithSets(token: string, reviews: ReviewRow[]): Promise<ReviewRow[]> {
   const missing = reviews
-    .filter((r) => !(r.image_url || r.imageUrl))
-    .map((r) => String(r.set_num ?? "").trim())
+    .filter((r) => !(asTrimmedString(r.image_url) || asTrimmedString(r.imageUrl)))
+    .map((r) => asTrimmedString(r.set_num) ?? "")
     .filter(Boolean);
 
   const unique = Array.from(new Set(missing));
@@ -121,11 +116,16 @@ async function enrichWithSets(token: string, reviews: ReviewRow[]): Promise<Revi
   const byNum = new Map(setArr.map((s) => [String(s.set_num), s]));
 
   return reviews.map((r) => {
-    const s = byNum.get(String(r.set_num || ""));
+    const setNum = asTrimmedString(r.set_num) ?? "";
+    const s = byNum.get(setNum);
+
+    const imgSrc =
+      asTrimmedString(r.image_url) ?? asTrimmedString(r.imageUrl) ?? asTrimmedString(s?.image_url) ?? null;
+
     return {
       ...r,
-      image_url: r.image_url || r.imageUrl || s?.image_url || null,
-      set_name: r.set_name || s?.name || r.set_num,
+      image_url: imgSrc,
+      set_name: asTrimmedString(r.set_name) ?? asTrimmedString(s?.name) ?? (setNum || "Set"),
       theme: r.theme ?? (s?.theme ?? null),
       year: r.year ?? (typeof s?.year === "number" ? s.year : null),
       pieces: r.pieces ?? (typeof s?.pieces === "number" ? s.pieces : null),
@@ -158,12 +158,12 @@ export default function ReviewsClient() {
         const base = await fetchMyReviews(token);
         const enriched = await enrichWithSets(token, base);
 
-        if (cancelled) return;
-        setRows(enriched);
+        if (!cancelled) setRows(enriched);
       } catch (e: unknown) {
-        if (cancelled) return;
-        setErr(errorMessage(e, "Failed to load reviews"));
-        setRows([]);
+        if (!cancelled) {
+          setErr(errorMessage(e, "Failed to load reviews"));
+          setRows([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -177,13 +177,8 @@ export default function ReviewsClient() {
 
   const filtered = useMemo(() => {
     if (!filter) return rows;
-
-    if (filter === "rated") {
-      return rows.filter((r) => typeof r.rating === "number");
-    }
-    if (filter === "unrated") {
-      return rows.filter((r) => !(typeof r.rating === "number"));
-    }
+    if (filter === "rated") return rows.filter((r) => typeof r.rating === "number");
+    if (filter === "unrated") return rows.filter((r) => !(typeof r.rating === "number"));
     return rows;
   }, [rows, filter]);
 
@@ -198,15 +193,13 @@ export default function ReviewsClient() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => router.push("/account")}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            >
-              ← Back to account
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => router.push("/account")}
+            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          >
+            ← Back to account
+          </button>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -225,9 +218,6 @@ export default function ReviewsClient() {
           <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
             <div className="font-semibold">Couldn’t load your reviews</div>
             <div className="mt-2 whitespace-pre-wrap">{err}</div>
-            <div className="mt-3 text-zinc-600 dark:text-zinc-300">
-              If your backend endpoint isn’t <code>/sets/reviews/me</code>, paste the error and we’ll swap it.
-            </div>
           </div>
         ) : null}
 
@@ -238,11 +228,13 @@ export default function ReviewsClient() {
         {!err && filtered.length > 0 ? (
           <ul className="mt-6 grid gap-3">
             {filtered.map((r) => {
-              const setNum = String(r.set_num || "").trim();
-              const title = (r.set_name || setNum || "Set").trim();
+              const setNum = asTrimmedString(r.set_num) ?? "";
+              const rawTitle = asTrimmedString(r.set_name) ?? setNum;
+              const title = (rawTitle || "Set").trim();
               const when = fmtDate(r.created_at);
 
-              const imageUrl = r.image_url || r.imageUrl || null;
+              const imgSrc = asTrimmedString(r.image_url) ?? asTrimmedString(r.imageUrl) ?? null;
+
               const rating = typeof r.rating === "number" ? r.rating : null;
               const text = String(r.text || "").trim();
 
@@ -271,17 +263,17 @@ export default function ReviewsClient() {
 
                     <div className="shrink-0 text-right">
                       <div className="font-extrabold text-zinc-900 dark:text-zinc-50">
-                        {rating == null ? "—" : rating.toFixed(1)}{" "}
-                        <span className="text-sm">★</span>
+                        {rating == null ? "—" : rating.toFixed(1)} <span className="text-sm">★</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-3 flex gap-3">
-                    <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-white dark:border-white/[.14] dark:bg-zinc-950">
-                      {imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={imageUrl} alt="" className="h-full w-full object-contain" loading="lazy" />
+                    <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-zinc-50 dark:border-white/[.14] dark:bg-white/5">
+                      {imgSrc ? (
+                        <div className="relative h-full w-full">
+                          <Image src={imgSrc} alt="" fill sizes="80px" className="object-contain p-1" />
+                        </div>
                       ) : (
                         <div className="text-xs font-bold text-zinc-400">—</div>
                       )}

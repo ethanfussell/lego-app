@@ -42,15 +42,17 @@ function normalizeUsername(raw: string): string | null {
   return decoded;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function coerceUser(x: unknown): PublicUser | null {
   if (!isRecord(x)) return null;
 
-  const id = (x as any).id;
-  const username = (x as any).username;
+  const id = x.id;
+  const username = x.username;
 
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (typeof username !== "string" || !username.trim()) return null;
@@ -60,48 +62,55 @@ function coerceUser(x: unknown): PublicUser | null {
 
 function coercePublicLists(x: unknown): PublicListRow[] {
   // /api/lists/public can be either [] or { results: [] }
-  const arr = Array.isArray(x)
+  const arr: unknown[] = Array.isArray(x)
     ? x
-    : isRecord(x) && Array.isArray((x as any).results)
-      ? ((x as any).results as unknown[])
+    : isRecord(x) && Array.isArray(x.results)
+      ? (x.results as unknown[])
       : [];
 
   const out: PublicListRow[] = [];
+
   for (const it of arr) {
     if (!isRecord(it)) continue;
 
-    const id = (it as any).id;
-    const title = (it as any).title;
-    const owner = (it as any).owner;
+    const id = it.id;
+    const title = it.title;
+    const owner = it.owner;
 
     if (typeof id !== "number" || !Number.isFinite(id)) continue;
     if (typeof title !== "string" || !title.trim()) continue;
     if (typeof owner !== "string" || !owner.trim()) continue;
 
+    const descRaw = it.description;
+    const itemsCountRaw = it.items_count;
+
     out.push({
       id,
       title: title.trim(),
       description:
-        typeof (it as any).description === "string"
-          ? (it as any).description
-          : (it as any).description == null
-            ? null
-            : String((it as any).description),
+        typeof descRaw === "string" ? descRaw : descRaw == null ? null : String(descRaw),
       owner: owner.trim(),
       items_count:
-        typeof (it as any).items_count === "number" && Number.isFinite((it as any).items_count)
-          ? Math.max(0, Math.floor((it as any).items_count))
+        typeof itemsCountRaw === "number" && Number.isFinite(itemsCountRaw)
+          ? Math.max(0, Math.floor(itemsCountRaw))
           : 0,
-      created_at: typeof (it as any).created_at === "string" ? (it as any).created_at : null,
-      updated_at: typeof (it as any).updated_at === "string" ? (it as any).updated_at : null,
+      created_at: typeof it.created_at === "string" ? it.created_at : null,
+      updated_at: typeof it.updated_at === "string" ? it.updated_at : null,
     });
   }
+
   return out;
 }
 
 const fetchUserSSR = cache(async (username: string): Promise<PublicUser | null> => {
   const url = new URL(`/api/users/${encodeURIComponent(username)}`, siteBase()).toString();
-  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+  } catch {
+    return null;
+  }
 
   if (res.status === 404) return null;
   if (!res.ok) return null;
@@ -117,7 +126,14 @@ const fetchPublicListsByOwnerSSR = cache(async (username: string): Promise<Publi
   qs.set("page", "1");
 
   const url = new URL(`/api/lists/public?${qs.toString()}`, siteBase()).toString();
-  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } });
+  } catch {
+    return [];
+  }
+
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);

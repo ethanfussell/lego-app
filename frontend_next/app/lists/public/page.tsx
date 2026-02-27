@@ -5,8 +5,6 @@ import { Suspense } from "react";
 import PublicListsClient from "./PublicListsClient";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -51,6 +49,12 @@ type ApiResp = {
   page?: unknown;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function first(sp: SearchParams, key: string): string {
   const v = sp[key];
   return (Array.isArray(v) ? v[0] : v || "").toString().trim();
@@ -66,17 +70,24 @@ function parseSort(raw: string): SortKey {
 }
 
 function isPublicListRow(x: unknown): x is PublicListRow {
-  if (typeof x !== "object" || x === null) return false;
-  const o = x as any;
-  return typeof o.id === "number" && typeof o.title === "string" && typeof o.owner === "string";
+  if (!isRecord(x)) return false;
+
+  return (
+    typeof x.id === "number" &&
+    Number.isFinite(x.id) &&
+    typeof x.title === "string" &&
+    typeof x.owner === "string" &&
+    typeof x.items_count === "number"
+  );
 }
 
 function toRows(x: unknown): PublicListRow[] {
   if (Array.isArray(x)) return x.filter(isPublicListRow);
-  if (typeof x === "object" && x !== null) {
-    const r = (x as any).results;
-    return Array.isArray(r) ? r.filter(isPublicListRow) : [];
+
+  if (isRecord(x) && Array.isArray(x.results)) {
+    return (x.results as unknown[]).filter(isPublicListRow);
   }
+
   return [];
 }
 
@@ -93,33 +104,56 @@ function pickCount(l: { items_count?: number | null }) {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
+function pickOwnerFromListDetail(data: UnknownRecord): string {
+  const u1 = typeof data.owner_username === "string" ? data.owner_username.trim() : "";
+  if (u1) return u1;
+  const u2 = typeof data.owner === "string" ? data.owner.trim() : "";
+  if (u2) return u2;
+  return "unknown";
+}
+
+function pickTitleFromListDetail(data: UnknownRecord, fallback: string): string {
+  const t = typeof data.title === "string" ? data.title.trim() : "";
+  return t || fallback;
+}
+
+function pickDescriptionFromListDetail(data: UnknownRecord): string | null {
+  const d = typeof data.description === "string" ? data.description.trim() : "";
+  return d || null;
+}
+
+function pickItemsCountFromListDetail(data: UnknownRecord): number {
+  const n = data.items_count;
+  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function pickDateStr(data: UnknownRecord, key: "created_at" | "updated_at"): string | null {
+  const v = data[key];
+  return typeof v === "string" && v.trim() ? v : null;
+}
+
 async function fetchFeaturedListsSSR(): Promise<PublicListRow[]> {
   if (!Array.isArray(FEATURED_LISTS) || FEATURED_LISTS.length === 0) return [];
 
   const results = await Promise.all(
     FEATURED_LISTS.slice(0, 12).map(async (f) => {
-      const id = String(f.id);
-      const url = new URL(`/api/lists/${encodeURIComponent(id)}`, siteBase()).toString();
+      const idStr = String(f.id);
+      const url = new URL(`/api/lists/${encodeURIComponent(idStr)}`, siteBase()).toString();
 
       const res = await fetch(url, { next: { revalidate } });
       if (!res.ok) return null;
 
-      const data: any = await res.json().catch(() => null);
-      if (!data || typeof data !== "object") return null;
-
-      const owner =
-        (typeof data.owner_username === "string" && data.owner_username.trim()) ||
-        (typeof data.owner === "string" && data.owner.trim()) ||
-        "unknown";
+      const data: unknown = await res.json().catch(() => null);
+      if (!isRecord(data)) return null;
 
       const row: PublicListRow = {
-        id: typeof data.id === "number" ? data.id : Number(f.id),
-        title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : `List #${id}`,
-        description: typeof data.description === "string" && data.description.trim() ? data.description.trim() : null,
-        owner,
-        items_count: typeof data.items_count === "number" && Number.isFinite(data.items_count) ? data.items_count : 0,
-        created_at: typeof data.created_at === "string" ? data.created_at : null,
-        updated_at: typeof data.updated_at === "string" ? data.updated_at : null,
+        id: typeof data.id === "number" && Number.isFinite(data.id) ? data.id : Number(f.id),
+        title: pickTitleFromListDetail(data, `List #${idStr}`),
+        description: pickDescriptionFromListDetail(data),
+        owner: pickOwnerFromListDetail(data),
+        items_count: pickItemsCountFromListDetail(data),
+        created_at: pickDateStr(data, "created_at"),
+        updated_at: pickDateStr(data, "updated_at"),
       };
 
       // Optional title override from FEATURED_LISTS
@@ -129,7 +163,7 @@ async function fetchFeaturedListsSSR(): Promise<PublicListRow[]> {
     })
   );
 
-  return results.filter((x): x is PublicListRow => !!x);
+  return results.filter((x): x is PublicListRow => Boolean(x));
 }
 
 async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortKey; page: number }) {
@@ -152,13 +186,13 @@ async function fetchPublicListsSSR(opts: { owner: string; q: string; sort: SortK
     const results = toRows(data);
 
     const total_pages =
-      typeof (data as any)?.total_pages === "number" && Number.isFinite((data as any).total_pages)
-        ? Math.max(1, Math.floor((data as any).total_pages))
+      isRecord(data) && typeof data.total_pages === "number" && Number.isFinite(data.total_pages)
+        ? Math.max(1, Math.floor(data.total_pages))
         : 1;
 
     const page =
-      typeof (data as any)?.page === "number" && Number.isFinite((data as any).page)
-        ? Math.max(1, Math.floor((data as any).page))
+      isRecord(data) && typeof data.page === "number" && Number.isFinite(data.page)
+        ? Math.max(1, Math.floor(data.page))
         : opts.page;
 
     return { results, total_pages, page, error: null as string | null };
@@ -189,7 +223,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
       </div>
 
-      {/* Featured section (Task 8 + Task 9) */}
+      {/* Featured section */}
       {featured.length > 0 ? (
         <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -205,7 +239,6 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
             </Link>
           </div>
 
-          {/* NOTE: Server Component — no onClick, and avoid nested Links */}
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {featured.map((l) => {
               const id = String(l.id);
@@ -227,10 +260,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
 
                       <div className="mt-1 text-xs text-zinc-500">
                         by{" "}
-                        <Link
-                          href={`/users/${encodeURIComponent(l.owner)}`}
-                          className="font-semibold hover:underline"
-                        >
+                        <Link href={`/users/${encodeURIComponent(l.owner)}`} className="font-semibold hover:underline">
                           {l.owner}
                         </Link>
                         <span className="mx-1">•</span>

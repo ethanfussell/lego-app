@@ -30,13 +30,18 @@ function isRecord(v: unknown): v is UnknownRecord {
 
 function pickArrayOrResults(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
-  if (isRecord(data) && Array.isArray((data as any).results)) return (data as any).results as unknown[];
+  if (isRecord(data) && Array.isArray(data.results)) return data.results;
   return [];
 }
 
 function asTrimmedString(v: unknown): string | null {
-  const s = String(v ?? "").trim();
+  const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
   return s ? s : null;
+}
+
+function asFiniteNumber(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 // --- fetch with timeout (prevents hangs that cause "Couldn't fetch") ---
@@ -120,6 +125,20 @@ function yearRange(min = 1980, max = new Date().getFullYear()): number[] {
   return out;
 }
 
+function readSetNum(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+
+  const sn =
+    r.set_num ??
+    r.setNum ??
+    r.set_number ??
+    (isRecord(r) ? (r as UnknownRecord)["set_num"] : undefined) ??
+    (isRecord(r) ? (r as UnknownRecord)["setNum"] : undefined) ??
+    (isRecord(r) ? (r as UnknownRecord)["set_number"] : undefined);
+
+  return asTrimmedString(sn);
+}
+
 async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> {
   const limit = 100;
   const firstUrl = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=1`;
@@ -129,19 +148,10 @@ async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> 
 
   const setNums: string[] = [];
 
-  const readSet = (r: unknown) => {
-    if (!isRecord(r)) return;
-    const sn =
-      (r as any).set_num ??
-      (r as any)["set_num"] ??
-      (r as any).setNum ??
-      (r as any)["setNum"] ??
-      (r as any).set_number ??
-      (r as any)["set_number"];
-    if (typeof sn === "string" && sn.trim()) setNums.push(sn.trim());
-  };
-
-  firstRows.forEach(readSet);
+  for (const r of firstRows) {
+    const sn = readSetNum(r);
+    if (sn) setNums.push(sn);
+  }
 
   const totalPages = first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
   const pagesToFetch = totalPages > 1 ? totalPages : firstRows.length === limit ? 5 : 1;
@@ -152,13 +162,23 @@ async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> 
     const rows = pickArrayOrResults(next.data);
 
     const before = setNums.length;
-    rows.forEach(readSet);
+
+    for (const r of rows) {
+      const sn = readSetNum(r);
+      if (sn) setNums.push(sn);
+    }
 
     if (totalPages === 1 && setNums.length === before) break;
   }
 
   const uniq = Array.from(new Set(setNums));
   return { rawCount: uniq.length, paths: uniq.map((sn) => `/sets/${encodeURIComponent(sn)}`) };
+}
+
+function readThemeName(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+  const t = r.theme ?? r.name ?? (r as UnknownRecord)["theme"] ?? (r as UnknownRecord)["name"];
+  return asTrimmedString(t);
 }
 
 async function collectThemeUrls(): Promise<{
@@ -175,19 +195,20 @@ async function collectThemeUrls(): Promise<{
 
   const themes: string[] = [];
 
-  const readTheme = (r: unknown) => {
-    if (!isRecord(r)) return;
-    const t = (r as any).theme ?? (r as any)["theme"] ?? (r as any).name ?? (r as any)["name"];
-    if (typeof t === "string" && t.trim()) themes.push(t.trim());
-  };
-
-  firstRows.forEach(readTheme);
+  for (const r of firstRows) {
+    const t = readThemeName(r);
+    if (t) themes.push(t);
+  }
 
   const totalPages = first.totalCount != null ? Math.max(1, Math.ceil(first.totalCount / limit)) : 1;
   for (let page = 2; page <= totalPages; page++) {
     const url = `${apiBase()}${THEMES_INDEX}?limit=${limit}&page=${page}`;
     const next = await fetchJsonWithCount(url);
-    pickArrayOrResults(next.data).forEach(readTheme);
+
+    for (const r of pickArrayOrResults(next.data)) {
+      const t = readThemeName(r);
+      if (t) themes.push(t);
+    }
   }
 
   const uniqThemes = Array.from(new Set(themes));
@@ -214,15 +235,32 @@ async function collectThemeUrls(): Promise<{
   return { paths: themePaths, rawThemes: uniqThemes, badSlugThemes, skippedThemes };
 }
 
+function readPublicListId(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+  const id = r.id ?? (r as UnknownRecord)["id"];
+  if (typeof id === "string") return asTrimmedString(id);
+  const n = asFiniteNumber(id);
+  return n != null ? String(Math.floor(n)) : null;
+}
+
+function readPublicListOwner(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+
+  const owner =
+    asTrimmedString(r.owner_username) ||
+    asTrimmedString(r.owner) ||
+    asTrimmedString(r.username) ||
+    asTrimmedString((r as UnknownRecord)["owner_username"]) ||
+    asTrimmedString((r as UnknownRecord)["owner"]) ||
+    asTrimmedString((r as UnknownRecord)["username"]);
+
+  return owner;
+}
+
 /**
  * Collect BOTH:
  * - public list detail URLs: /lists/{id}
  * - public user profile URLs: /users/{owner}
- *
- * Users are derived from lists/public rows:
- * - owner_username (preferred)
- * - owner
- * - username (fallback)
  */
 async function collectPublicListAndUserUrls(): Promise<{
   listPaths: string[];
@@ -240,17 +278,10 @@ async function collectPublicListAndUserUrls(): Promise<{
   const users: string[] = [];
 
   const readRow = (r: unknown) => {
-    if (!isRecord(r)) return;
+    const id = readPublicListId(r);
+    if (id) ids.push(id);
 
-    const id = (r as any).id ?? (r as any)["id"];
-    if (typeof id === "string" && id.trim()) ids.push(id.trim());
-    else if (typeof id === "number" && Number.isFinite(id)) ids.push(String(id));
-
-    const owner =
-      asTrimmedString((r as any).owner_username) ||
-      asTrimmedString((r as any).owner) ||
-      asTrimmedString((r as any).username);
-
+    const owner = readPublicListOwner(r);
     if (owner) users.push(owner);
   };
 
@@ -340,7 +371,7 @@ export async function GET() {
     { loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
   ];
 
-  // ✅ include ALL year pages + year top pages
+  // include ALL year pages + year top pages
   const years = yearRange(1980, new Date().getFullYear());
   const yearEntries: UrlEntry[] = [
     ...years.map(
@@ -407,7 +438,7 @@ export async function GET() {
     ...userProfilePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.3 })),
   ];
 
-  // Optional: de-dupe (staticEntries already includes 2022-2026 /top; this keeps sitemap clean)
+  // de-dupe
   const allEntries = [...staticEntries, ...yearEntries, ...dynamicEntries];
   const seen = new Set<string>();
   const uniqEntries = allEntries.filter((e) => {
@@ -452,7 +483,6 @@ export async function GET() {
       "X-Sitemap-Users": String(userProfilePaths.length),
       "X-Sitemap-UsersRaw": String(usersRawCount),
 
-      // Helpful debugging
       "X-Sitemap-Years": String(years.length),
     },
   });

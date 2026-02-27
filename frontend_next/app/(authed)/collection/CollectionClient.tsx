@@ -37,8 +37,23 @@ type ListDetail = {
   setNums?: string[] | null;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
+}
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function asTrimmedString(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : null;
+}
+
+function asFiniteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function isSystemList(l: ListSummary): boolean {
@@ -55,18 +70,13 @@ function toSetNums(detail: ListDetail | null | undefined): string[] {
 
   const items = detail.items;
   if (Array.isArray(items)) {
-    return items
-      .map((it) => String(it?.set_num ?? it?.setNum ?? "").trim())
-      .filter(Boolean);
+    return items.map((it) => String(it?.set_num ?? it?.setNum ?? "").trim()).filter(Boolean);
   }
 
   return [];
 }
 
-function withToken(
-  token: string,
-  opts: Omit<ApiFetchOptions, "token">
-): ApiFetchOptions {
+function withToken(token: string, opts: Omit<ApiFetchOptions, "token">): ApiFetchOptions {
   return { ...opts, token };
 }
 
@@ -75,10 +85,7 @@ async function fetchSet(setNum: string, token: string): Promise<CardSetLite | nu
   if (!s) return null;
 
   try {
-    return await apiFetch<CardSetLite>(
-      `/sets/${encodeURIComponent(s)}`,
-      withToken(token, { cache: "no-store" })
-    );
+    return await apiFetch<CardSetLite>(`/sets/${encodeURIComponent(s)}`, withToken(token, { cache: "no-store" }));
   } catch {
     return null;
   }
@@ -87,7 +94,6 @@ async function fetchSet(setNum: string, token: string): Promise<CardSetLite | nu
 async function fetchSetsBulk(setNums: string[], token: string): Promise<CardSetLite[]> {
   const uniq = Array.from(new Set(setNums.map((s) => String(s ?? "").trim()).filter(Boolean)));
   if (uniq.length === 0) return [];
-
   const results = await Promise.all(uniq.map((sn) => fetchSet(sn, token)));
   return results.filter((x): x is CardSetLite => Boolean(x));
 }
@@ -111,12 +117,7 @@ function Row({
 
   return (
     <div className="mt-8">
-      <CarouselRow
-        title={title}
-        viewHref={href}
-        emptyText={emptyText}
-        {...(subtitle ? { subtitle } : {})}
-      >
+      <CarouselRow title={title} viewHref={href} emptyText={emptyText} {...(subtitle ? { subtitle } : {})}>
         {hasItems
           ? sets.map((set) => {
               const setNum = String(set.set_num ?? "").trim();
@@ -132,6 +133,34 @@ function Row({
       </CarouselRow>
     </div>
   );
+}
+
+function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
+  if (!isRecord(raw)) return null;
+
+  const sn = asTrimmedString(raw.set_num);
+  if (!sn) return null;
+
+  const name = asTrimmedString(raw.name);
+  const year = asFiniteNumber(raw.year);
+  const numParts = asFiniteNumber(raw.num_parts);
+  const pieces = asFiniteNumber(raw.pieces);
+  const theme = asTrimmedString(raw.theme);
+  const imageUrl = asTrimmedString(raw.image_url);
+
+  // CardSetLite supports either `pieces` or `num_parts` in different places; we’ll prefer num_parts if present.
+  const num_parts = numParts ?? pieces ?? null;
+
+  const out: CardSetLite = {
+    set_num: sn,
+    ...(name ? { name } : {}),
+    ...(typeof year === "number" ? { year } : {}),
+    ...(typeof num_parts === "number" ? { num_parts } : {}),
+    ...(theme ? { theme } : {}),
+    image_url: imageUrl ?? null,
+  };
+
+  return out;
 }
 
 export default function CollectionClient() {
@@ -160,82 +189,59 @@ export default function CollectionClient() {
 
   const refreshAll = useCallback(async () => {
     if (!token) return;
-  
+
     setLoading(true);
     setErr(null);
-  
+
     try {
-      // Keep "My lists" working (custom lists live here)
+      // Custom lists
       const mine = await apiFetch<ListSummary[]>("/lists/me", withToken(token, { cache: "no-store" }));
       const mineArr = Array.isArray(mine) ? mine : [];
       setLists(mineArr);
-  
-      // ✅ Source of truth for system collections
+
+      // System collections
       const [ownedRowsU, wishRowsU] = await Promise.all([
         apiFetch<unknown>("/collections/me/owned", withToken(token, { cache: "no-store" })),
         apiFetch<unknown>("/collections/me/wishlist", withToken(token, { cache: "no-store" })),
       ]);
-  
-      const ownedRows = Array.isArray(ownedRowsU) ? (ownedRowsU as unknown[]) : [];
-      const wishRows = Array.isArray(wishRowsU) ? (wishRowsU as unknown[]) : [];
-  
-      const coerceSetLite = (raw: unknown): CardSetLite | null => {
-        if (typeof raw !== "object" || raw === null) return null;
-        const o = raw as any;
-  
-        const sn = typeof o.set_num === "string" ? o.set_num.trim() : "";
-        if (!sn) return null;
-  
-        const image_url = typeof o.image_url === "string" ? o.image_url : null;
-  
-        // CardSetLite supports different optional fields depending on your SetCard,
-        // so we only include fields when present.
-        return {
-          set_num: sn,
-          ...(typeof o.name === "string" ? { name: o.name } : {}),
-          ...(typeof o.year === "number" ? { year: o.year } : {}),
-          ...(typeof o.num_parts === "number" ? { num_parts: o.num_parts } : {}),
-          ...(typeof o.pieces === "number" ? { num_parts: o.pieces } : {}), // fallback if backend uses "pieces"
-          ...(typeof o.theme === "string" ? { theme: o.theme } : {}),
-          image_url,
-        } as CardSetLite;
-      };
-  
-      const ownedSetsAll = ownedRows.map(coerceSetLite).filter((x): x is CardSetLite => Boolean(x));
-      const wishSetsAll = wishRows.map(coerceSetLite).filter((x): x is CardSetLite => Boolean(x));
-  
-      // ✅ previews shown on /collection
+
+      const ownedRows = Array.isArray(ownedRowsU) ? ownedRowsU : [];
+      const wishRows = Array.isArray(wishRowsU) ? wishRowsU : [];
+
+      const ownedSetsAll = ownedRows
+        .map(coerceCollectionRowToCardSetLite)
+        .filter((x): x is CardSetLite => Boolean(x));
+
+      const wishSetsAll = wishRows
+        .map(coerceCollectionRowToCardSetLite)
+        .filter((x): x is CardSetLite => Boolean(x));
+
       setOwnedPreview(ownedSetsAll.slice(0, PREVIEW_COUNT));
       setWishlistPreview(wishSetsAll.slice(0, PREVIEW_COUNT));
-  
-      // ✅ lightweight “detail” for subtitle/count on /collection
+
       setOwnedDetail({
         id: "owned",
         title: "Owned",
         system_key: "owned",
         items_count: ownedSetsAll.length,
       });
-  
+
       setWishlistDetail({
         id: "wishlist",
         title: "Wishlist",
         system_key: "wishlist",
         items_count: wishSetsAll.length,
       });
-  
-      // Custom list previews remain based on /lists/:id
+
+      // Custom list previews via list detail → set nums → fetch sets
       const customOnly = mineArr.filter((l) => !isSystemList(l));
-  
+
       const entries = await Promise.all(
         customOnly.map(async (l): Promise<{ id: string; sets: CardSetLite[] }> => {
           const id = String(l.id);
-  
+
           try {
-            const d = await apiFetch<ListDetail>(
-              `/lists/${encodeURIComponent(id)}`,
-              withToken(token, { cache: "no-store" })
-            );
-  
+            const d = await apiFetch<ListDetail>(`/lists/${encodeURIComponent(id)}`, withToken(token, { cache: "no-store" }));
             const nums = toSetNums(d).slice(0, PREVIEW_COUNT);
             const sets = await fetchSetsBulk(nums, token);
             return { id, sets };
@@ -244,7 +250,7 @@ export default function CollectionClient() {
           }
         })
       );
-  
+
       const map: Record<string, CardSetLite[]> = {};
       for (const e of entries) map[e.id] = e.sets;
       setCustomPreviewById(map);
@@ -289,9 +295,7 @@ export default function CollectionClient() {
           ) : null}
         </div>
 
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Owned, Wishlist, and your custom lists.
-        </p>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Owned, Wishlist, and your custom lists.</p>
 
         <div className="mt-5 max-w-xl">
           <QuickCollectionsAdd onCollectionsChanged={refreshAll} />

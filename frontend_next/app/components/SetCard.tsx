@@ -156,7 +156,7 @@ function TitleTwoLines({ title }: { title: string }) {
 
 function imageSizesForVariant(variant: Props["variant"]) {
   // Cards are typically in 1-col on mobile, 2-col on small screens, 3-col on large.
-  // This keeps the requested image width close to reality, which improves LCP + bandwidth.
+  // This keeps the requested image width close to reality (bandwidth + LCP).
   if (variant === "feed") return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 420px";
   return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 320px";
 }
@@ -243,8 +243,10 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
                 fill
                 sizes={imageSizesForVariant(variant)}
                 className="object-contain p-4"
-                // avoid priority on grid cards; let the page choose its true hero images
-                loading="lazy"
+                quality={70}
+                // Cards should not be priority; let the page decide its LCP/hero.
+                priority={false}
+                placeholder="empty"
               />
             </div>
           ) : (

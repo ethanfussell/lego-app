@@ -18,8 +18,6 @@ type SetLite = {
   rating_count?: number;
 };
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -29,7 +27,10 @@ function apiBase() {
 }
 
 function isPromiseLike<T>(v: unknown): v is PromiseLike<T> {
-  return typeof v === "object" && v !== null && "then" in v && typeof (v as any).then === "function";
+  if (typeof v !== "object" || v === null) return false;
+  if (!("then" in v)) return false;
+  const then = (v as Record<string, unknown>).then;
+  return typeof then === "function";
 }
 
 async function unwrapSearchParams<T extends object>(p?: T | Promise<T>): Promise<T> {

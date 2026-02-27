@@ -1,5 +1,6 @@
 // frontend_next/app/themes/[themeSlug]/top/page.tsx
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { slugToTheme, themeToSlug } from "@/lib/slug";
@@ -39,6 +40,22 @@ function canonicalForThemeTop(themeSlugEncoded: string) {
   return `/themes/${themeSlugEncoded}/top`;
 }
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function getNumber(o: UnknownRecord, key: string): number | null {
+  const v = o[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 type SetRow = {
   set_num: string;
   name: string;
@@ -50,53 +67,44 @@ type SetRow = {
   rating_count?: number | null;
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 function coerceSetRow(x: unknown): SetRow | null {
   if (!isRecord(x)) return null;
 
-  const set_num = typeof (x as any).set_num === "string" ? String((x as any).set_num).trim() : "";
-  const name = typeof (x as any).name === "string" ? String((x as any).name).trim() : "";
+  const set_num = getString(x, "set_num") ?? getString(x, "setNum") ?? getString(x, "set_number");
+  const name = getString(x, "name");
   if (!set_num || !name) return null;
 
-  const year =
-    typeof (x as any).year === "number" && Number.isFinite((x as any).year) ? (x as any).year : undefined;
-  const pieces =
-    typeof (x as any).pieces === "number" && Number.isFinite((x as any).pieces) ? (x as any).pieces : undefined;
+  const year = getNumber(x, "year") ?? undefined;
+  const pieces = getNumber(x, "pieces") ?? getNumber(x, "num_parts") ?? undefined;
 
-  const theme =
-    typeof (x as any).theme === "string"
-      ? String((x as any).theme)
-      : (x as any).theme == null
-        ? null
-        : String((x as any).theme);
+  const themeRaw = getString(x, "theme");
+  const theme = themeRaw ? themeRaw : null;
 
-  const image_url = typeof (x as any).image_url === "string" ? String((x as any).image_url) : null;
+  const image_url = getString(x, "image_url");
 
-  const average_rating =
-    typeof (x as any).average_rating === "number" && Number.isFinite((x as any).average_rating)
-      ? (x as any).average_rating
-      : typeof (x as any).rating_avg === "number" && Number.isFinite((x as any).rating_avg)
-        ? (x as any).rating_avg
-        : null;
+  const average_rating = getNumber(x, "average_rating") ?? getNumber(x, "rating_avg") ?? null;
 
-  const rating_count =
-    typeof (x as any).rating_count === "number" && Number.isFinite((x as any).rating_count)
-      ? Math.max(0, Math.floor((x as any).rating_count))
-      : null;
+  const rating_count = (() => {
+    const rc = getNumber(x, "rating_count");
+    return rc != null ? Math.max(0, Math.floor(rc)) : null;
+  })();
 
   return {
     set_num,
     name,
     ...(typeof year === "number" ? { year } : {}),
     ...(typeof pieces === "number" ? { pieces } : {}),
-    theme: theme?.trim() ? theme.trim() : null,
-    image_url,
+    theme,
+    image_url: image_url ?? null,
     average_rating,
     rating_count,
   };
+}
+
+function pickRows(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
+  return [];
 }
 
 async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "notfound"> {
@@ -106,7 +114,7 @@ async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "n
   qs.set("sort", "rating");
   qs.set("order", "desc");
 
-  // IMPORTANT: use theme endpoint (exact theme) not fuzzy /sets?q=
+  // IMPORTANT: use exact theme endpoint (not fuzzy /sets?q=)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
   let res: Response;
@@ -123,13 +131,7 @@ async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "n
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
-  const rows = Array.isArray(data)
-    ? data
-    : isRecord(data) && Array.isArray((data as any).results)
-      ? (data as any).results
-      : [];
-
-  if (!Array.isArray(rows)) return [];
+  const rows = pickRows(data);
   return rows.map(coerceSetRow).filter((r): r is SetRow => !!r);
 }
 
@@ -273,6 +275,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
           {sets.map((s) => {
             const rating = typeof s.average_rating === "number" ? s.average_rating.toFixed(1) : null;
             const rcount = typeof s.rating_count === "number" ? s.rating_count : null;
+            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
 
             return (
               <div
@@ -281,14 +284,28 @@ export default async function Page({ params }: { params: Params | Promise<Params
               >
                 <div className="flex gap-3">
                   <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
-                    {s.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-2" loading="lazy" />
-                    ) : null}
+                    {imgSrc ? (
+                      <div className="relative h-20 w-24">
+                        <Image
+                          src={imgSrc}
+                          alt={s.name || s.set_num}
+                          fill
+                          sizes="96px"
+                          className="object-contain p-2"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-500">
+                        No image
+                      </div>
+                    )}
                   </div>
 
                   <div className="min-w-0">
-                    <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
+                    <Link
+                      href={`/sets/${encodeURIComponent(s.set_num)}`}
+                      className="block truncate text-sm font-semibold hover:underline"
+                    >
                       {s.name}
                     </Link>
 

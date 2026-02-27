@@ -4,18 +4,6 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const revalidate = 3600;
 
-type BackendRow = {
-  id: number;
-  title?: string | null;
-  description?: string | null;
-  owner?: string | null;
-  items_count?: number | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  is_public?: boolean | null;
-  // other fields may exist; we ignore them
-};
-
 type PublicListRow = {
   id: number;
   title: string;
@@ -28,6 +16,8 @@ type PublicListRow = {
 };
 
 type SortKey = "updated_desc" | "count_desc" | "name_asc";
+
+type UnknownRecord = Record<string, unknown>;
 
 // ---- helpers
 function apiBase(): string {
@@ -59,21 +49,61 @@ function pickUpdatedTs(r: PublicListRow) {
   return Number.isFinite(t) ? t : 0;
 }
 
-function normalizeRow(x: any): PublicListRow | null {
-  const id = x?.id;
-  if (typeof id !== "number" || !Number.isFinite(id)) return null;
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
-  const title = String(x?.title ?? "").trim() || "Untitled list";
-  const description = x?.description != null ? String(x.description) : null;
-  const owner = String(x?.owner ?? "").trim() || "unknown";
-  const items_count = typeof x?.items_count === "number" && Number.isFinite(x.items_count) ? Math.max(0, Math.floor(x.items_count)) : 0;
+function getString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
-  const created_at = x?.created_at != null ? String(x.created_at) : null;
-  const updated_at = x?.updated_at != null ? String(x.updated_at) : null;
+function getNumber(o: UnknownRecord, key: string): number | null {
+  const v = o[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 
-  const is_public = typeof x?.is_public === "boolean" ? x.is_public : true;
+function getBoolean(o: UnknownRecord, key: string): boolean | null {
+  const v = o[key];
+  return typeof v === "boolean" ? v : null;
+}
 
-  return { id, title, description, owner, items_count, created_at, updated_at, is_public };
+function normalizeRow(x: unknown): PublicListRow | null {
+  if (!isRecord(x)) return null;
+
+  const id = getNumber(x, "id");
+  if (id == null) return null;
+
+  const title = getString(x, "title") || "Untitled list";
+
+  // Allow null but don't turn undefined into "undefined"
+  const descriptionRaw = x["description"];
+  const description =
+    typeof descriptionRaw === "string" ? descriptionRaw : descriptionRaw == null ? null : String(descriptionRaw);
+
+  const owner = getString(x, "owner") || "unknown";
+
+  const items_count = (() => {
+    const n = getNumber(x, "items_count");
+    return n == null ? 0 : Math.max(0, Math.floor(n));
+  })();
+
+  const created_at = getString(x, "created_at");
+  const updated_at = getString(x, "updated_at");
+
+  // public endpoint should only return public lists; default true if missing
+  const is_public = getBoolean(x, "is_public") ?? true;
+
+  return {
+    id: Math.floor(id),
+    title,
+    description,
+    owner,
+    items_count,
+    created_at,
+    updated_at,
+    is_public,
+  };
 }
 
 function applyQ(rows: PublicListRow[], qRaw: string) {
@@ -119,11 +149,13 @@ async function fetchFromBackend(owner: string): Promise<PublicListRow[]> {
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
-  const arr: unknown[] = Array.isArray(data) ? (data as unknown[]) : [];
+  const arr: unknown[] = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray(data["results"])
+      ? (data["results"] as unknown[])
+      : [];
 
-  return arr
-    .map((x) => normalizeRow(x))
-    .filter((x): x is PublicListRow => !!x);
+  return arr.map(normalizeRow).filter((x): x is PublicListRow => Boolean(x));
 }
 
 export async function GET(req: Request) {

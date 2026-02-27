@@ -8,6 +8,7 @@ import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 import { readSavedListIds, savedListsEventName } from "@/lib/savedLists";
+import Image from "next/image";
 
 /** ✅ Use the EXACT prop type expected by RatingHistogram */
 type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
@@ -52,6 +53,13 @@ type ReviewRecent = {
   set_image?: string | null;
   setImage?: string | null;
 };
+
+type UnknownRecord = Record<string, unknown>;
+
+function getString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
 function formatRating(rating: unknown): string {
   if (rating === null || rating === undefined) return "—";
@@ -255,14 +263,22 @@ function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
       className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
     >
       <div className="grid grid-cols-[80px_1fr] gap-3">
-        <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-white dark:border-white/[.14] dark:bg-zinc-950">
-          {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl} alt="" className="h-full w-full object-contain" loading="lazy" />
-          ) : (
-            <div className="text-xs font-bold text-zinc-400">—</div>
-          )}
+      <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-white dark:border-white/[.14] dark:bg-zinc-950">
+      {imageUrl ? (
+        <div className="relative h-20 w-20">
+          <Image
+            src={imageUrl}
+            alt=""
+            fill
+            sizes="80px"
+            className="object-contain"
+            priority={false}
+          />
         </div>
+      ) : (
+        <div className="text-xs font-bold text-zinc-400">—</div>
+      )}
+    </div>
 
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-3">
@@ -491,12 +507,25 @@ export default function AccountClient() {
         const merged = recentReviewsRaw.map((r) => {
           const s = r.set_num ? byNum.get(r.set_num) : undefined;
 
-          const imageFromSet =
-            (s && typeof s.image_url === "string" && s.image_url) ||
-            (s && typeof (s as any).imageUrl === "string" && (s as any).imageUrl) ||
-            (s && typeof (s as any).set_image_url === "string" && (s as any).set_image_url) ||
-            (s && typeof (s as any).setImageUrl === "string" && (s as any).setImageUrl) ||
-            null;
+          const imageFromSet = (() => {
+            if (!s) return null;
+          
+            // prefer canonical backend key
+            const v1 = getString(s, "image_url");
+            if (v1) return v1;
+          
+            // tolerate alternate keys
+            const v2 = getString(s, "imageUrl");
+            if (v2) return v2;
+          
+            const v3 = getString(s, "set_image_url");
+            if (v3) return v3;
+          
+            const v4 = getString(s, "setImageUrl");
+            if (v4) return v4;
+          
+            return null;
+          })();
 
           return {
             ...r,

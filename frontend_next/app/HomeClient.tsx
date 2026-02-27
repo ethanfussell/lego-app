@@ -22,7 +22,52 @@ type PublicList = {
   created_at?: string | null;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
 const CARD_MIN_WIDTH = 220;
+
+function asTrimmedString(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : null;
+}
+
+function asFiniteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function coercePublicList(raw: unknown): PublicList | null {
+  if (!isRecord(raw)) return null;
+  const o = raw as UnknownRecord;
+
+  const idStr = asTrimmedString(o.id);
+  const idNum = asFiniteNumber(o.id);
+  const id: string | number | null = idStr ?? idNum ?? null;
+  if (id == null) return null;
+
+  const out: PublicList = {
+    id,
+    title: asTrimmedString(o.title),
+    name: asTrimmedString(o.name),
+    description: asTrimmedString(o.description),
+    items_count: asFiniteNumber(o.items_count),
+    owner: asTrimmedString(o.owner),
+    owner_username: asTrimmedString(o.owner_username),
+    username: asTrimmedString(o.username),
+    updated_at: asTrimmedString(o.updated_at),
+    created_at: asTrimmedString(o.created_at),
+  };
+
+  return out;
+}
+
+function pickArrayOrResults(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (isRecord(data)) {
+    const r = (data as UnknownRecord).results;
+    if (Array.isArray(r)) return r as unknown[];
+  }
+  return [];
+}
 
 function FeaturedBadge() {
   return (
@@ -109,7 +154,6 @@ function mergeFeaturedOverrides(detail: PublicList, f: { id: number; title?: str
   return detail;
 }
 
-// Clickable card WITHOUT nesting <a> inside <a>
 function ClickCard({
   href,
   className,
@@ -152,11 +196,10 @@ export default function HomeClient() {
 
   function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {
     if (!ref.current) return;
-    const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction; // ~2 cards at a time
+    const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction;
     ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
   }
 
-  // Load featured list details (client-side)
   useEffect(() => {
     let cancelled = false;
 
@@ -173,26 +216,17 @@ export default function HomeClient() {
             if (!res.ok) return null;
 
             const data: unknown = await res.json().catch(() => null);
-            if (!isRecord(data)) return null;
+            const detail = coercePublicList(data);
+            if (!detail) return null;
 
-            const detail: PublicList = {
-              id: (data as any).id ?? f.id,
-              title: typeof (data as any).title === "string" ? (data as any).title : null,
-              description: typeof (data as any).description === "string" ? (data as any).description : null,
-              items_count: typeof (data as any).items_count === "number" ? (data as any).items_count : null,
-              owner: typeof (data as any).owner === "string" ? (data as any).owner : null,
-              owner_username: typeof (data as any).owner_username === "string" ? (data as any).owner_username : null,
-              updated_at: typeof (data as any).updated_at === "string" ? (data as any).updated_at : null,
-              created_at: typeof (data as any).created_at === "string" ? (data as any).created_at : null,
-            };
-
-            return mergeFeaturedOverrides(detail, f);
+            // ensure ID matches featured
+            const fixed: PublicList = { ...detail, id: detail.id ?? f.id };
+            return mergeFeaturedOverrides(fixed, f);
           })
         );
 
         if (cancelled) return;
-
-        setFeatured(results.filter((x): x is PublicList => !!x));
+        setFeatured(results.filter((x): x is PublicList => Boolean(x)));
       } catch {
         if (!cancelled) setFeatured([]);
       } finally {
@@ -206,7 +240,6 @@ export default function HomeClient() {
     };
   }, []);
 
-  // Load popular public lists (client-side)
   useEffect(() => {
     let cancelled = false;
 
@@ -216,14 +249,11 @@ export default function HomeClient() {
         setListsErr("");
 
         const data = await apiFetch<unknown>("/lists/public", { cache: "no-store" });
+        const rows = pickArrayOrResults(data);
 
-        const arr: PublicList[] = Array.isArray(data)
-          ? (data as PublicList[])
-          : isRecord(data) && Array.isArray((data as any).results)
-            ? ((data as any).results as PublicList[])
-            : [];
+        const parsed = rows.map(coercePublicList).filter((x): x is PublicList => Boolean(x));
 
-        if (!cancelled) setLists(arr.slice(0, 6));
+        if (!cancelled) setLists(parsed.slice(0, 6));
       } catch (e: unknown) {
         if (!cancelled) setListsErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -384,9 +414,7 @@ export default function HomeClient() {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
             <h2 className="m-0 text-lg font-semibold">⏰ Retiring soon</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Great for urgency / FOMO and “last chance” buttons with affiliate links.
-            </p>
+            <p className="mt-1 text-sm text-zinc-500">Great for urgency / FOMO and “last chance” buttons with affiliate links.</p>
           </div>
 
           <RowNav
@@ -397,7 +425,11 @@ export default function HomeClient() {
           />
         </div>
 
-        <div ref={retiringRowRef} className="mt-4 flex gap-4 overflow-x-auto pb-2" style={{ scrollSnapType: "x mandatory" }}>
+        <div
+          ref={retiringRowRef}
+          className="mt-4 flex gap-4 overflow-x-auto pb-2"
+          style={{ scrollSnapType: "x mandatory" }}
+        >
           {[1, 2, 3, 4, 5].map((n) => (
             <PlaceholderSetCard key={n} />
           ))}

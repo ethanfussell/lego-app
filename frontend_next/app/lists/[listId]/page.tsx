@@ -1,5 +1,6 @@
 // frontend_next/app/lists/[listId]/page.tsx
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
@@ -68,69 +69,80 @@ type PublicListRow = {
   updated_at?: string | null;
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-// ✅ Option A helper (no tricky type-predicate on PublicListRow)
 function notNull<T>(v: T | null | undefined): v is T {
   return v != null;
+}
+
+function getString(o: UnknownRecord, key: string): string | null {
+  const v = o[key];
+  return typeof v === "string" ? v : v == null ? null : String(v);
+}
+
+function getTrimmedString(o: UnknownRecord, key: string): string | null {
+  const v = getString(o, key);
+  return v && v.trim() ? v.trim() : null;
+}
+
+function getNumber(o: UnknownRecord, key: string): number | null {
+  const v = o[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function getBoolean(o: UnknownRecord, key: string, fallback = false): boolean {
+  const v = o[key];
+  return typeof v === "boolean" ? v : fallback;
 }
 
 function coerceListDetail(x: unknown): ListDetail | null {
   if (!isRecord(x)) return null;
 
-  const id = (x as any).id;
-  if (typeof id !== "number" || !Number.isFinite(id)) return null;
+  const id = getNumber(x, "id");
+  if (typeof id !== "number") return null;
 
-  const title =
-    typeof (x as any).title === "string" ? (x as any).title : (x as any).title == null ? null : String((x as any).title);
+  const title = getString(x, "title");
+  const description = getString(x, "description");
+  const is_public = getBoolean(x, "is_public", false);
 
-  const description =
-    typeof (x as any).description === "string"
-      ? (x as any).description
-      : (x as any).description == null
-        ? null
-        : String((x as any).description);
+  const owner = getString(x, "owner");
+  const owner_username = getString(x, "owner_username");
 
-  const is_public = typeof (x as any).is_public === "boolean" ? (x as any).is_public : false;
+  const items_count = (() => {
+    const n = getNumber(x, "items_count");
+    return typeof n === "number" ? Math.floor(n) : null;
+  })();
 
-  const owner =
-    typeof (x as any).owner === "string" ? (x as any).owner : (x as any).owner == null ? null : String((x as any).owner);
+  const created_at = getTrimmedString(x, "created_at");
+  const updated_at = getTrimmedString(x, "updated_at");
 
-  const owner_username =
-    typeof (x as any).owner_username === "string"
-      ? (x as any).owner_username
-      : (x as any).owner_username == null
-        ? null
-        : String((x as any).owner_username);
+  const items = (() => {
+    const raw = x.items;
+    if (!Array.isArray(raw)) return null;
 
-  const items_count =
-    typeof (x as any).items_count === "number" && Number.isFinite((x as any).items_count)
-      ? Math.floor((x as any).items_count)
-      : null;
+    return raw
+      .filter(isRecord)
+      .map((it) => ({ set_num: String(it.set_num ?? "").trim() }))
+      .filter((it) => it.set_num.length > 0);
+  })();
 
-  const created_at = typeof (x as any).created_at === "string" ? (x as any).created_at : null;
-  const updated_at = typeof (x as any).updated_at === "string" ? (x as any).updated_at : null;
-
-  const items = Array.isArray((x as any).items)
-    ? ((x as any).items as unknown[])
-        .filter(isRecord)
-        .map((it) => ({ set_num: String((it as any).set_num || "") }))
-        .filter((it) => it.set_num.trim().length > 0)
-    : null;
-
-  const set_nums = Array.isArray((x as any).set_nums)
-    ? ((x as any).set_nums as unknown[]).map((s) => String(s || "").trim()).filter(Boolean)
-    : null;
+  const set_nums = (() => {
+    const raw = x.set_nums;
+    if (!Array.isArray(raw)) return null;
+    return raw.map((s) => String(s ?? "").trim()).filter(Boolean);
+  })();
 
   return {
     id,
-    title: title?.trim() ? title.trim() : null,
-    description: description?.trim() ? description.trim() : null,
+    title: title && title.trim() ? title.trim() : null,
+    description: description && description.trim() ? description.trim() : null,
     is_public,
-    owner: owner?.trim() ? owner.trim() : null,
-    owner_username: owner_username?.trim() ? owner_username.trim() : null,
+    owner: owner && owner.trim() ? owner.trim() : null,
+    owner_username: owner_username && owner_username.trim() ? owner_username.trim() : null,
     items_count,
     created_at,
     updated_at,
@@ -171,6 +183,28 @@ const fetchPublicListSSR = cache(async (id: string): Promise<ListDetail | "notfo
   return d;
 });
 
+function coerceSetLite(x: unknown): SetLite | null {
+  if (!isRecord(x)) return null;
+
+  const sn = getTrimmedString(x, "set_num");
+  if (!sn) return null;
+
+  const name = getTrimmedString(x, "name");
+  const year = getNumber(x, "year") ?? undefined;
+  const pieces = getNumber(x, "pieces") ?? undefined;
+  const theme = getTrimmedString(x, "theme") ?? undefined;
+  const image_url = getTrimmedString(x, "image_url");
+
+  return {
+    set_num: sn,
+    ...(name ? { name } : {}),
+    ...(typeof year === "number" ? { year } : {}),
+    ...(typeof pieces === "number" ? { pieces } : {}),
+    ...(theme ? { theme } : {}),
+    image_url: image_url ?? null,
+  };
+}
+
 async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   const nums = Array.from(new Set(setNums.map((s) => String(s || "").trim()).filter(Boolean)));
   if (nums.length === 0) return [];
@@ -188,20 +222,7 @@ async function fetchSetsBulkSSR(setNums: string[]): Promise<SetLite[]> {
   const data: unknown = await res.json().catch(() => null);
   if (!Array.isArray(data)) return [];
 
-  const arr = (data as unknown[])
-    .filter(isRecord)
-    .filter((x) => typeof (x as any).set_num === "string" && String((x as any).set_num).trim())
-    .map((x) => {
-      const o = x as any;
-      return {
-        set_num: String(o.set_num),
-        name: typeof o.name === "string" ? o.name : undefined,
-        year: typeof o.year === "number" ? o.year : undefined,
-        pieces: typeof o.pieces === "number" ? o.pieces : undefined,
-        theme: typeof o.theme === "string" ? o.theme : undefined,
-        image_url: typeof o.image_url === "string" ? o.image_url : null,
-      } as SetLite;
-    });
+  const arr = (data as unknown[]).map(coerceSetLite).filter((v): v is SetLite => !!v);
 
   const byNum = new Map(arr.map((s) => [s.set_num, s]));
   return capped.map((n) => byNum.get(n)).filter((v): v is SetLite => !!v);
@@ -220,6 +241,33 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function coercePublicListRow(o: unknown): PublicListRow | null {
+  if (!isRecord(o)) return null;
+
+  const id = getNumber(o, "id");
+  if (typeof id !== "number") return null;
+
+  const tRaw = getTrimmedString(o, "title");
+  const title = tRaw || `List #${id}`;
+
+  const ownerName = getTrimmedString(o, "owner_username") || getTrimmedString(o, "owner") || "unknown";
+
+  const items_count = (() => {
+    const n = getNumber(o, "items_count");
+    return typeof n === "number" ? Math.max(0, Math.floor(n)) : 0;
+  })();
+
+  const description = (() => {
+    const d = getString(o, "description");
+    return d && d.trim() ? d.trim() : null;
+  })();
+
+  const created_at = getTrimmedString(o, "created_at");
+  const updated_at = getTrimmedString(o, "updated_at");
+
+  return { id, title, description, owner: ownerName, items_count, created_at, updated_at };
+}
+
 async function fetchMoreListsByOwnerSSR(opts: { owner: string; excludeId: number; limit?: number }): Promise<PublicListRow[]> {
   const owner = String(opts.owner || "").trim();
   if (!owner) return [];
@@ -228,7 +276,7 @@ async function fetchMoreListsByOwnerSSR(opts: { owner: string; excludeId: number
   qs.set("owner", owner);
   qs.set("sort", "updated_desc");
   qs.set("page", "1");
-  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 6) + 6)))); // buffer for exclude
+  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 6) + 6))));
 
   const url = `${apiBase()}/lists/public?${qs.toString()}`;
 
@@ -243,45 +291,11 @@ async function fetchMoreListsByOwnerSSR(opts: { owner: string; excludeId: number
   const data: unknown = await res.json().catch(() => null);
   const raw: unknown[] = Array.isArray(data)
     ? data
-    : isRecord(data) && Array.isArray((data as any).results)
-      ? ((data as any).results as unknown[])
+    : isRecord(data) && Array.isArray(data.results)
+      ? (data.results as unknown[])
       : [];
 
-  const rows = raw
-    .filter(isRecord)
-    .map((o) => {
-      const id = (o as any).id;
-      if (typeof id !== "number" || !Number.isFinite(id)) return null;
-
-      const title =
-        typeof (o as any).title === "string" && (o as any).title.trim()
-          ? String((o as any).title).trim()
-          : `List #${id}`;
-
-      const ownerName =
-        (typeof (o as any).owner_username === "string" && (o as any).owner_username.trim()) ||
-        (typeof (o as any).owner === "string" && (o as any).owner.trim()) ||
-        "unknown";
-
-      const items_count =
-        typeof (o as any).items_count === "number" && Number.isFinite((o as any).items_count)
-          ? Math.max(0, Math.floor((o as any).items_count))
-          : 0;
-
-      const description = typeof (o as any).description === "string" ? (o as any).description : null;
-
-      return {
-        id,
-        title,
-        description,
-        owner: ownerName,
-        items_count,
-        created_at: typeof (o as any).created_at === "string" ? (o as any).created_at : null,
-        updated_at: typeof (o as any).updated_at === "string" ? (o as any).updated_at : null,
-      } as PublicListRow;
-    })
-    .filter(notNull);
-
+  const rows = raw.map(coercePublicListRow).filter(notNull);
   return rows.filter((r) => r.id !== opts.excludeId).slice(0, Math.max(1, Math.min(12, opts.limit ?? 6)));
 }
 
@@ -293,7 +307,7 @@ async function fetchRelatedListsByThemeSSR(opts: { theme: string; excludeId: num
   qs.set("theme", theme);
   qs.set("sort", "count_desc");
   qs.set("page", "1");
-  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 9) + 6)))); // buffer for exclude
+  qs.set("limit", String(Math.max(1, Math.min(25, (opts.limit ?? 9) + 6))));
 
   const url = `${apiBase()}/lists/public?${qs.toString()}`;
 
@@ -308,45 +322,11 @@ async function fetchRelatedListsByThemeSSR(opts: { theme: string; excludeId: num
   const data: unknown = await res.json().catch(() => null);
   const raw: unknown[] = Array.isArray(data)
     ? data
-    : isRecord(data) && Array.isArray((data as any).results)
-      ? ((data as any).results as unknown[])
+    : isRecord(data) && Array.isArray(data.results)
+      ? (data.results as unknown[])
       : [];
 
-  const rows = raw
-    .filter(isRecord)
-    .map((o) => {
-      const id = (o as any).id;
-      if (typeof id !== "number" || !Number.isFinite(id)) return null;
-
-      const title =
-        typeof (o as any).title === "string" && (o as any).title.trim()
-          ? String((o as any).title).trim()
-          : `List #${id}`;
-
-      const ownerName =
-        (typeof (o as any).owner_username === "string" && (o as any).owner_username.trim()) ||
-        (typeof (o as any).owner === "string" && (o as any).owner.trim()) ||
-        "unknown";
-
-      const items_count =
-        typeof (o as any).items_count === "number" && Number.isFinite((o as any).items_count)
-          ? Math.max(0, Math.floor((o as any).items_count))
-          : 0;
-
-      const description = typeof (o as any).description === "string" ? (o as any).description : null;
-
-      return {
-        id,
-        title,
-        description,
-        owner: ownerName,
-        items_count,
-        created_at: typeof (o as any).created_at === "string" ? (o as any).created_at : null,
-        updated_at: typeof (o as any).updated_at === "string" ? (o as any).updated_at : null,
-      } as PublicListRow;
-    })
-    .filter(notNull);
-
+  const rows = raw.map(coercePublicListRow).filter(notNull);
   return rows.filter((r) => r.id !== opts.excludeId).slice(0, Math.max(1, Math.min(12, opts.limit ?? 9)));
 }
 
@@ -390,17 +370,15 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   }
 
   const ownerName = normalizeUsername(d.owner_username || d.owner);
-  const count =
-    typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
+  const count = typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
 
   const listTitle = (d.title && d.title.trim()) || `List #${d.id}`;
   const title = ownerName ? `${listTitle} by @${ownerName}` : `${listTitle}`;
 
   const desc = (d.description && d.description.trim()) || "";
-  const fallback =
-    ownerName
-      ? `Public LEGO list by @${ownerName}. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim()
-      : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim();
+  const fallback = ownerName
+    ? `Public LEGO list by @${ownerName}. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim()
+    : `Public LEGO list. ${count ? `${count} set${count === 1 ? "" : "s"}.` : ""}`.trim();
 
   const description = desc.length >= 40 ? desc : desc ? `${desc} — ${fallback}` : fallback;
 
@@ -427,10 +405,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
   const setNums = toSetNums(d);
   const sets = await fetchSetsBulkSSR(setNums);
 
-  const topThemes = topCounts(
-    sets.map((s) => String(s.theme ?? "").trim()).filter(isNonEmptyString),
-    4
-  );
+  const topThemes = topCounts(sets.map((s) => String(s.theme ?? "").trim()).filter(isNonEmptyString), 4);
 
   const topYears = topCounts(
     sets.map((s) => (typeof s.year === "number" ? s.year : null)).filter((y): y is number => typeof y === "number"),
@@ -486,234 +461,67 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </div>
       </div>
 
-      {/* Lists → Themes / Years */}
-      {topThemes.length > 0 || topYears.length > 0 ? (
-        <section className="mt-6 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <h2 className="m-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">Explore related pages</h2>
-
-          <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-zinc-500">Top themes in this list</div>
-              {topThemes.length === 0 ? (
-                <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">—</div>
-              ) : (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {topThemes.map(({ key, count }) => (
-                    <Link
-                      key={String(key)}
-                      href={`/themes/${themeToSlug(String(key))}`}
-                      className="inline-flex items-center gap-2 rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-                    >
-                      <span className="truncate">{String(key)}</span>
-                      <span className="text-xs text-zinc-500">{count}</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-zinc-500">Top years in this list</div>
-              {topYears.length === 0 ? (
-                <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">—</div>
-              ) : (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {topYears.map(({ key, count }) => (
-                    <Link
-                      key={String(key)}
-                      href={`/years/${key}`}
-                      className="inline-flex items-center gap-2 rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-                    >
-                      <span>{key}</span>
-                      <span className="text-xs text-zinc-500">{count}</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {/* Related lists by theme */}
-      {relatedByTheme.length > 0 ? (
-        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="m-0 text-lg font-semibold">Related lists</h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Similar lists (theme: <span className="font-semibold">{relatedTheme}</span>)
-              </p>
-            </div>
-            <Link href="/lists/public" className="text-sm font-semibold hover:underline">
-              Browse all →
-            </Link>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {relatedByTheme.slice(0, 9).map((l) => {
-              const id = String(l.id);
-              const owner = normalizeUsername(l.owner) || "unknown";
-              const c = Number(l.items_count ?? 0);
-
-              return (
-                <div
-                  key={id}
-                  className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/lists/${encodeURIComponent(id)}`}
-                        className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-                      >
-                        {l.title || `List #${id}`}
-                      </Link>
-
-                      <div className="mt-1 text-xs text-zinc-500">
-                        by{" "}
-                        <Link href={`/users/${encodeURIComponent(owner)}`} className="font-semibold hover:underline">
-                          {owner}
-                        </Link>
-                        <span className="mx-2">•</span>
-                        {Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0} set{c === 1 ? "" : "s"}
-                      </div>
-                    </div>
-
-                    <Link
-                      href={`/lists/${encodeURIComponent(id)}`}
-                      className="shrink-0 text-sm font-semibold text-zinc-700 hover:underline dark:text-zinc-200"
-                    >
-                      →
-                    </Link>
-                  </div>
-
-                  {l.description ? (
-                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      {/* More lists by owner */}
-      {moreByOwner.length > 0 && ownerName ? (
-        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="m-0 text-lg font-semibold">More lists by @{ownerName}</h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Other public lists from the same creator.</p>
-            </div>
-            <Link href="/lists/public" className="text-sm font-semibold hover:underline">
-              Browse all →
-            </Link>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {moreByOwner.slice(0, 6).map((l) => {
-              const id = String(l.id);
-              const owner = normalizeUsername(l.owner) || "unknown";
-              const c = Number(l.items_count ?? 0);
-
-              return (
-                <div
-                  key={id}
-                  className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/lists/${encodeURIComponent(id)}`}
-                        className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
-                      >
-                        {l.title || `List #${id}`}
-                      </Link>
-
-                      <div className="mt-1 text-xs text-zinc-500">
-                        by{" "}
-                        <Link href={`/users/${encodeURIComponent(owner)}`} className="font-semibold hover:underline">
-                          {owner}
-                        </Link>
-                        <span className="mx-2">•</span>
-                        {Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0} set{c === 1 ? "" : "s"}
-                      </div>
-                    </div>
-
-                    <Link
-                      href={`/lists/${encodeURIComponent(id)}`}
-                      className="shrink-0 text-sm font-semibold text-zinc-700 hover:underline dark:text-zinc-200"
-                    >
-                      →
-                    </Link>
-                  </div>
-
-                  {l.description ? (
-                    <p className="mt-3 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-500">View list →</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
       {/* Strong set links */}
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sets.map((s) => (
-            <div
-              key={s.set_num}
-              className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
-            >
-              <div className="flex gap-3">
-                <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
-                  {s.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.image_url}
-                      alt={s.name || s.set_num}
-                      className="h-full w-full object-contain p-2"
-                      loading="lazy"
-                    />
-                  ) : null}
-                </div>
+          {sets.map((s) => {
+            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
 
-                <div className="min-w-0">
-                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold hover:underline">
-                    {s.name || s.set_num}
-                  </Link>
-
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    <span className="font-semibold">{s.set_num}</span>
-
-                    {typeof s.year === "number" ? (
-                      <>
-                        <span className="mx-1">•</span>
-                        <Link href={`/years/${s.year}`} className="font-semibold hover:underline">
-                          {s.year}
-                        </Link>
-                      </>
+            return (
+              <div
+                key={s.set_num}
+                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              >
+                <div className="flex gap-3">
+                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
+                    {imgSrc ? (
+                      <div className="relative h-20 w-24">
+                        <Image
+                          src={imgSrc}
+                          alt={s.name || s.set_num}
+                          fill
+                          sizes="96px"
+                          className="object-contain p-2"
+                          loading="lazy"
+                        />
+                      </div>
                     ) : null}
                   </div>
 
-                  {s.theme ? (
+                  <div className="min-w-0">
+                    <Link
+                      href={`/sets/${encodeURIComponent(s.set_num)}`}
+                      className="block truncate text-sm font-semibold hover:underline"
+                    >
+                      {s.name || s.set_num}
+                    </Link>
+
                     <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                      Theme:{" "}
-                      <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
-                        {s.theme}
-                      </Link>
+                      <span className="font-semibold">{s.set_num}</span>
+
+                      {typeof s.year === "number" ? (
+                        <>
+                          <span className="mx-1">•</span>
+                          <Link href={`/years/${s.year}`} className="font-semibold hover:underline">
+                            {s.year}
+                          </Link>
+                        </>
+                      ) : null}
                     </div>
-                  ) : null}
+
+                    {s.theme ? (
+                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                        Theme:{" "}
+                        <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
+                          {s.theme}
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
