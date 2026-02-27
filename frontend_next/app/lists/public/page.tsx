@@ -7,11 +7,10 @@ import { FEATURED_LISTS } from "@/lib/featuredLists";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
-export const dynamic = "force-static";
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function siteBase() {
-  // MUST be an absolute origin for SSR fetch() during prerender
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
 
