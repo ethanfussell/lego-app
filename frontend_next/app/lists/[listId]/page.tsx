@@ -332,6 +332,10 @@ async function fetchRelatedListsByThemeSSR(opts: { theme: string; excludeId: num
 
 // ---- Metadata ----
 
+function defaultOgImagePath() {
+  return "/opengraph-image";
+}
+
 export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { listId } = await Promise.resolve(params);
   const normalized = normalizeListId(listId);
@@ -339,8 +343,11 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const safeId = normalized ?? "list";
   const canonicalPath = canonicalForList(safeId);
 
+  const ogImage = defaultOgImagePath(); // ✅ site-wide default OG
+  const ogImageMeta = [{ url: ogImage, width: 1200, height: 630, alt: SITE_NAME }];
+
   if (!normalized) {
-    const title = `List not found | ${SITE_NAME}`;
+    const title = `List not found`;
     const description = "This list does not exist.";
     return {
       title,
@@ -348,8 +355,8 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
       metadataBase: new URL(siteBase()),
       alternates: { canonical: canonicalPath },
       robots: { index: false, follow: false },
-      openGraph: { title, description, url: canonicalPath, type: "website" },
-      twitter: { card: "summary", title, description },
+      openGraph: { title, description, url: canonicalPath, type: "website", images: ogImageMeta },
+      twitter: { card: "summary_large_image", title, description, images: [ogImage] },
     };
   }
 
@@ -364,13 +371,14 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
       metadataBase: new URL(siteBase()),
       alternates: { canonical: canonicalPath },
       robots: { index: false, follow: false },
-      openGraph: { title, description, url: canonicalPath, type: "website" },
-      twitter: { card: "summary", title, description },
+      openGraph: { title, description, url: canonicalPath, type: "website", images: ogImageMeta },
+      twitter: { card: "summary_large_image", title, description, images: [ogImage] },
     };
   }
 
   const ownerName = normalizeUsername(d.owner_username || d.owner);
-  const count = typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
+  const count =
+    typeof d.items_count === "number" && Number.isFinite(d.items_count) ? Math.max(0, Math.floor(d.items_count)) : 0;
 
   const listTitle = (d.title && d.title.trim()) || `List #${d.id}`;
   const title = ownerName ? `${listTitle} by @${ownerName}` : `${listTitle}`;
@@ -387,8 +395,8 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical: canonicalPath },
-    openGraph: { title, description, url: canonicalPath, type: "website" },
-    twitter: { card: "summary", title, description },
+    openGraph: { title, description, url: canonicalPath, type: "website", images: ogImageMeta },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
   };
 }
 

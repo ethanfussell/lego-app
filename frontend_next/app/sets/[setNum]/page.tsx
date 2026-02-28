@@ -5,9 +5,10 @@ import { cache } from "react";
 
 import SetDetailClient from "./SetDetailClient";
 import { themeToSlug } from "@/lib/slug";
+import type { Offer as UiOffer } from "@/app/components/OffersSection";
 
 export const dynamic = "force-static";
-export const revalidate = 3600;
+export const revalidate = 0;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -22,7 +23,7 @@ type LegoSet = {
   rating_avg?: number | null;
   rating_count?: number | null;
   description?: string | null;
-  review_count?: number | null; // text reviews only (backend)
+  review_count?: number | null;
 };
 
 type ReviewLite = {
@@ -48,11 +49,6 @@ function apiBase(): string {
 function canonicalForSet(setNum: string): string {
   const decoded = String(setNum ?? "").trim();
   return `/sets/${encodeURIComponent(decoded)}`;
-}
-
-function ogImageForSet(setNum: string): string {
-  const decoded = String(setNum ?? "").trim();
-  return `/sets/${encodeURIComponent(decoded)}/opengraph-image`;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -140,6 +136,13 @@ function buildReviewJsonLd(reviews: ReviewLite[]): JsonLdObject[] {
     });
 }
 
+function isoDateNDaysFromNow(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  // YYYY-MM-DD
+  return d.toISOString().slice(0, 10);
+}
+
 function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): JsonLdObject {
   const avg = pickAvgRating(setDetail);
   const ratingCount = pickRatingCount(setDetail);
@@ -221,6 +224,55 @@ function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, ba
   };
 }
 
+/**
+ * Convert UiOffer[] into schema.org Offer[] objects that attach to Product.offers
+ */
+function buildOfferJsonLd(setDetail: LegoSet, offers: UiOffer[]): JsonLdObject[] {
+  const base = siteBase();
+  const productUrl = new URL(canonicalForSet(setDetail.set_num), base).toString();
+  const productId = `${productUrl}#product`;
+
+  return (Array.isArray(offers) ? offers : [])
+    .map((o) => {
+      const offerUrl = typeof o.url === "string" ? o.url.trim() : "";
+      if (!offerUrl) return null;
+
+      const seller = typeof o.store === "string" && o.store.trim() ? o.store.trim() : undefined;
+
+      const currency = typeof o.currency === "string" && o.currency.trim() ? o.currency.trim() : "USD";
+
+      const price =
+        typeof o.price === "number" && Number.isFinite(o.price) ? Number(o.price.toFixed(2)) : null;
+
+      const availability =
+        o.in_stock === true
+          ? "https://schema.org/InStock"
+          : o.in_stock === false
+            ? "https://schema.org/OutOfStock"
+            : undefined;
+
+            const out: JsonLdObject = {
+              "@type": "Offer",
+              url: offerUrl,
+            
+              priceValidUntil: isoDateNDaysFromNow(7),
+            
+              priceCurrency: currency,
+              ...(price != null ? { price } : {}),
+            
+              ...(availability ? { availability } : {}),
+            
+              itemCondition: "https://schema.org/NewCondition",
+            
+              ...(seller ? { seller: { "@type": "Organization", name: seller } } : {}),
+              itemOffered: { "@id": productId },
+            };
+
+      return out;
+    })
+    .filter(Boolean) as JsonLdObject[];
+}
+
 // ---- Data fetchers (ISR) ----
 
 const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
@@ -239,6 +291,48 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
 
   const data: unknown = await res.json().catch(() => null);
   return isLegoSet(data) ? data : null;
+});
+
+function isUiOffer(x: unknown): x is UiOffer {
+  if (!isRecord(x)) return false;
+  if (typeof x.url !== "string" || !x.url.trim()) return false;
+  return true;
+}
+
+const fetchOffers = cache(async (setNum: string): Promise<UiOffer[]> => {
+  const s = String(setNum ?? "").trim();
+  if (!s) return [];
+
+  const url = `${apiBase()}/sets/${encodeURIComponent(s)}/offers`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 },
+  });
+
+  if (!res.ok) return [];
+
+  const data: unknown = await res.json().catch(() => null);
+  const arr = Array.isArray(data) ? data : [];
+
+  return arr
+    .filter(isRecord)
+    .map((o) => {
+      const url = typeof o.url === "string" ? o.url.trim() : "";
+      if (!url) return null;
+
+      const store = typeof o.store === "string" && o.store.trim() ? o.store.trim() : undefined;
+      const currency = typeof o.currency === "string" && o.currency.trim() ? o.currency.trim() : undefined;
+      const price = typeof o.price === "number" && Number.isFinite(o.price) ? o.price : undefined;
+
+      const in_stock =
+        typeof o.in_stock === "boolean" ? o.in_stock : o.in_stock == null ? null : Boolean(o.in_stock);
+
+      const offer: UiOffer = { url, store, currency, price, in_stock };
+      return offer;
+    })
+    .filter((x): x is UiOffer => x !== null)
+    .filter(isUiOffer);
 });
 
 // Keep reviews disabled for now (still returns stable cached value)
@@ -263,8 +357,7 @@ export async function generateMetadata({
   const canonicalPath = canonicalForSet(decoded);
   const title = `LEGO ${decoded} — ${name}`;
 
-  // ✅ Always use the per-set OG endpoint (it can still render the set image inside)
-  const ogImagePath = ogImageForSet(decoded);
+  const ogImagePath = "./opengraph-image";
 
   return {
     title,
@@ -311,16 +404,25 @@ export default async function Page({
 
   const topTextReviews = await fetchTopTextReviews(decoded, 10);
 
+  // ✅ SSR offers (also used for Product JSON-LD offers)
+  const initialOffers = await fetchOffers(decoded);
+
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbItems, siteBase());
   const productLd = buildProductJsonLd(data, topTextReviews);
   const pageLd = buildWebPageJsonLd(data);
+
+  // ✅ Attach offers onto the Product JSON-LD
+  const offerLd = buildOfferJsonLd(data, initialOffers);
+  if (offerLd.length > 0) {
+    (productLd as Record<string, unknown>).offers = offerLd;
+  }
 
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productLd) }} />
-      <SetDetailClient setNum={decoded} initialData={data} />
+      <SetDetailClient setNum={decoded} initialData={data} initialOffers={initialOffers} />
     </>
   );
 }

@@ -9,7 +9,7 @@ from urllib.parse import quote
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 
 from app.core import auth as auth_router
@@ -25,6 +25,7 @@ from app.routers import sets as sets_router
 from app.routers import themes as themes_router
 from app.routers import users as users_router
 from app.routers.offers import router as offers_router
+from app.routers import email_signups as email_signups_router
 
 app = FastAPI(title="LEGO API")
 
@@ -177,6 +178,8 @@ app.include_router(review_stats_router.router, prefix="/sets/reviews", tags=["re
 
 app.include_router(ratings.router)
 app.include_router(offers_router)
+
+app.include_router(email_signups_router.router)
 
 
 # ---------------------------

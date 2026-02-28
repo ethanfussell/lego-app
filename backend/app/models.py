@@ -139,3 +139,11 @@ class ListItem(Base):
         Index("idx_list_items_list_id", "list_id"),
         Index("idx_list_items_set_num", "set_num"),
     )
+
+class EmailSignup(Base):
+    __tablename__ = "email_signups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    source = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

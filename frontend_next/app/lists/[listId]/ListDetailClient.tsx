@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
@@ -262,7 +261,6 @@ export default function ListDetailClient(props: {
     }
   }
 
-  const title = detail?.title?.trim() || `List #${id}`;
   const description = detail?.description?.trim() || "";
 
   const headerSubtitle = useMemo(() => {

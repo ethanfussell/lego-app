@@ -10,7 +10,7 @@ import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
-import OffersSection from "@/app/components/OffersSection";
+import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
 import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
@@ -55,17 +55,37 @@ type SetDetail = {
   retired?: boolean;
 };
 
-type Offer = {
-  url: string;
+// Backend offer shape (flexible)
+type ApiOffer = {
+  id?: string;
+  retailer?: string;
   store?: string;
-  price?: number;
+  url: string;
+  price_cents?: number;
+  price?: number; // legacy (dollars)
   currency?: string;
-  in_stock?: boolean;
+  currency_code?: string;
+  in_stock?: boolean | null;
+  shipping?: string | null;
+  updated_at?: string | null;
 } & Record<string, unknown>;
+
+type AvailabilitySummary = {
+  status: "available" | "retiring_soon" | "retired" | "unknown";
+  best_offer_id?: string | null;
+  updated_at?: string | null;
+};
+
+type SetOffers = {
+  set_num: string;
+  summary: AvailabilitySummary;
+  offers: ApiOffer[];
+};
 
 type Props = {
   setNum?: string;
   initialData?: SetDetail | null;
+  initialOffers?: UiOffer[];
 };
 
 function errorMessage(e: unknown): string {
@@ -111,11 +131,68 @@ function normalizeSetLiteArray(data: unknown): SetLite[] {
   return [];
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function pickBestOfferId(offers: ApiOffer[]): string | null {
+  const priced = offers
+    .map((o) => ({
+      id: typeof o.id === "string" ? o.id : null,
+      price_cents: typeof o.price_cents === "number" && Number.isFinite(o.price_cents) ? o.price_cents : null,
+    }))
+    .filter((x) => x.id);
+
+  const withPrice = priced.filter((x) => typeof x.price_cents === "number") as Array<{ id: string; price_cents: number }>;
+  if (withPrice.length) {
+    withPrice.sort((a, b) => a.price_cents - b.price_cents);
+    return withPrice[0]?.id ?? null;
+  }
+
+  return priced[0]?.id ?? null;
+}
+
+function isUiOffer(x: UiOffer | null): x is UiOffer {
+  return x !== null;
+}
+
+function toUiOffers(apiOffers: ApiOffer[]): UiOffer[] {
+  const arr = Array.isArray(apiOffers) ? apiOffers : [];
+
+  return arr
+    .map((o): UiOffer | null => {
+      const url = typeof o.url === "string" ? o.url.trim() : "";
+      if (!url) return null;
+
+      const store =
+        (typeof o.retailer === "string" && o.retailer.trim()) ||
+        (typeof o.store === "string" && o.store.trim()) ||
+        undefined;
+
+      const currency =
+        (typeof o.currency === "string" && o.currency.trim()) ||
+        (typeof o.currency_code === "string" && o.currency_code.trim()) ||
+        undefined;
+
+      const price =
+        typeof o.price_cents === "number" && Number.isFinite(o.price_cents)
+          ? o.price_cents / 100
+          : typeof o.price === "number" && Number.isFinite(o.price)
+            ? o.price
+            : undefined;
+
+      // UiOffer allows boolean | null, keep null for unknown
+      const in_stock = typeof o.in_stock === "boolean" ? o.in_stock : o.in_stock == null ? null : Boolean(o.in_stock);
+
+      return { url, store, currency, price, in_stock };
+    })
+    .filter(isUiOffer);
+}
+
 export default function SetDetailClient(props: Props) {
   const router = useRouter();
   const sp = useSearchParams();
 
-  // Prefer prop setNum (server-provided). Otherwise use route param.
   const params = useParams();
   const routeSetNumRaw = (params as Record<string, string | string[] | undefined>)?.setNum;
   const routeSetNum = Array.isArray(routeSetNumRaw)
@@ -134,8 +211,28 @@ export default function SetDetailClient(props: Props) {
   const [loading, setLoading] = useState<boolean>(!props.initialData);
   const [error, setError] = useState<string | null>(null);
 
-  // Offers (SHOP)
-  const [offers, setOffers] = useState<Offer[]>([]);
+  // Offers
+  const [offersData, setOffersData] = useState<SetOffers | null>(() => {
+    const initial = Array.isArray(props.initialOffers) ? props.initialOffers : [];
+    if (initial.length === 0) return null;
+  
+    // Convert UiOffer[] -> ApiOffer[] (enough fields for your existing toUiOffers())
+    const offers: ApiOffer[] = initial.map((o) => ({
+      url: o.url,
+      store: o.store,
+      retailer: o.store,
+      price: o.price,
+      currency: o.currency,
+      in_stock: o.in_stock ?? null,
+    }));
+  
+    // Keep summary minimal; your later fetchOffers() will replace with real summary anyway.
+    return {
+      set_num: (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim(),
+      summary: { status: "available", best_offer_id: null, updated_at: null },
+      offers,
+    };
+  });
   const [offersLoading, setOffersLoading] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
 
@@ -165,7 +262,7 @@ export default function SetDetailClient(props: Props) {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState<string | null>(null);
 
-  // Similar sets (same theme)
+  // Similar sets
   const [similarSets, setSimilarSets] = useState<SetLite[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState<string | null>(null);
@@ -176,9 +273,19 @@ export default function SetDetailClient(props: Props) {
     return reviews.find((r) => r.user === meUsername) || null;
   }, [reviews, isLoggedIn, meUsername]);
 
-  const visibleReviews = useMemo(() => {
-    return reviews.filter((r) => asTrimmedString(r.text));
-  }, [reviews]);
+  const visibleReviews = useMemo(() => reviews.filter((r) => asTrimmedString(r.text)), [reviews]);
+
+  const offersStatus: AvailabilitySummary["status"] = useMemo(() => {
+    const s = offersData?.summary?.status;
+    if (s) return s;
+
+    const retired =
+      setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
+
+    return retired ? "retired" : "available";
+  }, [offersData?.summary?.status, setDetail?.status, setDetail?.is_retired, setDetail?.retired]);
+
+  const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
 
   // Load /users/me (only when logged in)
   useEffect(() => {
@@ -230,10 +337,10 @@ export default function SetDetailClient(props: Props) {
     setReviewsError(null);
 
     try {
-      const data = await apiFetch<ReviewItem[]>(
-        `/sets/${encodeURIComponent(currentSetNum)}/reviews?limit=50`,
-        { token: token || undefined, cache: "no-store" }
-      );
+      const data = await apiFetch<ReviewItem[]>(`/sets/${encodeURIComponent(currentSetNum)}/reviews?limit=50`, {
+        token: token || undefined,
+        cache: "no-store",
+      });
       const arr = Array.isArray(data) ? data : [];
       setReviews(arr);
       return arr;
@@ -264,31 +371,79 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
-  async function fetchOffers(currentSetNum: string) {
+  async function fetchOffers(currentSetNum: string, status: AvailabilitySummary["status"]) {
     setOffersLoading(true);
     setOffersError(null);
 
     try {
-      const data = await apiFetch<unknown>(`/sets/${encodeURIComponent(currentSetNum)}/offers`, {
-        cache: "no-store",
+      const data = await apiFetch<unknown>(`/sets/${encodeURIComponent(currentSetNum)}/offers`, { cache: "no-store" });
+
+      // New shape: { set_num, summary, offers }
+      if (isRecord(data) && Array.isArray((data as { offers?: unknown }).offers)) {
+        const d = data as Record<string, unknown>;
+        const offers = (d.offers as unknown[]).filter(isRecord) as ApiOffer[];
+
+        const summaryRaw = isRecord(d.summary) ? (d.summary as Record<string, unknown>) : {};
+        const best_offer_id =
+          typeof summaryRaw.best_offer_id === "string" ? summaryRaw.best_offer_id : pickBestOfferId(offers);
+
+        setOffersData({
+          set_num: currentSetNum,
+          summary: {
+            status,
+            best_offer_id,
+            updated_at: typeof summaryRaw.updated_at === "string" ? summaryRaw.updated_at : null,
+          },
+          offers,
+        });
+        return;
+      }
+
+      // Legacy: Offer[]
+      const arr = Array.isArray(data) ? data : [];
+      const offers = arr.filter(isRecord) as ApiOffer[];
+
+      setOffersData({
+        set_num: currentSetNum,
+        summary: { status, best_offer_id: pickBestOfferId(offers), updated_at: null },
+        offers,
       });
-
-      const arr = Array.isArray(data) ? (data as unknown[]) : [];
-      const cleaned: Offer[] = arr
-        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
-        .filter((x) => typeof x.url === "string" && x.url.trim() !== "")
-        .map((x) => x as Offer);
-
-      setOffers(cleaned);
     } catch (e: unknown) {
-      setOffers([]);
+      setOffersData({
+        set_num: currentSetNum,
+        summary: { status, best_offer_id: null, updated_at: null },
+        offers: [],
+      });
       setOffersError(errorMessage(e));
     } finally {
       setOffersLoading(false);
     }
   }
 
-  // Load set detail + reviews + summary + offers
+  useEffect(() => {
+    const initial = Array.isArray(props.initialOffers) ? props.initialOffers : [];
+    if (initial.length === 0) return;
+  
+    if (offersData?.set_num === setNum && (offersData.offers?.length ?? 0) > 0) return;
+  
+    const offers: ApiOffer[] = initial.map((o) => ({
+      url: o.url,
+      store: o.store,
+      retailer: o.store,
+      price: o.price,
+      currency: o.currency,
+      in_stock: o.in_stock ?? null,
+    }));
+  
+    setOffersData({
+      set_num: setNum || "",
+      summary: { status: "available", best_offer_id: null, updated_at: null },
+      offers,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setNum]);
+
+  // Load set detail + reviews + rating + offers
   useEffect(() => {
     if (!setNum) return;
 
@@ -303,11 +458,16 @@ export default function SetDetailClient(props: Props) {
         if (cancelled) return;
         setSetDetail(detail || null);
 
+        const retired =
+          detail?.status === "retired" || detail?.is_retired === true || detail?.retired === true;
+        const status: AvailabilitySummary["status"] = retired ? "retired" : "available";
+
         const [reviewsArr] = await Promise.all([
           fetchReviewsForSet(setNum),
           fetchRatingSummary(setNum),
-          fetchOffers(setNum),
+          fetchOffers(setNum, status),
         ]);
+
         if (cancelled) return;
 
         if (meUsername) {
@@ -330,7 +490,7 @@ export default function SetDetailClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setNum, meUsername]);
 
-  // Similar sets (by theme) — uses /api/themes/{theme}/sets
+  // Similar sets (by theme)
   useEffect(() => {
     const themeName = typeof setDetail?.theme === "string" ? setDetail.theme.trim() : "";
 
@@ -528,6 +688,8 @@ export default function SetDetailClient(props: Props) {
     node.scrollBy({ left: direction * 240, behavior: "smooth" });
   }
 
+  // ---- Render guards ----
+
   if (!setNum) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
@@ -592,7 +754,6 @@ export default function SetDetailClient(props: Props) {
   const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
   const isRetired = setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
-
   const heroImgSrc = asTrimmedString(image_url);
 
   return (
@@ -665,9 +826,7 @@ export default function SetDetailClient(props: Props) {
 
           {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? (
-            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
-          ) : null}
+          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
@@ -719,9 +878,7 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
-              ) : null}
+              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -787,9 +944,38 @@ export default function SetDetailClient(props: Props) {
       </section>
 
       {/* SHOP */}
-      {offersLoading ? <p className="mt-10 text-sm">Loading offers…</p> : null}
-      {offersError ? <p className="mt-10 text-sm text-red-600">Error loading offers: {offersError}</p> : null}
-      <OffersSection setNum={setNum} offers={offers} placement="set_detail_shop" />
+      <section id="shop" className="mt-12 scroll-mt-24">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Offers &amp; availability</h2>
+            <p className="mt-1 text-sm text-zinc-500">Compare retailers and find the best price.</p>
+          </div>
+
+          <span className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.16] dark:bg-zinc-950 dark:text-zinc-200">
+            {offersStatus === "retired"
+              ? "Retired"
+              : offersStatus === "retiring_soon"
+                ? "Retiring soon"
+                : offersStatus === "available"
+                  ? "Available"
+                  : "Unknown"}
+          </span>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Affiliate links may be used.</span>
+            {offersLoading ? <span className="text-xs text-zinc-500">Loading…</span> : null}
+            {!offersLoading && offersError ? <span className="text-xs text-red-600">Error loading offers</span> : null}
+          </div>
+
+          <div className="mt-3">
+            <OffersSection setNum={setNum} offers={uiOffers} placement="set_detail_shop" />
+          </div>
+
+          <p className="mt-4 text-xs text-zinc-500">Links may be affiliate links. We may earn a commission.</p>
+        </div>
+      </section>
 
       {/* REVIEWS */}
       <section className="mt-12">
@@ -870,9 +1056,7 @@ export default function SetDetailClient(props: Props) {
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
-                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-                          {r.rating.toFixed(1)} ★
-                        </div>
+                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">{r.rating.toFixed(1)} ★</div>
                       ) : null}
 
                       {isMine ? (

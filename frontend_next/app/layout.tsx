@@ -9,7 +9,7 @@ import AnalyticsClient from "@/app/components/AnalyticsClient";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
-function siteBase() {
+function siteBase(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
@@ -20,6 +20,17 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_NAME}`,
   },
   description: "Track LEGO sets, collections, lists, ratings, and reviews.",
+
+  openGraph: {
+    siteName: SITE_NAME,
+    type: "website",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: SITE_NAME }],
+  },
+
+  twitter: {
+    card: "summary_large_image",
+    images: ["/opengraph-image"],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

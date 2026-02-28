@@ -1,5 +1,6 @@
 // frontend_next/app/components/Footer.tsx
 import Link from "next/link";
+import EmailCapture from "@/app/components/EmailCapture";
 
 const SITE_NAME = "BrickTrack";
 
@@ -7,8 +8,15 @@ export default function Footer() {
   return (
     <footer className="mt-16 border-t border-black/[.08] py-10 dark:border-white/[.12]">
       <div className="mx-auto w-full max-w-6xl px-6">
+        {/* Email signup */}
+        <div className="mb-8">
+          <EmailCapture />
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-600 dark:text-zinc-400">
-          <div>© {new Date().getFullYear()} {SITE_NAME}</div>
+          <div>
+            © {new Date().getFullYear()} {SITE_NAME}
+          </div>
 
           <div className="flex flex-wrap items-center gap-4">
             <Link href="/privacy" className="hover:underline">
