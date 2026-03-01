@@ -103,6 +103,15 @@ function errorDetailFromBody(body: unknown): string {
   }
 }
 
+function previewBody(body: unknown): string {
+  if (typeof body === "string") return body.slice(0, 180);
+  try {
+    return JSON.stringify(body).slice(0, 180);
+  } catch {
+    return "";
+  }
+}
+
 function logIfHtmlOrError(resp: Response, body: unknown) {
   const ct = resp.headers.get("content-type") || "";
   const isHtml =
@@ -111,23 +120,12 @@ function logIfHtmlOrError(resp: Response, body: unknown) {
 
   if (resp.ok && !isHtml) return;
 
-  const preview =
-    typeof body === "string"
-      ? body.slice(0, 180)
-      : (() => {
-          try {
-            return JSON.stringify(body).slice(0, 180);
-          } catch {
-            return "";
-          }
-        })();
-
   // eslint-disable-next-line no-console
   console.error("[apiFetch] bad response", {
     url: resp.url,
     status: resp.status,
     contentType: ct,
-    preview,
+    preview: previewBody(body),
   });
 }
 
@@ -157,12 +155,32 @@ function buildInit(opts: ApiFetchOptions): RequestInit {
   };
 }
 
+function messageFromUnknown(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function networkHint(url: string): string {
+  // Helpful hint for local dev; harmless elsewhere.
+  if (url.includes("127.0.0.1:8000") || url.includes("localhost:8000")) {
+    return " (is the FastAPI server running on :8000?)";
+  }
+  return "";
+}
+
 /**
  * Standard JSON fetch. Existing callers keep working.
  */
 export async function apiFetch<T = unknown>(path: string, opts: ApiFetchOptions = {}): Promise<T> {
   const url = buildUrl(path);
-  const resp = await fetch(url, buildInit(opts));
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, buildInit(opts));
+  } catch (e: unknown) {
+    // No Response exists on network errors (connection refused, DNS, etc)
+    throw new Error(`[apiFetch] network error for ${url}${networkHint(url)}: ${messageFromUnknown(e)}`);
+  }
+
   const data = await readBody(resp);
 
   logIfHtmlOrError(resp, data);
@@ -179,7 +197,14 @@ export async function apiFetchWithHeaders<T = unknown>(
   opts: ApiFetchOptions = {}
 ): Promise<{ data: T; headers: Headers }> {
   const url = buildUrl(path);
-  const resp = await fetch(url, buildInit(opts));
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, buildInit(opts));
+  } catch (e: unknown) {
+    throw new Error(`[apiFetch] network error for ${url}${networkHint(url)}: ${messageFromUnknown(e)}`);
+  }
+
   const data = await readBody(resp);
 
   logIfHtmlOrError(resp, data);

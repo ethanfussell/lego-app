@@ -189,6 +189,51 @@ function toUiOffers(apiOffers: ApiOffer[]): UiOffer[] {
     .filter(isUiOffer);
 }
 
+function HeroImage({
+  src,
+  alt,
+  sizes,
+  quality,
+  priority = false,
+}: {
+  src: string;
+  alt: string;
+  sizes: string;
+  quality: number;
+  priority?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className="h-auto w-full object-contain"
+        style={{ width: "100%", height: "auto" }}
+        loading="eager"
+        decoding="async"
+      />
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={720}
+      height={540}
+      sizes={sizes}
+      quality={quality}
+      priority={priority}
+      placeholder="empty"
+      className="h-auto w-full object-contain"
+      style={{ width: "100%", height: "auto" }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function SetDetailClient(props: Props) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -215,7 +260,7 @@ export default function SetDetailClient(props: Props) {
   const [offersData, setOffersData] = useState<SetOffers | null>(() => {
     const initial = Array.isArray(props.initialOffers) ? props.initialOffers : [];
     if (initial.length === 0) return null;
-  
+
     // Convert UiOffer[] -> ApiOffer[] (enough fields for your existing toUiOffers())
     const offers: ApiOffer[] = initial.map((o) => ({
       url: o.url,
@@ -225,7 +270,7 @@ export default function SetDetailClient(props: Props) {
       currency: o.currency,
       in_stock: o.in_stock ?? null,
     }));
-  
+
     // Keep summary minimal; your later fetchOffers() will replace with real summary anyway.
     return {
       set_num: (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim(),
@@ -279,8 +324,7 @@ export default function SetDetailClient(props: Props) {
     const s = offersData?.summary?.status;
     if (s) return s;
 
-    const retired =
-      setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
+    const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
 
     return retired ? "retired" : "available";
   }, [offersData?.summary?.status, setDetail?.status, setDetail?.is_retired, setDetail?.retired]);
@@ -423,9 +467,9 @@ export default function SetDetailClient(props: Props) {
   useEffect(() => {
     const initial = Array.isArray(props.initialOffers) ? props.initialOffers : [];
     if (initial.length === 0) return;
-  
+
     if (offersData?.set_num === setNum && (offersData.offers?.length ?? 0) > 0) return;
-  
+
     const offers: ApiOffer[] = initial.map((o) => ({
       url: o.url,
       store: o.store,
@@ -434,7 +478,7 @@ export default function SetDetailClient(props: Props) {
       currency: o.currency,
       in_stock: o.in_stock ?? null,
     }));
-  
+
     setOffersData({
       set_num: setNum || "",
       summary: { status: "available", best_offer_id: null, updated_at: null },
@@ -458,8 +502,7 @@ export default function SetDetailClient(props: Props) {
         if (cancelled) return;
         setSetDetail(detail || null);
 
-        const retired =
-          detail?.status === "retired" || detail?.is_retired === true || detail?.retired === true;
+        const retired = detail?.status === "retired" || detail?.is_retired === true || detail?.retired === true;
         const status: AvailabilitySummary["status"] = retired ? "retired" : "available";
 
         const [reviewsArr] = await Promise.all([
@@ -507,30 +550,20 @@ export default function SetDetailClient(props: Props) {
       try {
         setSimilarLoading(true);
         setSimilarError(null);
-
+    
         const p = new URLSearchParams();
         p.set("page", "1");
         p.set("limit", "24");
         p.set("sort", "relevance");
         p.set("order", "desc");
-
-        const url = `/api/themes/${encodeURIComponent(themeName)}/sets?${p.toString()}`;
-        const res = await fetch(url, { cache: "no-store" });
-
-        if (res.status === 404) {
-          if (!cancelled) {
-            setSimilarSets([]);
-            setSimilarError(null);
-          }
-          return;
-        }
-
-        if (!res.ok) throw new Error(`Failed to load similar sets (${res.status})`);
-
-        const data: unknown = await res.json();
+    
+        // Backend endpoint (FastAPI)
+        const path = `/themes/${encodeURIComponent(themeName)}/sets?${p.toString()}`;
+    
+        const data = await apiFetch<unknown>(path, { cache: "no-store" });
         const items = normalizeSetLiteArray(data);
         const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
-
+    
         if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
       } catch (e: unknown) {
         if (e instanceof APIError && e.status === 404) {
@@ -780,18 +813,14 @@ export default function SetDetailClient(props: Props) {
       <section className="mt-6 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
-            {heroImgSrc ? (
-              <Image
-                src={heroImgSrc}
-                alt={name || setNum}
-                width={720}
-                height={540}
-                sizes={heroImageSizes()}
-                className="h-auto w-full object-contain"
-                priority
-                quality={IMAGE_QUALITY}
-              />
-            ) : (
+          {heroImgSrc ? (
+            <HeroImage
+              src={heroImgSrc}
+              alt={name || setNum}
+              sizes={heroImageSizes()}
+              quality={IMAGE_QUALITY}
+            />
+          ) : (
               <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
                 No image available
               </div>
@@ -826,19 +855,27 @@ export default function SetDetailClient(props: Props) {
 
           {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
+          {isRetired ? (
+            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
+          ) : null}
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
-            <span className="font-semibold">
-              {ratingSummaryLoading ? "Loading…" : avgRating !== null ? avgRating.toFixed(1) : "No rating"}
-            </span>{" "}
-            {ratingSummaryError ? (
-              <span className="text-red-600">(error loading ratings)</span>
+            {ratingSummaryLoading ? (
+              <span className="font-semibold">Loading…</span>
+            ) : ratingSummaryError ? (
+              <>
+                <span className="font-semibold">—</span> <span className="text-red-600">(error loading ratings)</span>
+              </>
+            ) : ratingCount === 0 ? (
+              <span className="text-zinc-500">No ratings yet</span>
             ) : (
-              <span className="text-zinc-500">
-                ({ratingCount === 0 ? "no ratings yet" : `${ratingCount} rating${ratingCount === 1 ? "" : "s"}`})
-              </span>
+              <>
+                <span className="font-semibold">{avgRating != null ? avgRating.toFixed(1) : "—"}</span>{" "}
+                <span className="text-zinc-500">
+                  ({ratingCount} rating{ratingCount === 1 ? "" : "s"})
+                </span>
+              </>
             )}
           </p>
 
@@ -878,7 +915,9 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
+              {userRating != null ? (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
+              ) : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -919,7 +958,11 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${themeToSlug(String(theme))}`} prefetch={false} className="font-semibold hover:underline">
+              <Link
+                href={`/themes/${themeToSlug(String(theme))}`}
+                prefetch={false}
+                className="font-semibold hover:underline"
+              >
                 {theme}
               </Link>
             </li>
@@ -1056,7 +1099,9 @@ export default function SetDetailClient(props: Props) {
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
-                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">{r.rating.toFixed(1)} ★</div>
+                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                          {r.rating.toFixed(1)} ★
+                        </div>
                       ) : null}
 
                       {isMine ? (

@@ -357,7 +357,7 @@ export async function generateMetadata({
   const canonicalPath = canonicalForSet(decoded);
   const title = `LEGO ${decoded} — ${name}`;
 
-  const ogImagePath = "./opengraph-image";
+  const ogImagePath = `/sets/${encodeURIComponent(decoded)}/opengraph-image`;
 
   return {
     title,

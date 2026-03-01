@@ -6,6 +6,47 @@ import Link from "next/link";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
 
+function CardImage({
+  src,
+  alt,
+  sizes,
+  quality = 70,
+}: {
+  src: string;
+  alt: string;
+  sizes: string;
+  quality?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  // If Next/Image fails (remotePatterns, 403, etc), fall back to a normal <img>
+  if (failed) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className="h-full w-full object-contain p-4"
+        loading="lazy"
+        decoding="async"
+      />
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      sizes={sizes}
+      className="object-contain p-4"
+      quality={quality}
+      loading="lazy"
+      placeholder="empty"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export type SetLite = {
   set_num: string;
   name?: string;
@@ -237,17 +278,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
         <div className="aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
           {imgSrc ? (
             <div className="relative h-full w-full">
-              <Image
-                src={imgSrc}
-                alt={title}
-                fill
-                sizes={imageSizesForVariant(variant)}
-                className="object-contain p-4"
-                quality={70}
-                // Cards should not be priority; let the page decide its LCP/hero.
-                priority={false}
-                placeholder="empty"
-              />
+              <CardImage src={imgSrc} alt={title} sizes={imageSizesForVariant(variant)} quality={70} />
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>

@@ -191,54 +191,11 @@ export default function HomeClient() {
   const [loadingLists, setLoadingLists] = useState(false);
   const [listsErr, setListsErr] = useState<string>("");
 
-  const [featured, setFeatured] = useState<PublicList[]>([]);
-  const [loadingFeatured, setLoadingFeatured] = useState(false);
-
   function scrollRow(ref: React.RefObject<HTMLDivElement | null>, direction = 1) {
     if (!ref.current) return;
     const scrollAmount = CARD_MIN_WIDTH * 2.2 * direction;
     ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
   }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadFeatured() {
-      if (!Array.isArray(FEATURED_LISTS) || FEATURED_LISTS.length === 0) return;
-
-      try {
-        setLoadingFeatured(true);
-
-        const results = await Promise.all(
-          FEATURED_LISTS.slice(0, 12).map(async (f) => {
-            const id = String(f.id);
-            const res = await fetch(`/api/lists/${encodeURIComponent(id)}`, { cache: "no-store" });
-            if (!res.ok) return null;
-
-            const data: unknown = await res.json().catch(() => null);
-            const detail = coercePublicList(data);
-            if (!detail) return null;
-
-            // ensure ID matches featured
-            const fixed: PublicList = { ...detail, id: detail.id ?? f.id };
-            return mergeFeaturedOverrides(fixed, f);
-          })
-        );
-
-        if (cancelled) return;
-        setFeatured(results.filter((x): x is PublicList => Boolean(x)));
-      } catch {
-        if (!cancelled) setFeatured([]);
-      } finally {
-        if (!cancelled) setLoadingFeatured(false);
-      }
-    }
-
-    void loadFeatured();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,7 +210,7 @@ export default function HomeClient() {
 
         const parsed = rows.map(coercePublicList).filter((x): x is PublicList => Boolean(x));
 
-        if (!cancelled) setLists(parsed.slice(0, 6));
+        if (!cancelled) setLists(parsed);
       } catch (e: unknown) {
         if (!cancelled) setListsErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -267,7 +224,45 @@ export default function HomeClient() {
     };
   }, []);
 
-  const featuredById = useMemo(() => new Set(featured.map((x) => String(x.id))), [featured]);
+  // Build Featured list cards WITHOUT fetching /api/lists/:id (avoids 404 console noise in Lighthouse)
+  const featuredResolved: PublicList[] = useMemo(() => {
+    if (!Array.isArray(FEATURED_LISTS) || FEATURED_LISTS.length === 0) return [];
+
+    const byId = new Map<string, PublicList>();
+    for (const l of lists) byId.set(String(l.id), l);
+
+    return FEATURED_LISTS.slice(0, 12)
+      .map((f) => {
+        const id = String(f.id);
+        const found = byId.get(id);
+
+        // If we have the real list details from /lists/public, use them + apply override title.
+        if (found) {
+          const fixed: PublicList = { ...found, id: found.id ?? f.id };
+          return mergeFeaturedOverrides(fixed, f);
+        }
+
+        // Otherwise: render a lightweight placeholder card (still clickable) without any network request.
+        return {
+          id: f.id,
+          title: typeof f.title === "string" ? f.title : null,
+          name: null,
+          description: null,
+          items_count: null,
+          owner: null,
+          owner_username: null,
+          username: null,
+          updated_at: null,
+          created_at: null,
+        } as PublicList;
+      })
+      .filter(Boolean);
+  }, [lists]);
+
+  const featuredById = useMemo(() => new Set(featuredResolved.map((x) => String(x.id))), [featuredResolved]);
+
+  // Show popular lists as a small subset of the fetched public lists
+  const popularLists = useMemo(() => lists.slice(0, 6), [lists]);
 
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16">
@@ -313,13 +308,11 @@ export default function HomeClient() {
             </Link>
           </div>
 
-          {loadingFeatured ? <p className="mt-4 text-sm text-zinc-500">Loading featured…</p> : null}
+          {/* We don’t “load featured” separately anymore; they resolve as soon as public lists load */}
+          {loadingLists ? <p className="mt-4 text-sm text-zinc-500">Loading featured…</p> : null}
 
           <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
-            {(featured.length
-              ? featured
-              : FEATURED_LISTS.slice(0, 10).map((f) => ({ id: f.id, title: f.title } as PublicList))
-            ).map((l) => {
+            {featuredResolved.slice(0, 10).map((l) => {
               const id = String(l.id);
               const title = pickTitle(l);
               const owner = pickOwner(l);
@@ -457,15 +450,15 @@ export default function HomeClient() {
           {loadingLists ? <p className="mt-4 text-sm">Loading public lists…</p> : null}
           {listsErr ? <p className="mt-4 text-sm text-red-600">Error: {listsErr}</p> : null}
 
-          {!loadingLists && !listsErr && lists.length === 0 ? (
+          {!loadingLists && !listsErr && popularLists.length === 0 ? (
             <p className="mt-4 text-sm text-zinc-500">
               No public lists yet. Once you create some and mark them public, they’ll show up here.
             </p>
           ) : null}
 
-          {!loadingLists && !listsErr && lists.length > 0 ? (
+          {!loadingLists && !listsErr && popularLists.length > 0 ? (
             <div className="mt-4 grid gap-3">
-              {lists.map((list) => {
+              {popularLists.map((list) => {
                 const id = String(list.id);
                 const title = pickTitle(list);
                 const owner = pickOwner(list) || "unknown";
