@@ -13,14 +13,12 @@ from sqlalchemy.orm.properties import RelationshipProperty
 from app.schemas.set import SetBulkOut
 
 from ..core.auth import get_current_user, get_current_user_optional
-from ..data.offers import get_offers_for_set
 from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
 from ..db import get_db
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
-from ..schemas.pricing import StoreOffer
 
 router = APIRouter()
 
@@ -125,10 +123,11 @@ def _rating_stats_for_set(db: Session, set_num: str) -> Tuple[Optional[float], i
         return (None, 0)
     return (round(float(avg), 2), cnt_i)
 
+
 def _review_count_for_set(db: Session, set_num: str) -> int:
     """
     Count written reviews (non-empty text) for a set.
-    This is intentionally separate from rating_count (which counts ratings).
+    Separate from rating_count (which counts ratings).
     """
     if _use_memory_reviews():
         cnt = 0
@@ -153,33 +152,6 @@ def _review_count_for_set(db: Session, set_num: str) -> int:
         )
     ).scalar_one()
 
-    return int(cnt or 0)
-
-
-def _review_stats_for_set(db: Session, set_num: str) -> int:
-    """
-    Returns review_count = count of reviews with NON-EMPTY text (trimmed).
-    """
-    if _use_memory_reviews():
-        vals = [
-            r
-            for r in (reviews_data.REVIEWS or [])
-            if str(r.get("set_num")) == str(set_num)
-            and r.get("text") is not None
-            and str(r.get("text")).strip() != ""
-        ]
-        return int(len(vals))
-
-    row = db.execute(
-        select(func.count(ReviewModel.id))
-        .where(
-            ReviewModel.set_num == set_num,
-            ReviewModel.text.is_not(None),
-            func.length(func.trim(ReviewModel.text)) > 0,
-        )
-    ).one()
-
-    (cnt,) = row
     return int(cnt or 0)
 
 
@@ -257,8 +229,8 @@ def _user_rating_for_set(
     Return the user's most recent non-null rating for a set.
 
     Works whether ReviewModel.user is:
-      - a string column (e.g. Review.user == "ethan"), OR
-      - a relationship (e.g. Review.user.has(username="ethan"))
+      - a string column (Review.user == "ethan"), OR
+      - a relationship (Review.user.has(username="ethan"))
     """
     user_attr = getattr(ReviewModel, "user", None) or getattr(ReviewModel, "username", None)
     if user_attr is None:
@@ -374,7 +346,6 @@ def list_sets(
         p = int(pieces)
         sets = [s for s in sets if int(s.get("pieces") or 0) == p]
     else:
-        # prefer explicit min_pieces/max_pieces, but accept aliases
         lo = min_pieces
         hi = max_pieces
 
@@ -389,7 +360,7 @@ def list_sets(
         if hi is not None:
             p1 = int(hi)
             sets = [s for s in sets if int(s.get("pieces") or 0) <= p1]
-            
+
     # ---------------- rating + review enrichment ----------------
     ratings = _ratings_map(db)              # set_num -> (avg, rating_count)
     review_counts = _review_counts_map(db)  # set_num -> review_count (text)
@@ -500,7 +471,7 @@ def suggest_sets(
 
         canonical = s.get("set_num") or ""
         _, cnt = ratings.get(canonical, (None, 0))
-        pop_score = min(cnt, 50)
+        pop_score = min(int(cnt), 50)
 
         total_score = base_score + pop_score
         year = int(s.get("year") or 0)
@@ -510,7 +481,12 @@ def suggest_sets(
     top = [s for _, _, _, s in candidates[:limit]]
 
     return [
-        {"set_num": s.get("set_num"), "name": s.get("name"), "ip": s.get("ip") or s.get("theme"), "year": s.get("year")}
+        {
+            "set_num": s.get("set_num"),
+            "name": s.get("name"),
+            "ip": s.get("ip") or s.get("theme"),
+            "year": s.get("year"),
+        }
         for s in top
     ]
 
@@ -523,21 +499,7 @@ def get_set_rating_summary(set_num: str, db: Session = Depends(get_db)):
 
     canonical = s.get("set_num") or set_num
     avg, cnt = _rating_stats_for_set(db, canonical)
-
-    # This endpoint is intentionally rating-focused.
-    # If you want review_count here too, tell me and I’ll add it.
     return {"set_num": canonical, "average": avg, "count": cnt}
-
-
-@router.get("/{set_num}/offers", response_model=List[StoreOffer])
-def get_set_offers(set_num: str):
-    s = get_set_by_num(set_num)
-    if not s:
-        raise HTTPException(status_code=404, detail="Set not found")
-
-    plain = (s.get("set_num_plain") or "").strip() or s.get("set_num") or ""
-    plain = plain.split("-")[0]
-    return get_offers_for_set(plain)
 
 
 @router.get(
@@ -626,7 +588,7 @@ def bulk_get_sets(
     for s in found:
         canonical = s.get("set_num") or ""
         avg, cnt = ratings.get(canonical, (None, 0))
-        rev_cnt = review_counts.get(canonical, 0)
+        rev_cnt = int(review_counts.get(canonical, 0))
 
         user_rating = None
         if username:

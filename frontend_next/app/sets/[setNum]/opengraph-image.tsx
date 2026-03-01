@@ -3,8 +3,13 @@ import React from "react";
 import { ImageResponse } from "next/og";
 
 export const runtime = "nodejs";
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 export const size = { width: 1200, height: 630 } as const;
 export const contentType = "image/png";
+
+const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=3600, stale-while-revalidate=31536000";
 
 function apiBase(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
@@ -36,6 +41,14 @@ type SetDetail = {
   theme?: string | null;
   image_url?: string | null;
 };
+
+function ogHeaders(debug: string) {
+  return {
+    "content-type": "image/png",
+    "cache-control": OG_CACHE_CONTROL,
+    "x-og-debug": debug,
+  };
+}
 
 async function fetchSet(setNum: string): Promise<{ set: SetDetail | null; debug: string }> {
   const url = `${apiBase()}/sets/${encodeURIComponent(setNum)}`;
@@ -98,7 +111,7 @@ function fallbackOG(debug: string) {
     ),
     {
       ...size,
-      headers: { "x-og-debug": debug },
+      headers: ogHeaders(debug),
     }
   );
 }
@@ -162,7 +175,15 @@ export default async function OpenGraphImage({
         </div>
 
         {/* right: text */}
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, gap: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            flex: 1,
+            gap: 18,
+          }}
+        >
           <div style={{ fontSize: 74, fontWeight: 900, lineHeight: 1.06 }}>{title}</div>
           <div style={{ fontSize: 30, opacity: 0.8 }}>{subtitle}</div>
           <div style={{ marginTop: 16, fontSize: 22, opacity: 0.55 }}>{hostLabel()}</div>
@@ -172,7 +193,7 @@ export default async function OpenGraphImage({
     ),
     {
       ...size,
-      headers: { "x-og-debug": debug },
+      headers: ogHeaders(debug),
     }
   );
 }

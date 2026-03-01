@@ -55,6 +55,24 @@ type SetDetail = {
   retired?: boolean;
 };
 
+type ShopPill = "Retired" | "Available" | "Out of stock" | "Unknown";
+
+function computeShopPill(isRetired: boolean, offers: UiOffer[]): ShopPill {
+  if (isRetired) return "Retired";
+
+  const arr = Array.isArray(offers) ? offers : [];
+  if (arr.length === 0) return "Unknown";
+
+  const anyIn = arr.some((o) => o?.in_stock === true);
+  if (anyIn) return "Available";
+
+  const anyUnknown = arr.some((o) => o?.in_stock == null);
+  if (anyUnknown) return "Unknown";
+
+  // offers exist and none are true/unknown => all false
+  return "Out of stock";
+}
+
 // Backend offer shape (flexible)
 type ApiOffer = {
   id?: string;
@@ -274,7 +292,7 @@ export default function SetDetailClient(props: Props) {
     // Keep summary minimal; your later fetchOffers() will replace with real summary anyway.
     return {
       set_num: (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim(),
-      summary: { status: "available", best_offer_id: null, updated_at: null },
+      summary: { status: "unknown", best_offer_id: null, updated_at: null },
       offers,
     };
   });
@@ -320,16 +338,16 @@ export default function SetDetailClient(props: Props) {
 
   const visibleReviews = useMemo(() => reviews.filter((r) => asTrimmedString(r.text)), [reviews]);
 
-  const offersStatus: AvailabilitySummary["status"] = useMemo(() => {
-    const s = offersData?.summary?.status;
-    if (s) return s;
-
-    const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
-
-    return retired ? "retired" : "available";
-  }, [offersData?.summary?.status, setDetail?.status, setDetail?.is_retired, setDetail?.retired]);
-
   const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
+
+  const shopPill: ShopPill = useMemo(() => {
+    const retired =
+      setDetail?.status === "retired" ||
+      setDetail?.is_retired === true ||
+      setDetail?.retired === true;
+
+    return computeShopPill(retired, uiOffers);
+  }, [setDetail?.status, setDetail?.is_retired, setDetail?.retired, uiOffers]);
 
   // Load /users/me (only when logged in)
   useEffect(() => {
@@ -418,23 +436,38 @@ export default function SetDetailClient(props: Props) {
   async function fetchOffers(currentSetNum: string, status: AvailabilitySummary["status"]) {
     setOffersLoading(true);
     setOffersError(null);
-
+  
+    // If we can't load offers, availability should become "unknown" (except when we already know it's retired)
+    const fallbackStatus: AvailabilitySummary["status"] = status === "retired" ? "retired" : "unknown";
+  
     try {
       const data = await apiFetch<unknown>(`/sets/${encodeURIComponent(currentSetNum)}/offers`, { cache: "no-store" });
-
+  
       // New shape: { set_num, summary, offers }
       if (isRecord(data) && Array.isArray((data as { offers?: unknown }).offers)) {
         const d = data as Record<string, unknown>;
         const offers = (d.offers as unknown[]).filter(isRecord) as ApiOffer[];
-
+  
         const summaryRaw = isRecord(d.summary) ? (d.summary as Record<string, unknown>) : {};
+  
         const best_offer_id =
           typeof summaryRaw.best_offer_id === "string" ? summaryRaw.best_offer_id : pickBestOfferId(offers);
-
+  
+        // Prefer backend status if present; otherwise:
+        // - if we got 0 offers and we're not retired -> unknown
+        // - else keep the status we computed from set detail
+        const backendStatus = typeof summaryRaw.status === "string" ? summaryRaw.status : null;
+        const computedStatus: AvailabilitySummary["status"] =
+          backendStatus === "available" || backendStatus === "retiring_soon" || backendStatus === "retired" || backendStatus === "unknown"
+            ? backendStatus
+            : offers.length === 0 && status !== "retired"
+              ? "unknown"
+              : status;
+  
         setOffersData({
           set_num: currentSetNum,
           summary: {
-            status,
+            status: computedStatus,
             best_offer_id,
             updated_at: typeof summaryRaw.updated_at === "string" ? summaryRaw.updated_at : null,
           },
@@ -442,20 +475,24 @@ export default function SetDetailClient(props: Props) {
         });
         return;
       }
-
+  
       // Legacy: Offer[]
       const arr = Array.isArray(data) ? data : [];
       const offers = arr.filter(isRecord) as ApiOffer[];
-
+  
       setOffersData({
         set_num: currentSetNum,
-        summary: { status, best_offer_id: pickBestOfferId(offers), updated_at: null },
+        summary: {
+          status: offers.length === 0 && status !== "retired" ? "unknown" : status,
+          best_offer_id: pickBestOfferId(offers),
+          updated_at: null,
+        },
         offers,
       });
     } catch (e: unknown) {
       setOffersData({
         set_num: currentSetNum,
-        summary: { status, best_offer_id: null, updated_at: null },
+        summary: { status: fallbackStatus, best_offer_id: null, updated_at: null },
         offers: [],
       });
       setOffersError(errorMessage(e));
@@ -481,7 +518,7 @@ export default function SetDetailClient(props: Props) {
 
     setOffersData({
       set_num: setNum || "",
-      summary: { status: "available", best_offer_id: null, updated_at: null },
+      summary: { status: "unknown", best_offer_id: null, updated_at: null },
       offers,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -503,7 +540,7 @@ export default function SetDetailClient(props: Props) {
         setSetDetail(detail || null);
 
         const retired = detail?.status === "retired" || detail?.is_retired === true || detail?.retired === true;
-        const status: AvailabilitySummary["status"] = retired ? "retired" : "available";
+        const status: AvailabilitySummary["status"] = retired ? "retired" : "unknown";
 
         const [reviewsArr] = await Promise.all([
           fetchReviewsForSet(setNum),
@@ -995,25 +1032,31 @@ export default function SetDetailClient(props: Props) {
           </div>
 
           <span className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.16] dark:bg-zinc-950 dark:text-zinc-200">
-            {offersStatus === "retired"
-              ? "Retired"
-              : offersStatus === "retiring_soon"
-                ? "Retiring soon"
-                : offersStatus === "available"
-                  ? "Available"
-                  : "Unknown"}
+            {shopPill}
           </span>
         </div>
 
         <div className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-zinc-500">Affiliate links may be used.</span>
-            {offersLoading ? <span className="text-xs text-zinc-500">Loading…</span> : null}
-            {!offersLoading && offersError ? <span className="text-xs text-red-600">Error loading offers</span> : null}
           </div>
 
           <div className="mt-3">
-            <OffersSection setNum={setNum} offers={uiOffers} placement="set_detail_shop" />
+            <OffersSection
+              setNum={setNum}
+              offers={uiOffers}
+              placement="set_detail_shop"
+              loading={offersLoading}
+              error={offersError}
+              onRetry={() => {
+                const retired =
+                  setDetail?.status === "retired" ||
+                  setDetail?.is_retired === true ||
+                  setDetail?.retired === true;
+
+                fetchOffers(setNum, retired ? "retired" : "unknown");
+              }}
+            />
           </div>
 
           <p className="mt-4 text-xs text-zinc-500">Links may be affiliate links. We may earn a commission.</p>

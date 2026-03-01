@@ -179,22 +179,28 @@ async function fetchSetsByYear(year: number, page: number, limit: number): Promi
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: { year: string } | Promise<{ year: string }>;
+  searchParams?: SP | Promise<SP>;
 }): Promise<Metadata> {
   const { year } = await params;
+  const sp = (await searchParams) ?? ({} as SP);
 
   const { min, max } = yearBounds();
   const y = toInt(String(year), NaN);
-
   const validYear = Number.isFinite(y) && y >= min && y <= max;
+
+  const page = Math.max(1, toInt(first(sp, "page") || "1", 1));
 
   const title = validYear ? `Sets from ${y}` : "Sets by year";
   const description = validYear ? `Browse LEGO sets released in ${y}.` : `Browse LEGO sets by release year on ${SITE_NAME}.`;
-  const canonical = validYear ? qsBase(y, 1) : "/years";
+
+  const canonical = validYear ? qsBase(y, page) : "/years";
+  const ogImage = validYear ? `/years/${y}/opengraph-image` : `/opengraph-image`;
 
   return {
-    title, // ✅ layout template will append
+    title,
     description,
     metadataBase: new URL(siteBase()),
     alternates: { canonical },
@@ -203,11 +209,13 @@ export async function generateMetadata({
       description,
       url: canonical,
       type: "website",
+      images: [{ url: ogImage, width: 1200, height: 630, alt: title }],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [ogImage],
     },
   };
 }
@@ -230,7 +238,9 @@ export default async function YearPage({
       <div className="mx-auto max-w-5xl px-6 py-12">
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: "Invalid year" }]} />
         <h1 className="mt-4 text-2xl font-semibold tracking-tight">Invalid year</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Please choose a year between {min} and {max}.</p>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Please choose a year between {min} and {max}.
+        </p>
         <Link href="/years" className="mt-4 inline-block text-sm font-semibold hover:underline">
           ← Back to years
         </Link>

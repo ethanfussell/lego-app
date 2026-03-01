@@ -19,9 +19,9 @@ function CardImage({
 }) {
   const [failed, setFailed] = useState(false);
 
-  // If Next/Image fails (remotePatterns, 403, etc), fall back to a normal <img>
   if (failed) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={alt}

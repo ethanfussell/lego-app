@@ -8,7 +8,7 @@ import { themeToSlug } from "@/lib/slug";
 import type { Offer as UiOffer } from "@/app/components/OffersSection";
 
 export const dynamic = "force-static";
-export const revalidate = 0;
+export const revalidate = 3600;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -280,6 +280,7 @@ const fetchSet = cache(async (setNum: string): Promise<LegoSet | null> => {
   if (!s) return null;
 
   const url = `${apiBase()}/sets/${encodeURIComponent(s)}`;
+
   const res = await fetch(url, {
     method: "GET",
     headers: { accept: "application/json" },
@@ -303,7 +304,10 @@ const fetchOffers = cache(async (setNum: string): Promise<UiOffer[]> => {
   const s = String(setNum ?? "").trim();
   if (!s) return [];
 
-  const url = `${apiBase()}/sets/${encodeURIComponent(s)}/offers`;
+  // ✅ backend supports /offers/{plain_set_num}
+  const plain = s.split("-")[0];
+  const url = `${apiBase()}/offers/${encodeURIComponent(plain)}`;
+
   const res = await fetch(url, {
     method: "GET",
     headers: { accept: "application/json" },
@@ -325,6 +329,7 @@ const fetchOffers = cache(async (setNum: string): Promise<UiOffer[]> => {
       const currency = typeof o.currency === "string" && o.currency.trim() ? o.currency.trim() : undefined;
       const price = typeof o.price === "number" && Number.isFinite(o.price) ? o.price : undefined;
 
+      // allow boolean OR null
       const in_stock =
         typeof o.in_stock === "boolean" ? o.in_stock : o.in_stock == null ? null : Boolean(o.in_stock);
 

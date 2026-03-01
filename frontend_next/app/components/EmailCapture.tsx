@@ -24,9 +24,10 @@ export default function EmailCapture({ source = "homepage" }: { source?: string 
       else setStatus("success");
 
       setEmail("");
-    } catch (err: any) {
+    } catch (err: unknown) {
       setStatus("error");
-      setError(err?.message || "Something went wrong");
+      const msg = err instanceof Error ? err.message : "Something went wrong";
+      setError(msg);
     }
   }
 
