@@ -4,24 +4,37 @@
 import React, { useState } from "react";
 import { apiFetch } from "@/lib/api";
 
-export default function EmailCapture({ source = "homepage" }: { source?: string }) {
+type Props = {
+  source?: string;
+  onComplete?: (info: { already: boolean }) => void;
+};
+
+export default function EmailCapture({ source = "homepage", onComplete }: Props) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "already" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const trimmed = email.trim();
+    if (!trimmed) return;
+
     setStatus("loading");
     setError(null);
 
     try {
       const res = await apiFetch<{ ok: boolean; already_subscribed?: boolean }>("/email-signups", {
         method: "POST",
-        body: { email, source },
+        body: { email: trimmed, source },
       });
 
-      if (res?.already_subscribed) setStatus("already");
+      const already = Boolean(res?.already_subscribed);
+
+      if (already) setStatus("already");
       else setStatus("success");
+
+      onComplete?.({ already });
 
       setEmail("");
     } catch (err: unknown) {

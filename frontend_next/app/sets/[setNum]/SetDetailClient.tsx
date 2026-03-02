@@ -11,9 +11,14 @@ import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
+import EmailCapture from "@/app/components/EmailCapture";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
 import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
+
+// CTA experiment (CTA #2 after offers)
+import { ctaClick, ctaComplete, ctaImpression } from "@/lib/events";
+import { variantFromKey, variantFromQuery, type Variant } from "@/lib/ab";
 
 function asTrimmedString(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
@@ -69,7 +74,6 @@ function computeShopPill(isRetired: boolean, offers: UiOffer[]): ShopPill {
   const anyUnknown = arr.some((o) => o?.in_stock == null);
   if (anyUnknown) return "Unknown";
 
-  // offers exist and none are true/unknown => all false
   return "Out of stock";
 }
 
@@ -199,10 +203,11 @@ function toUiOffers(apiOffers: ApiOffer[]): UiOffer[] {
             ? o.price
             : undefined;
 
-      // UiOffer allows boolean | null, keep null for unknown
       const in_stock = typeof o.in_stock === "boolean" ? o.in_stock : o.in_stock == null ? null : Boolean(o.in_stock);
 
-      return { url, store, currency, price, in_stock };
+      const updated_at = typeof o.updated_at === "string" && o.updated_at.trim() ? o.updated_at.trim() : null;
+
+      return { url, store, currency, price, in_stock, updated_at };
     })
     .filter(isUiOffer);
 }
@@ -224,6 +229,7 @@ function HeroImage({
 
   if (failed) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={alt}
@@ -269,6 +275,19 @@ export default function SetDetailClient(props: Props) {
 
   const PREVIEW_SIMILAR_LIMIT = 12;
 
+  // CTA variant (A/B) per set, overridable by ?cta=A|B
+  const ctaVariant: Variant = useMemo(() => {
+    const forced = variantFromQuery(sp.get("cta"));
+    return forced ?? variantFromKey(setNum || "set");
+  }, [sp, setNum]);
+
+  // fire CTA impressions once per (cta_id,set,variant)
+  const ctaSeenRef = useRef<Record<string, true>>({});
+
+  // Email capture reveal state for CTA #2
+  const [showAlerts, setShowAlerts] = useState(false);
+  const alertsRef = useRef<HTMLDivElement | null>(null);
+
   // Basic set state
   const [setDetail, setSetDetail] = useState<SetDetail | null>(props.initialData ?? null);
   const [loading, setLoading] = useState<boolean>(!props.initialData);
@@ -279,7 +298,6 @@ export default function SetDetailClient(props: Props) {
     const initial = Array.isArray(props.initialOffers) ? props.initialOffers : [];
     if (initial.length === 0) return null;
 
-    // Convert UiOffer[] -> ApiOffer[] (enough fields for your existing toUiOffers())
     const offers: ApiOffer[] = initial.map((o) => ({
       url: o.url,
       store: o.store,
@@ -287,15 +305,16 @@ export default function SetDetailClient(props: Props) {
       price: o.price,
       currency: o.currency,
       in_stock: o.in_stock ?? null,
+      updated_at: typeof o.updated_at === "string" ? o.updated_at : null,
     }));
 
-    // Keep summary minimal; your later fetchOffers() will replace with real summary anyway.
     return {
       set_num: (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim(),
       summary: { status: "unknown", best_offer_id: null, updated_at: null },
       offers,
     };
   });
+
   const [offersLoading, setOffersLoading] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
 
@@ -341,13 +360,25 @@ export default function SetDetailClient(props: Props) {
   const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
 
   const shopPill: ShopPill = useMemo(() => {
-    const retired =
-      setDetail?.status === "retired" ||
-      setDetail?.is_retired === true ||
-      setDetail?.retired === true;
-
+    const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
     return computeShopPill(retired, uiOffers);
   }, [setDetail?.status, setDetail?.is_retired, setDetail?.retired, uiOffers]);
+
+  // CTA #2 impression only (after offers)
+  useEffect(() => {
+    if (!setNum) return;
+
+    const key = `after_offers_alerts:${setNum}:${ctaVariant}`;
+    if (ctaSeenRef.current[key]) return;
+    ctaSeenRef.current[key] = true;
+
+    ctaImpression({
+      cta_id: "after_offers_alerts",
+      placement: "after_offers",
+      variant: ctaVariant,
+      set_num: setNum,
+    });
+  }, [setNum, ctaVariant]);
 
   // Load /users/me (only when logged in)
   useEffect(() => {
@@ -436,34 +467,33 @@ export default function SetDetailClient(props: Props) {
   async function fetchOffers(currentSetNum: string, status: AvailabilitySummary["status"]) {
     setOffersLoading(true);
     setOffersError(null);
-  
-    // If we can't load offers, availability should become "unknown" (except when we already know it's retired)
+
     const fallbackStatus: AvailabilitySummary["status"] = status === "retired" ? "retired" : "unknown";
-  
+
     try {
       const data = await apiFetch<unknown>(`/sets/${encodeURIComponent(currentSetNum)}/offers`, { cache: "no-store" });
-  
+
       // New shape: { set_num, summary, offers }
       if (isRecord(data) && Array.isArray((data as { offers?: unknown }).offers)) {
         const d = data as Record<string, unknown>;
         const offers = (d.offers as unknown[]).filter(isRecord) as ApiOffer[];
-  
+
         const summaryRaw = isRecord(d.summary) ? (d.summary as Record<string, unknown>) : {};
-  
+
         const best_offer_id =
           typeof summaryRaw.best_offer_id === "string" ? summaryRaw.best_offer_id : pickBestOfferId(offers);
-  
-        // Prefer backend status if present; otherwise:
-        // - if we got 0 offers and we're not retired -> unknown
-        // - else keep the status we computed from set detail
+
         const backendStatus = typeof summaryRaw.status === "string" ? summaryRaw.status : null;
         const computedStatus: AvailabilitySummary["status"] =
-          backendStatus === "available" || backendStatus === "retiring_soon" || backendStatus === "retired" || backendStatus === "unknown"
+          backendStatus === "available" ||
+          backendStatus === "retiring_soon" ||
+          backendStatus === "retired" ||
+          backendStatus === "unknown"
             ? backendStatus
             : offers.length === 0 && status !== "retired"
               ? "unknown"
               : status;
-  
+
         setOffersData({
           set_num: currentSetNum,
           summary: {
@@ -475,11 +505,11 @@ export default function SetDetailClient(props: Props) {
         });
         return;
       }
-  
+
       // Legacy: Offer[]
       const arr = Array.isArray(data) ? data : [];
       const offers = arr.filter(isRecord) as ApiOffer[];
-  
+
       setOffersData({
         set_num: currentSetNum,
         summary: {
@@ -514,6 +544,7 @@ export default function SetDetailClient(props: Props) {
       price: o.price,
       currency: o.currency,
       in_stock: o.in_stock ?? null,
+      updated_at: typeof o.updated_at === "string" ? o.updated_at : null,
     }));
 
     setOffersData({
@@ -587,20 +618,19 @@ export default function SetDetailClient(props: Props) {
       try {
         setSimilarLoading(true);
         setSimilarError(null);
-    
+
         const p = new URLSearchParams();
         p.set("page", "1");
         p.set("limit", "24");
         p.set("sort", "relevance");
         p.set("order", "desc");
-    
-        // Backend endpoint (FastAPI)
+
         const path = `/themes/${encodeURIComponent(themeName)}/sets?${p.toString()}`;
-    
+
         const data = await apiFetch<unknown>(path, { cache: "no-store" });
         const items = normalizeSetLiteArray(data);
         const filtered = items.filter((s) => String(s?.set_num) !== String(setNum));
-    
+
         if (!cancelled) setSimilarSets(filtered.slice(0, PREVIEW_SIMILAR_LIMIT));
       } catch (e: unknown) {
         if (e instanceof APIError && e.status === 404) {
@@ -850,14 +880,9 @@ export default function SetDetailClient(props: Props) {
       <section className="mt-6 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
-          {heroImgSrc ? (
-            <HeroImage
-              src={heroImgSrc}
-              alt={name || setNum}
-              sizes={heroImageSizes()}
-              quality={IMAGE_QUALITY}
-            />
-          ) : (
+            {heroImgSrc ? (
+              <HeroImage src={heroImgSrc} alt={name || setNum} sizes={heroImageSizes()} quality={IMAGE_QUALITY} />
+            ) : (
               <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
                 No image available
               </div>
@@ -892,9 +917,7 @@ export default function SetDetailClient(props: Props) {
 
           {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
 
-          {isRetired ? (
-            <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p>
-          ) : null}
+          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
@@ -952,9 +975,7 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span>
-              ) : null}
+              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -995,11 +1016,7 @@ export default function SetDetailClient(props: Props) {
           {theme ? (
             <li>
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link
-                href={`/themes/${themeToSlug(String(theme))}`}
-                prefetch={false}
-                className="font-semibold hover:underline"
-              >
+              <Link href={`/themes/${themeToSlug(String(theme))}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
               </Link>
             </li>
@@ -1041,6 +1058,10 @@ export default function SetDetailClient(props: Props) {
             <span className="text-xs text-zinc-500">Affiliate links may be used.</span>
           </div>
 
+          {offersData?.summary?.updated_at ? (
+            <div className="mt-2 text-xs text-zinc-500">Last updated: {new Date(offersData.summary.updated_at).toLocaleString()}</div>
+          ) : null}
+
           <div className="mt-3">
             <OffersSection
               setNum={setNum}
@@ -1049,14 +1070,63 @@ export default function SetDetailClient(props: Props) {
               loading={offersLoading}
               error={offersError}
               onRetry={() => {
-                const retired =
-                  setDetail?.status === "retired" ||
-                  setDetail?.is_retired === true ||
-                  setDetail?.retired === true;
-
+                const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
                 fetchOffers(setNum, retired ? "retired" : "unknown");
               }}
             />
+          </div>
+
+          {/* CTA #2 (After offers) */}
+          <div className="mt-4 rounded-xl border border-black/[.06] bg-white p-3 dark:border-white/[.10] dark:bg-zinc-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  {ctaVariant === "A" ? "Get deal alerts for this set" : "Want a price drop notification?"}
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {ctaVariant === "A"
+                    ? "We’ll email you when it goes on sale."
+                    : "Track this set and we’ll let you know when there’s a better price."}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  ctaClick({
+                    cta_id: "after_offers_alerts",
+                    placement: "after_offers",
+                    variant: ctaVariant,
+                    set_num: setNum,
+                  });
+
+                  setShowAlerts(true);
+
+                  window.setTimeout(() => {
+                    alertsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 50);
+                }}
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                {ctaVariant === "A" ? "Enable alerts" : "Notify me"}
+              </button>
+            </div>
+
+            {showAlerts ? (
+              <div ref={alertsRef} className="mt-3 scroll-mt-24">
+                <EmailCapture
+                  source={`set:${setNum}:after_offers:${ctaVariant}`}
+                  onComplete={() => {
+                    ctaComplete({
+                      cta_id: "after_offers_alerts",
+                      placement: "after_offers",
+                      variant: ctaVariant,
+                      set_num: setNum,
+                    });
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
 
           <p className="mt-4 text-xs text-zinc-500">Links may be affiliate links. We may earn a commission.</p>
@@ -1142,9 +1212,7 @@ export default function SetDetailClient(props: Props) {
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
-                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-                          {r.rating.toFixed(1)} ★
-                        </div>
+                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">{r.rating.toFixed(1)} ★</div>
                       ) : null}
 
                       {isMine ? (

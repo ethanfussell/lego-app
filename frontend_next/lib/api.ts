@@ -118,9 +118,14 @@ function logIfHtmlOrError(resp: Response, body: unknown) {
     ct.includes("text/html") ||
     (typeof body === "string" && body.trim().startsWith("<!DOCTYPE html"));
 
+  // ✅ In the browser, 401/403 is expected during auth hydration / expired tokens.
+  if (typeof window !== "undefined" && (resp.status === 401 || resp.status === 403)) {
+    return;
+  }
+
+  // ✅ Only log when not ok OR HTML
   if (resp.ok && !isHtml) return;
 
-  // eslint-disable-next-line no-console
   console.error("[apiFetch] bad response", {
     url: resp.url,
     status: resp.status,

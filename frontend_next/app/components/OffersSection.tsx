@@ -3,6 +3,7 @@
 
 import React from "react";
 import { outboundClick } from "@/lib/ga";
+import { buildAffiliateUrl } from "@/lib/affiliate";
 
 export type Offer = {
   url: string;
@@ -10,14 +11,15 @@ export type Offer = {
   price?: number;
   currency?: string;
   in_stock?: boolean | null;
+  updated_at?: string | null;
 };
 
 type NormalizedOffer = {
   href: string;
   storeLabel: string;
   price?: number;
-  currency?: string; // ISO-ish (USD/EUR/GBP) if provided
-  inStock: boolean | null; // keep unknown explicitly
+  currency?: string;
+  inStock: boolean | null;
   rank: number;
 };
 
@@ -35,7 +37,6 @@ function cleanLabel(v: unknown, fallback: string): string {
 function cleanCurrency(v: unknown): string | undefined {
   const s = cleanText(v).toUpperCase();
   if (!s) return undefined;
-  // Accept common ISO codes like USD/EUR/GBP, and also e.g. "USDT" (4)
   if (s.length < 3 || s.length > 4) return undefined;
   return s;
 }
@@ -51,10 +52,8 @@ function safeUrl(raw: unknown): string {
   const s = raw.trim();
   if (!s) return "";
   try {
-    // allow absolute https/http; allow relative if you ever pass "/go/offer"
     const base = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
     const u = new URL(s, base);
-    // hard stop: only allow http(s)
     if (u.protocol !== "http:" && u.protocol !== "https:") return "";
     return u.toString();
   } catch {
@@ -65,7 +64,6 @@ function safeUrl(raw: unknown): string {
 function formatPrice(price?: number, currency?: string): string | null {
   if (typeof price !== "number") return null;
 
-  // Prefer Intl formatting for known 3-letter codes
   if (currency && currency.length === 3) {
     try {
       return new Intl.NumberFormat(undefined, {
@@ -79,12 +77,12 @@ function formatPrice(price?: number, currency?: string): string | null {
     }
   }
 
-  // Fallback
   const rounded = Number(price.toFixed(2));
   return currency ? `${currency} ${rounded}` : `$${rounded}`;
 }
 
-export function summarizeStock(offers: NormalizedOffer[]): StockSummary {  if (offers.length === 0) return "unknown";
+export function summarizeStock(offers: NormalizedOffer[]): StockSummary {
+  if (offers.length === 0) return "unknown";
 
   const anyTrue = offers.some((o) => o.inStock === true);
   if (anyTrue) return "in";
@@ -170,14 +168,27 @@ export default function OffersSection({
       const price = cleanPrice(o?.price);
       const currency = cleanCurrency(o?.currency);
 
-      const inStock =
-        o?.in_stock === true ? true : o?.in_stock === false ? false : o?.in_stock == null ? null : null;
+      const inStock: boolean | null = o?.in_stock === true ? true : o?.in_stock === false ? false : null;
 
       return { href, storeLabel, price, currency, inStock, rank: i + 1 };
     })
     .filter((x): x is NormalizedOffer => x !== null);
 
-  if (normalized.length === 0) {
+  const sorted = normalized.slice().sort((a, b) => {
+    const stockRank = (v: boolean | null) => (v === true ? 0 : v === null ? 1 : 2);
+
+    const sa = stockRank(a.inStock);
+    const sb = stockRank(b.inStock);
+    if (sa !== sb) return sa - sb;
+
+    const pa = typeof a.price === "number" ? a.price : Number.POSITIVE_INFINITY;
+    const pb = typeof b.price === "number" ? b.price : Number.POSITIVE_INFINITY;
+    if (pa !== pb) return pa - pb;
+
+    return a.rank - b.rank;
+  });
+
+  if (sorted.length === 0) {
     return (
       <div className="rounded-2xl border border-black/[.08] bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-400">
         {emptyMessage}
@@ -185,17 +196,21 @@ export default function OffersSection({
     );
   }
 
-  // If you want to use this in the parent "pill", export it or lift it up.
-  // const stockSummary = summarizeStock(normalized);
-
   return (
     <ul className="space-y-2">
-      {normalized.map((o) => {
+      {sorted.map((o) => {
         const labelForAnalytics = o.storeLabel || "offer";
+
+        const affiliateHref = buildAffiliateUrl(
+          { url: o.href, store: o.storeLabel, currency: o.currency, price: o.price },
+          { placement, setNum, offerRank: o.rank }
+        );
+
+        if (!affiliateHref) return null;
 
         return (
           <li
-            key={`${o.href}-${o.rank}`}
+            key={`${affiliateHref}-${o.rank}`}
             className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
           >
             <div className="min-w-0">
@@ -217,18 +232,16 @@ export default function OffersSection({
                 )}
               </div>
 
-              <div className="mt-1 text-xs text-zinc-500">
-                {formatPrice(o.price, o.currency) ?? "Price unavailable"}
-              </div>
+              <div className="mt-1 text-xs text-zinc-500">{formatPrice(o.price, o.currency) ?? "Price unavailable"}</div>
             </div>
 
             <a
-              href={o.href}
+              href={affiliateHref}
               target="_blank"
               rel="noopener noreferrer"
-              onMouseDown={() => {
+              onClick={() => {
                 outboundClick({
-                  url: o.href,
+                  url: affiliateHref,
                   label: labelForAnalytics,
                   placement,
                   set_num: setNum,
@@ -247,7 +260,3 @@ export default function OffersSection({
     </ul>
   );
 }
-
-// If you want to reuse in a parent header pill later:
-// export { summarizeStock };
-// export type { StockSummary };

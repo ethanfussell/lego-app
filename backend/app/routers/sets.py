@@ -15,6 +15,7 @@ from app.schemas.set import SetBulkOut
 from ..core.auth import get_current_user, get_current_user_optional
 from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
+from ..data import offers as offers_data  # used by /sets/{set_num}/offers
 from ..db import get_db
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
@@ -93,7 +94,6 @@ def _sort_key(sort: str):
     if sort == "pieces":
         return lambda r: (r.get("pieces") or 0)
     if sort == "rating":
-        # sort by avg rating, then rating count
         return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
     return lambda r: (r.get("name") or "").lower()
 
@@ -227,10 +227,6 @@ def _user_rating_for_set(
 ) -> Optional[float]:
     """
     Return the user's most recent non-null rating for a set.
-
-    Works whether ReviewModel.user is:
-      - a string column (Review.user == "ethan"), OR
-      - a relationship (Review.user.has(username="ethan"))
     """
     user_attr = getattr(ReviewModel, "user", None) or getattr(ReviewModel, "username", None)
     if user_attr is None:
@@ -287,17 +283,14 @@ def list_sets(
     response: Response,
     q: Optional[str] = Query(None),
 
-    # year filtering
     year: Optional[int] = Query(None, ge=1900, le=2100),
     min_year: Optional[int] = Query(None, ge=1900, le=2100),
     max_year: Optional[int] = Query(None, ge=1900, le=2100),
 
-    # pieces filtering (aliases supported)
     pieces: Optional[int] = Query(None, ge=0),
     min_pieces: Optional[int] = Query(None, ge=0),
     max_pieces: Optional[int] = Query(None, ge=0),
 
-    # aliases (some callers say "parts")
     min_parts: Optional[int] = Query(None, ge=0),
     max_parts: Optional[int] = Query(None, ge=0),
     min_num_parts: Optional[int] = Query(None, ge=0),
@@ -314,7 +307,6 @@ def list_sets(
 
     q_clean = (q or "").strip()
 
-    # ---------------- query filtering ----------------
     if q_clean:
         direct = [s for s in all_sets if _matches_query(s, q_clean)]
         if direct:
@@ -328,7 +320,6 @@ def list_sets(
             scored.sort(key=lambda t: t[0], reverse=True)
             sets = [s for _, s in scored[:100]]
 
-    # ---------------- year filtering ----------------
     if year is not None:
         y = int(year)
         sets = [s for s in sets if int(s.get("year") or 0) == y]
@@ -340,8 +331,6 @@ def list_sets(
             y1 = int(max_year)
             sets = [s for s in sets if int(s.get("year") or 0) <= y1]
 
-    # ---------------- pieces filtering ----------------
-    # "pieces" exact match
     if pieces is not None:
         p = int(pieces)
         sets = [s for s in sets if int(s.get("pieces") or 0) == p]
@@ -361,9 +350,8 @@ def list_sets(
             p1 = int(hi)
             sets = [s for s in sets if int(s.get("pieces") or 0) <= p1]
 
-    # ---------------- rating + review enrichment ----------------
-    ratings = _ratings_map(db)              # set_num -> (avg, rating_count)
-    review_counts = _review_counts_map(db)  # set_num -> review_count (text)
+    ratings = _ratings_map(db)
+    review_counts = _review_counts_map(db)
 
     enriched: List[Dict[str, Any]] = []
     for s in sets:
@@ -377,7 +365,6 @@ def list_sets(
         r["_review_count"] = rev_cnt
         enriched.append(r)
 
-    # ---------------- sorting ----------------
     allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
     if sort not in allowed_sorts:
         raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
@@ -403,7 +390,6 @@ def list_sets(
     else:
         enriched.sort(key=_sort_key(sort), reverse=reverse)
 
-    # ---------------- pagination + response shaping ----------------
     total = len(enriched)
     start = (page - 1) * limit
     end = start + limit
@@ -502,6 +488,31 @@ def get_set_rating_summary(set_num: str, db: Session = Depends(get_db)):
     return {"set_num": canonical, "average": avg, "count": cnt}
 
 
+@router.get("/{set_num}/offers")
+def get_set_offers(set_num: str, db: Session = Depends(get_db)):
+    s = get_set_by_num(set_num)
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    canonical = s.get("set_num") or set_num
+    plain = s.get("set_num_plain") or canonical.split("-")[0]
+
+    offers = offers_data.get_offers_for_set(plain)
+
+    # summary.updated_at = newest offer updated_at (ISO strings compare lexicographically)
+    updated_at: Optional[str] = None
+    for o in offers:
+        ts = o.get("updated_at")
+        if isinstance(ts, str) and ts:
+            updated_at = ts if updated_at is None else max(updated_at, ts)
+
+    return {
+        "set_num": canonical,
+        "summary": {"status": "unknown", "best_offer_id": None, "updated_at": updated_at},
+        "offers": offers,
+    }
+
+
 @router.get(
     "/bulk",
     response_model=List[SetBulkOut],
@@ -544,7 +555,6 @@ def bulk_get_sets(
     if not canonicals:
         return []
 
-    # rating_count: non-null rating
     rows = db.execute(
         select(
             ReviewModel.set_num,
@@ -564,7 +574,6 @@ def bulk_get_sets(
         avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
         ratings[str(set_num)] = (avg_f, cnt_i)
 
-    # review_count: non-empty text
     review_rows = db.execute(
         select(
             ReviewModel.set_num,

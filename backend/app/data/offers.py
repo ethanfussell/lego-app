@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, TypedDict, Optional
+from typing import Dict, List, Optional, TypedDict
 
 
 class StoreOffer(TypedDict):
@@ -9,6 +9,7 @@ class StoreOffer(TypedDict):
     currency: str
     url: str
     in_stock: Optional[bool]  # True / False / None (unknown)
+    updated_at: str  # ISO string, e.g. "2026-03-01T18:45:00Z"
 
 
 OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
@@ -19,6 +20,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://your-affiliate-link-for-lego-10305",
             "in_stock": True,
+            "updated_at": "2026-03-01T18:00:00Z",
         },
         {
             "store": "Amazon",
@@ -26,6 +28,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://your-affiliate-link-for-amazon-10305",
             "in_stock": True,
+            "updated_at": "2026-03-01T18:10:00Z",
         },
     ],
     "10497": [
@@ -35,6 +38,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://example.com/lego-10497",
             "in_stock": True,
+            "updated_at": "2026-03-01T18:00:00Z",
         },
         {
             "store": "Amazon",
@@ -42,6 +46,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://example.com/amazon-10497",
             "in_stock": False,
+            "updated_at": "2026-03-01T18:05:00Z",
         },
         {
             "store": "Walmart",
@@ -49,10 +54,9 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://example.com/walmart-10497",
             "in_stock": None,  # unknown
+            "updated_at": "2026-03-01T18:07:00Z",
         },
     ],
-
-    # add your current test set:
     "76300": [
         {
             "store": "LEGO",
@@ -60,6 +64,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://example.com/lego-76300",
             "in_stock": True,
+            "updated_at": "2026-03-01T18:00:00Z",
         },
         {
             "store": "Amazon",
@@ -67,6 +72,7 @@ OFFERS_BY_SET: Dict[str, List[StoreOffer]] = {
             "currency": "USD",
             "url": "https://example.com/amazon-76300",
             "in_stock": None,  # unknown
+            "updated_at": "2026-03-01T18:03:00Z",
         },
     ],
 }
