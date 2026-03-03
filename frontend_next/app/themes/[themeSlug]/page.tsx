@@ -19,7 +19,7 @@ function apiBase() {
 }
 
 function canonicalFor(themeSlug: string) {
-  // themeSlug must already be URL-safe (encoded) here
+  // themeSlug is our ROUTE slug (lowercase, hyphenated)
   return `/themes/${themeSlug}`;
 }
 
@@ -62,13 +62,13 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { themeSlug } = await params;
 
-  // Params are already decoded-ish by Next; convert to the real theme name
+  // Convert route slug -> display name
   const themeName = slugToTheme(themeSlug);
 
   const title = `${themeName} sets`;
   const description = `Browse LEGO sets in the ${themeName} theme.`;
 
-  // Always compute the canonical slug from the name (one source of truth)
+  // Compute canonical route slug from display name (single source of truth)
   const canonicalSlug = themeToSlug(themeName);
   const canonicalPath = canonicalFor(canonicalSlug);
 
@@ -153,7 +153,7 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      {/* Pass canonical slug so client builds correct URLs (%, --, etc.) */}
+      {/* Pass canonical route slug so client builds URLs consistently */}
       <ThemeDetailClient themeSlug={canonicalSlug} initialSets={rows} initialQuery={initialQuery} />
     </>
   );

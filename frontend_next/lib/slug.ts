@@ -6,71 +6,129 @@ function normalizeSpaces(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }
 
-/**
- * Theme name -> URL-safe slug (stable + reversible)
- *
- * Rules:
- * - Normalize spaces
- * - Convert "/" (with or without surrounding spaces) into the token "__SLASH__"
- * - Escape literal "-" as "--"
- * - Spaces become "-"
- * - Then encodeURIComponent so "&" -> %26, "'" -> %27, "!" -> %21, etc.
- *
- * Examples:
- * - "Star Wars" -> "Star-Wars"
- * - "Exo-Force" -> "Exo--Force"
- * - "Scooby-Doo" -> "Scooby--Doo"
- * - "Make & Create" -> "Make-%26-Create"
- * - "Gabby's Dollhouse" -> "Gabby%27s-Dollhouse"
- * - "Unikitty!" -> "Unikitty%21"
- * - "Dino Attack / Dino 2010" -> "Dino-Attack-__SLASH__-Dino-2010"
- */
-export function themeToSlug(theme: unknown): string {
-  const raw = typeof theme === "string" ? theme : String(theme ?? "");
-  let cleaned = normalizeSpaces(raw);
-  if (!cleaned) return "Theme";
-
-  // Normalize slashes into a token so the slug is path-safe
-  cleaned = cleaned.replace(/\s*\/\s*/g, ` ${SLASH_TOKEN} `);
-  cleaned = normalizeSpaces(cleaned);
-
-  // Escape literal hyphens so they survive round-trip
-  const escapedHyphens = cleaned.replace(/-/g, "--");
-
-  // Spaces become hyphens
-  const withDashes = escapedHyphens.replace(/ /g, "-");
-
-  // Encode everything else (&, ', !, etc.)
-  return encodeURIComponent(withDashes);
+function toTitleCaseWords(s: string): string {
+  return s
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ");
 }
 
 /**
- * Slug -> Theme name (reverse of themeToSlug)
+ * Theme name -> URL slug
+ *
+ * mode="route" (DEFAULT): matches app routing, SEO-friendly
+ * - lowercase
+ * - spaces -> "-"
+ * - "&" -> "and"
+ * - strip quotes/apostrophes
+ * - strip punctuation (keeps letters/numbers)
+ * - "/" becomes "-" (NOT the SLASH_TOKEN)
+ *
+ * mode="stable": old reversible encoding (stable + reversible)
+ * - Normalize spaces
+ * - Convert "/" into "__SLASH__"
+ * - Escape literal "-" as "--"
+ * - Spaces become "-"
+ * - encodeURIComponent for the rest
+ */
+export function themeToSlug(theme: unknown, mode: "route" | "stable" = "route"): string {
+  const raw = typeof theme === "string" ? theme : String(theme ?? "");
+  let cleaned = normalizeSpaces(raw);
+  if (!cleaned) return "theme";
+
+  if (mode === "stable") {
+    cleaned = cleaned.replace(/\s*\/\s*/g, ` ${SLASH_TOKEN} `);
+    cleaned = normalizeSpaces(cleaned);
+
+    const escapedHyphens = cleaned.replace(/-/g, "--");
+    const withDashes = escapedHyphens.replace(/ /g, "-");
+    return encodeURIComponent(withDashes);
+  }
+
+  // mode === "route"
+  // Make a route-safe slug that matches /themes/[themeSlug]
+  // Examples:
+  // "Star Wars" -> "star-wars"
+  // "Make & Create" -> "make-and-create"
+  // "Gabby's Dollhouse" -> "gabbys-dollhouse"
+  // "Avatar: The Last Airbender" -> "avatar-the-last-airbender"
+  // "Dino Attack / Dino 2010" -> "dino-attack-dino-2010"
+  let s = cleaned.toLowerCase();
+
+  // normalize slash-like separators to spaces
+  s = s.replace(/\s*\/\s*/g, " ");
+
+  // common replacements
+  s = s.replace(/&/g, " and ");
+
+  // remove apostrophes/quotes
+  s = s.replace(/['’"]/g, "");
+
+  // replace any non-alphanumeric with spaces (keeps unicode letters? we keep ascii only here)
+  // If you want to keep unicode letters, change to: /[^\p{L}\p{N}]+/gu with a TS target that supports it.
+  s = s.replace(/[^a-z0-9]+/g, " ");
+
+  s = normalizeSpaces(s);
+  s = s.replace(/ /g, "-");
+
+  // collapse / trim dashes
+  s = s.replace(/-+/g, "-").replace(/^-|-$/g, "");
+
+  return s || "theme";
+}
+
+/**
+ * Slug -> Theme name
+ *
+ * Accepts either:
+ * - stable slug (old reversible encoding)
+ * - route slug (new lowercase)
  */
 export function slugToTheme(slug: unknown): string {
   const raw = String(slug ?? "").trim();
   if (!raw) return "";
 
+  // Try stable decode first (it may contain %xx or "__SLASH__" or "--")
   let decoded = raw;
+  let decodedOk = false;
+
   try {
-    decoded = decodeURIComponent(raw);
+    const d = decodeURIComponent(raw);
+    // Heuristic: if decoding changes it or it includes our stable markers, treat as stable
+    if (d !== raw || d.includes(SLASH_TOKEN) || d.includes("--")) {
+      decoded = d;
+      decodedOk = true;
+    }
   } catch {
-    // keep raw if decode fails
+    // ignore
   }
 
-  // Protect escaped hyphens first
-  const HY = "\u0000"; // placeholder
-  let s = decoded.replace(/--/g, HY);
+  if (decodedOk) {
+    // Stable path: reverse the old encoding
+    const HY = "\u0000"; // placeholder
+    let s = decoded.replace(/--/g, HY);
 
-  // Turn separators back into spaces
+    s = s.replace(/-/g, " ");
+    s = s.replaceAll(HY, "-");
+
+    s = s.replaceAll(SLASH_TOKEN, "/");
+    s = s.replace(/\s*\/\s*/g, " / ");
+
+    return normalizeSpaces(s);
+  }
+
+  // Route path: "star-wars" -> "Star Wars"
+  // Also handle accidental %xx still present even if heuristic didn't trigger
+  let s = raw;
+  try {
+    s = decodeURIComponent(raw);
+  } catch {
+    // ignore
+  }
+
   s = s.replace(/-/g, " ");
+  s = normalizeSpaces(s);
 
-  // Restore literal hyphens
-  s = s.replaceAll(HY, "-");
-
-  // Restore slash token (keep nice spacing)
-  s = s.replaceAll(SLASH_TOKEN, "/");
-  s = s.replace(/\s*\/\s*/g, " / ");
-
-  return normalizeSpaces(s);
+  return toTitleCaseWords(s);
 }

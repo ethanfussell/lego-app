@@ -1070,7 +1070,8 @@ export default function SetDetailClient(props: Props) {
               loading={offersLoading}
               error={offersError}
               onRetry={() => {
-                const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
+                const retired =
+                  setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
                 fetchOffers(setNum, retired ? "retired" : "unknown");
               }}
             />

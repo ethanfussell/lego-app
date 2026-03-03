@@ -37,7 +37,42 @@ If a URL’s hostname is not in the allowlist, `buildAffiliateUrl()` returns an 
 
 These UTMs work even before real affiliate programs are wired up.
 
-## Event tracking
+## Event tracking (lib/events.ts)
+
+All events are logged via `logEvent()` (currently `console.info`, later a real endpoint).
+
+### affiliate_click
+Fired when the user clicks an outbound retailer link.
+
+Fields:
+- `event`: `"affiliate_click"`
+- `url`: string (final affiliate URL)
+- `label?`: string (store label)
+- `placement?`: string (e.g. `"set_detail_shop"`)
+- `set_num?`: string
+- `offer_rank?`: number
+- `price?`: number
+- `currency?`: string
+- `ts`: number (Date.now())
+
+### CTA events
+We track CTA experiments with three events:
+- `cta_impression`
+- `cta_click`
+- `cta_complete`
+
+Fields:
+- `event`: `"cta_impression" | "cta_click" | "cta_complete"`
+- `cta_id`: `"hero_track" | "after_offers_alerts"`
+- `variant`: `"A" | "B"`
+- `placement`: `"set_hero" | "after_offers"`
+- `set_num`: string
+- `ts`: number (Date.now())
+
+Notes:
+- `cta_impression` should fire once per (cta_id, set_num, variant) per page view.
+- `cta_click` fires when the CTA is clicked.
+- `cta_complete` fires when the CTA flow completes (e.g. email saved / already subscribed).
 
 ### Offer clicks
 Offer links (e.g., “View offer →”) should:

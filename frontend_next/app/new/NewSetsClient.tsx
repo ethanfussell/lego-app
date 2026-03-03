@@ -6,13 +6,25 @@ import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import type { MonthKey } from "./featuredThemes";
 
-// ✅ Use the SetCard prop type directly (avoids `as any` / mismatch)
-type SetLite = React.ComponentProps<typeof SetCard>["set"];
-
-type CollectionRow = {
+// Match backend /sets/new payload (plus a few optional fields SetCard may accept)
+type SetLite = {
   set_num: string;
+  name?: string | null;
+  year?: number | null;
+  pieces?: number | null;
+  theme?: string | null;
+  image_url?: string | null;
+  average_rating?: number | null;
+  rating_avg?: number | null;
+  rating_count?: number | null;
+  review_count?: number | null;
+  created_at?: string | null;
 };
+
+type CollectionRow = { set_num: string };
+type SetCardSet = React.ComponentProps<typeof SetCard>["set"];
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -41,7 +53,68 @@ async function fetchCollectionSetNums(token: string, path: "/collections/me/owne
   return new Set(rows.map((r) => String(r.set_num || "").trim()).filter(Boolean));
 }
 
-function SetRow({
+function isSafeNextImageSrc(src: unknown): src is string {
+  if (typeof src !== "string") return false;
+  const s = src.trim();
+  if (!s) return false;
+  return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/");
+}
+
+function toSetCardSet(s: SetLite): SetCardSet {
+  const safeImage = isSafeNextImageSrc(s.image_url) ? s.image_url!.trim() : null;
+  return {
+    ...(s as unknown as SetCardSet),
+    image_url: safeImage,
+  };
+}
+
+function QuickStatsBar({ sets }: { sets: SetLite[] }) {
+  const total = sets.length;
+
+  const themeCount = useMemo(() => {
+    const uniq = new Set(
+      sets.map((s) => (typeof s.theme === "string" ? s.theme.trim() : "")).filter(Boolean)
+    );
+    return uniq.size;
+  }, [sets]);
+
+  const biggest = useMemo(() => {
+    let best: SetLite | null = null;
+    for (const s of sets) {
+      const p = typeof s.pieces === "number" ? s.pieces : null;
+      if (p == null) continue;
+      if (!best) best = s;
+      else if ((best.pieces ?? 0) < p) best = s;
+    }
+    return best;
+  }, [sets]);
+
+  return (
+    <div className="mt-5 rounded-2xl border border-black/[.08] bg-white px-4 py-3 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <div>
+          <span className="font-semibold text-zinc-900 dark:text-zinc-50">Total releases:</span> {total}
+        </div>
+        <div className="text-zinc-400 dark:text-zinc-600">•</div>
+        <div>
+          <span className="font-semibold text-zinc-900 dark:text-zinc-50">Themes:</span> {themeCount}
+        </div>
+
+        {biggest ? (
+          <>
+            <div className="text-zinc-400 dark:text-zinc-600">•</div>
+            <div>
+              <span className="font-semibold text-zinc-900 dark:text-zinc-50">Biggest set:</span> {biggest.set_num}
+              {typeof biggest.pieces === "number" ? ` (${biggest.pieces.toLocaleString()} pcs)` : ""}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CarouselRow({
   title,
   subtitle,
   sets,
@@ -70,7 +143,7 @@ function SetRow({
       <div className="mt-4 overflow-x-auto pb-2">
         <ul className="m-0 flex list-none gap-3 p-0">
           {sets.map((s) => {
-            const sn = String((s as { set_num?: unknown }).set_num || "").trim();
+            const sn = String(s.set_num || "").trim();
             if (!sn) return null;
 
             const isOwned = owned.has(sn);
@@ -89,7 +162,7 @@ function SetRow({
 
             return (
               <li key={sn} className="w-[220px] shrink-0">
-                <SetCard set={s} footer={footer} />
+                <SetCard set={toSetCardSet(s)} footer={footer} />
               </li>
             );
           })}
@@ -99,12 +172,80 @@ function SetRow({
   );
 }
 
+function FeaturedThemes({
+  sets,
+  owned,
+  wish,
+  token,
+  featuredThemes,
+}: {
+  sets: SetLite[];
+  owned: Set<string>;
+  wish: Set<string>;
+  token: string | null;
+  featuredThemes: string[];
+}) {
+  const themes = (featuredThemes || []).map((t) => String(t || "").trim()).filter(Boolean);
+  if (!themes.length) return null;
+
+  // group sets by theme (only featured themes)
+  const byTheme = useMemo(() => {
+    const map = new Map<string, SetLite[]>();
+    for (const theme of themes) map.set(theme, []);
+
+    for (const s of sets) {
+      const t = typeof s.theme === "string" ? s.theme.trim() : "";
+      if (!t) continue;
+      if (!map.has(t)) continue;
+      map.get(t)!.push(s);
+    }
+
+    // keep feed order; cap each carousel
+    for (const [k, arr] of map.entries()) {
+      map.set(k, arr.slice(0, 14));
+    }
+
+    return map;
+  }, [sets, themes.join("|")]);
+
+  const any = themes.some((t) => (byTheme.get(t)?.length ?? 0) > 0);
+  if (!any) return null;
+
+  return (
+    <section className="mt-10">
+      <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Featured themes</h2>
+      <p className="mt-2 text-sm text-zinc-500">A quick look at new drops in a few highlighted themes.</p>
+
+      {themes.map((theme) => {
+        const themeSets = byTheme.get(theme) ?? [];
+        return (
+          <CarouselRow
+            key={theme}
+            title={theme}
+            subtitle={
+              themeSets.length ? `${themeSets.length} new set${themeSets.length === 1 ? "" : "s"} in this feed` : undefined
+            }
+            sets={themeSets}
+            owned={owned}
+            wish={wish}
+            token={token}
+          />
+        );
+      })}
+    </section>
+  );
+}
+
 export default function NewSetsClient({
   initialSets,
   initialError,
+  monthKey,
+  featuredThemes,
 }: {
   initialSets: SetLite[];
   initialError: string | null;
+  monthKey: MonthKey;
+  featuredThemes: string[];
 }) {
   const { token, hydrated } = useAuth();
 
@@ -153,22 +294,30 @@ export default function NewSetsClient({
     };
   }, [token, hydrated]);
 
-  // ✅ memoize so downstream useMemos don’t get “deps change every render”
-  const newSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
-
-  const justReleased = useMemo(() => newSets.slice(0, 12), [newSets]);
-  const moreNewRow = useMemo(() => newSets.slice(12, 24), [newSets]);
-  const moreNewGrid = useMemo(() => newSets.slice(24), [newSets]);
+  const sets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <section className="mt-10">
-        <h1 className="m-0 text-2xl font-semibold">New LEGO sets</h1>
-        <p className="mt-2 max-w-[560px] text-sm text-zinc-500">
-          See the latest LEGO releases first. Scroll through the newest sets and spotlighted picks.
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="m-0 text-2xl font-semibold">New LEGO set releases this month</h1>
+            <p className="mt-2 max-w-[640px] text-sm text-zinc-500">
+              A rolling view of the newest sets we’ve seen this month.
+            </p>
+          </div>
 
-        {initialError ? <p className="mt-4 text-sm text-red-600">Error loading new sets: {initialError}</p> : null}
+          {/* optional: tiny month label */}
+          <div className="text-xs font-semibold text-zinc-500">{monthKey}</div>
+        </div>
+
+        <div className="mt-3 text-xs text-zinc-500">
+          Note: “New” is currently based on when sets were added to our database (not an official LEGO release calendar).
+        </div>
+
+        {initialError ? <p className="mt-4 text-sm text-red-600">Error loading sets: {initialError}</p> : null}
+
+        <QuickStatsBar sets={sets} />
 
         {hydrated && token ? (
           <div className="mt-4 text-sm text-zinc-500">
@@ -178,59 +327,49 @@ export default function NewSetsClient({
         ) : null}
       </section>
 
-      {!initialError && newSets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No new sets found yet.</p> : null}
+      {!initialError && sets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No sets found.</p> : null}
 
-      <SetRow
-        title="Just released"
-        subtitle="The absolute newest sets, sorted by release year."
-        sets={justReleased}
+      {/* Featured Themes ABOVE the full monthly feed */}
+      <FeaturedThemes
+        sets={sets}
         owned={ownedSetNums}
         wish={wishlistSetNums}
         token={token ?? null}
+        featuredThemes={featuredThemes}
       />
 
-      <SetRow
-        title="More new sets"
-        subtitle="Keep scrolling for even more fresh releases."
-        sets={moreNewRow}
-        owned={ownedSetNums}
-        wish={wishlistSetNums}
-        token={token ?? null}
-      />
+      {/* Full Monthly Drop */}
+      <section className="mt-14">
+        <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Full monthly drop</h2>
+        <p className="mt-2 text-sm text-zinc-500">Everything in the current “new releases” feed.</p>
 
-      {moreNewGrid.length > 0 ? (
-        <section className="mt-12">
-          <h2 className="m-0 text-lg font-semibold">All recent releases</h2>
-          <p className="mt-1 text-sm text-zinc-500">Explore even more of the latest sets.</p>
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+          {sets.map((s) => {
+            const sn = String(s.set_num || "").trim();
+            if (!sn) return null;
 
-          <div className="mt-5 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
-            {moreNewGrid.map((s) => {
-              const sn = String((s as { set_num?: unknown }).set_num || "").trim();
-              if (!sn) return null;
+            const isOwned = ownedSetNums.has(sn);
+            const isWish = wishlistSetNums.has(sn);
 
-              const isOwned = ownedSetNums.has(sn);
-              const isWish = wishlistSetNums.has(sn);
-
-              const footer = (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isOwned ? <Badge tone="owned">Owned</Badge> : null}
-                    {isWish ? <Badge tone="wish">Wishlist</Badge> : null}
-                  </div>
-
-                  {token ? <SetCardActions token={token} setNum={sn} /> : null}
+            const footer = (
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {isOwned ? <Badge tone="owned">Owned</Badge> : null}
+                  {isWish ? <Badge tone="wish">Wishlist</Badge> : null}
                 </div>
-              );
 
-              return (
-                <div key={sn} className="w-[220px]">
-                  <SetCard set={s} footer={footer} />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
+                {token ? <SetCardActions token={token} setNum={sn} /> : null}
+              </div>
+            );
+
+            return (
+              <div key={sn} className="w-[220px]">
+                <SetCard set={toSetCardSet(s)} footer={footer} />
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

@@ -22,6 +22,23 @@ const SETS_INDEX = "/sets";
 const THEMES_INDEX = "/themes";
 const PUBLIC_LISTS_INDEX = "/lists/public";
 
+// --- Add your custom static “best under N pieces” pages here ---
+const PIECES_UNDER_THRESHOLDS = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000] as const;
+
+// OPTION A: ONLY curated /themes/{slug}/top pages in the sitemap.
+const TOP_THEMES = [
+  "Star Wars",
+  "Duplo",
+  "City",
+  "Town",
+  "Friends",
+  "Educational and Dacta",
+  "Creator",
+  "Technic",
+  "Ninjago",
+  "Seasonal",
+] as const;
+
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is UnknownRecord {
@@ -132,9 +149,9 @@ function readSetNum(r: unknown): string | null {
     r.set_num ??
     r.setNum ??
     r.set_number ??
-    (isRecord(r) ? (r as UnknownRecord)["set_num"] : undefined) ??
-    (isRecord(r) ? (r as UnknownRecord)["setNum"] : undefined) ??
-    (isRecord(r) ? (r as UnknownRecord)["set_number"] : undefined);
+    (r as UnknownRecord)["set_num"] ??
+    (r as UnknownRecord)["setNum"] ??
+    (r as UnknownRecord)["set_number"];
 
   return asTrimmedString(sn);
 }
@@ -224,9 +241,12 @@ async function collectThemeUrls(): Promise<{
     }
 
     try {
-      const slug = themeToSlug(t); // MUST match app routing
-      if (typeof slug === "string" && slug.trim()) themePaths.push(`/themes/${slug}`);
-      else badSlugThemes.push(t);
+      const slug = themeToSlug(t);
+      if (typeof slug === "string" && slug.trim()) {
+        themePaths.push(`/themes/${slug}`);
+      } else {
+        badSlugThemes.push(t);
+      }
     } catch {
       badSlugThemes.push(t);
     }
@@ -338,6 +358,7 @@ export async function GET() {
     setsProbeCount = pickArrayOrResults(setsProbe.data).length;
   } catch {}
 
+  // Static pages
   const staticEntries: UrlEntry[] = [
     { loc: `${base}/`, changefreq: "daily", priority: 1.0, lastmod: now },
     { loc: `${base}/themes`, changefreq: "weekly", priority: 0.8, lastmod: now },
@@ -350,20 +371,28 @@ export async function GET() {
     { loc: `${base}/affiliate-disclosure`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/privacy`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
+    { loc: `${base}/themes/top`, changefreq: "weekly", priority: 0.6, lastmod: now },
+    
+    // Pieces “best under N” pages
+    ...PIECES_UNDER_THRESHOLDS.map((n) => ({
+      loc: `${base}/pieces/under/${n}/best`,
+      changefreq: "weekly" as const,
+      priority: 0.5,
+      lastmod: now,
+    })),
 
-    // Theme “top” pages (Top 10 themes by set count)
-    { loc: `${base}/themes/Star-Wars/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Duplo/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/City/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Town/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Friends/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Educational-and-Dacta/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Creator/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Technic/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Ninjago/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/themes/Seasonal/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
+    // Curated “top theme” pages — ONLY these (Option A)
+    ...TOP_THEMES.map((t) => {
+      const slug = themeToSlug(t);
+      return {
+        loc: `${base}/themes/${slug}/top`,
+        changefreq: "weekly" as const,
+        priority: 0.5,
+        lastmod: now,
+      };
+    }),
 
-    // Keep these since you already like them (but they’ll also be included below anyway)
+    // Keep these year top pages (also generated below anyway)
     { loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
     { loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
@@ -433,6 +462,9 @@ export async function GET() {
 
   const dynamicEntries: UrlEntry[] = [
     ...themePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.6 })),
+
+    // Option A: DO NOT include /themes/{slug}/top for all themes here.
+
     ...setPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "monthly" as const, priority: 0.5 })),
     ...publicListPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.4 })),
     ...userProfilePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.3 })),
@@ -456,7 +488,7 @@ export async function GET() {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-      "X-Sitemap-Route": "v6",
+      "X-Sitemap-Route": "v7",
       "X-Sitemap-ApiBase": api,
 
       "X-Sitemap-ThemesURL": themesProbeUrl,
@@ -468,6 +500,7 @@ export async function GET() {
       "X-Sitemap-SetsProbeCount": String(setsProbeCount),
 
       "X-Sitemap-Themes": String(themePaths.length),
+      "X-Sitemap-ThemesTop": "0", // Option A (dynamic top disabled)
       "X-Sitemap-ThemesRaw": String(themesRawCount),
       "X-Sitemap-ThemesBadSlug": String(themesBadSlugCount),
       "X-Sitemap-ThemesBadSlugSample": themesBadSlugSample,

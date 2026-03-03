@@ -112,18 +112,25 @@ function previewBody(body: unknown): string {
   }
 }
 
+function isDev(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 function logIfHtmlOrError(resp: Response, body: unknown) {
+  // Don’t spam logs for expected auth failures
+  if (resp.status === 401 || resp.status === 403) return;
+
+  // Only log in dev
+  if (!isDev()) return;
+
   const ct = resp.headers.get("content-type") || "";
   const isHtml =
     ct.includes("text/html") ||
     (typeof body === "string" && body.trim().startsWith("<!DOCTYPE html"));
 
-  // ✅ In the browser, 401/403 is expected during auth hydration / expired tokens.
-  if (typeof window !== "undefined" && (resp.status === 401 || resp.status === 403)) {
-    return;
-  }
-
-  // ✅ Only log when not ok OR HTML
+  // Log if:
+  // - non-OK response
+  // - OR response is OK but looks like HTML (proxy misroute)
   if (resp.ok && !isHtml) return;
 
   console.error("[apiFetch] bad response", {

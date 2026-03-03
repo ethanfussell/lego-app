@@ -5,6 +5,7 @@ import os
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -650,6 +651,63 @@ def list_my_reviews(
         )
     return out
 
+@router.get("/new")
+def list_new_sets(
+    response: Response,
+    days: int = Query(30, ge=1, le=365),
+    page: int = Query(1, ge=1),
+    limit: int = Query(80, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """
+    DB-backed "new releases" list, based on sets.created_at.
+    Use days=7 for "this week", days=30 for "this month".
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
+
+    # Base query (newest first)
+    base_q = (
+        select(SetModel)
+        .where(SetModel.created_at >= cutoff)
+        .order_by(SetModel.created_at.desc(), SetModel.set_num.asc())
+    )
+
+    # Total count
+    total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
+    response.headers["X-Total-Count"] = str(total)
+
+    # Pagination
+    offset = (page - 1) * limit
+    rows = db.execute(base_q.offset(offset).limit(limit)).scalars().all()
+
+    # Ratings enrichment (matches your existing /sets output fields)
+    ratings = _ratings_map(db)
+    review_counts = _review_counts_map(db)
+
+    out: List[Dict[str, Any]] = []
+    for s in rows:
+        canonical = s.set_num
+        avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = int(review_counts.get(canonical, 0))
+
+        out.append(
+            {
+                "set_num": s.set_num,
+                "name": s.name,
+                "year": s.year,
+                "theme": s.theme,
+                "pieces": s.pieces,
+                "image_url": s.image_url,
+                "average_rating": avg,
+                "rating_avg": avg,
+                "rating_count": int(cnt or 0),
+                "review_count": int(rev_cnt or 0),
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+        )
+
+    return out
+
 
 @router.get("/{set_num}")
 def get_set(
@@ -678,3 +736,4 @@ def get_set(
     out["review_count"] = review_cnt
     out["user_rating"] = user_rating
     return out
+

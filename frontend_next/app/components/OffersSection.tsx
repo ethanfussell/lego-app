@@ -20,6 +20,7 @@ type NormalizedOffer = {
   price?: number;
   currency?: string;
   inStock: boolean | null;
+  updatedAt?: string | null;
   rank: number;
 };
 
@@ -81,18 +82,18 @@ function formatPrice(price?: number, currency?: string): string | null {
   return currency ? `${currency} ${rounded}` : `$${rounded}`;
 }
 
+function formatUpdatedAt(value?: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString();
+}
+
 export function summarizeStock(offers: NormalizedOffer[]): StockSummary {
   if (offers.length === 0) return "unknown";
-
-  const anyTrue = offers.some((o) => o.inStock === true);
-  if (anyTrue) return "in";
-
-  const anyNull = offers.some((o) => o.inStock === null);
-  if (anyNull) return "unknown";
-
-  const anyFalse = offers.some((o) => o.inStock === false);
-  if (anyFalse) return "out";
-
+  if (offers.some((o) => o.inStock === true)) return "in";
+  if (offers.some((o) => o.inStock === null)) return "unknown";
+  if (offers.some((o) => o.inStock === false)) return "out";
   return "unknown";
 }
 
@@ -137,6 +138,23 @@ function ErrorState({ error, onRetry }: { error: string; onRetry?: () => void })
   );
 }
 
+function stockRank(v: boolean | null) {
+  // true (in) -> null (unknown) -> false (out)
+  return v === true ? 0 : v === null ? 1 : 2;
+}
+
+function pickBestIndex(sorted: NormalizedOffer[]): number {
+  // Best = cheapest among offers that have a price
+  const priced = sorted
+    .map((o, idx) => ({ idx, price: typeof o.price === "number" ? o.price : null }))
+    .filter((x): x is { idx: number; price: number } => typeof x.price === "number");
+
+  if (priced.length === 0) return 0;
+
+  priced.sort((a, b) => a.price - b.price);
+  return priced[0].idx;
+}
+
 export default function OffersSection({
   setNum,
   offers,
@@ -167,16 +185,14 @@ export default function OffersSection({
       const storeLabel = cleanLabel(o?.store, "Store");
       const price = cleanPrice(o?.price);
       const currency = cleanCurrency(o?.currency);
-
       const inStock: boolean | null = o?.in_stock === true ? true : o?.in_stock === false ? false : null;
+      const updatedAt = typeof o?.updated_at === "string" && o.updated_at.trim() ? o.updated_at.trim() : null;
 
-      return { href, storeLabel, price, currency, inStock, rank: i + 1 };
+      return { href, storeLabel, price, currency, inStock, updatedAt, rank: i + 1 };
     })
     .filter((x): x is NormalizedOffer => x !== null);
 
   const sorted = normalized.slice().sort((a, b) => {
-    const stockRank = (v: boolean | null) => (v === true ? 0 : v === null ? 1 : 2);
-
     const sa = stockRank(a.inStock);
     const sb = stockRank(b.inStock);
     if (sa !== sb) return sa - sb;
@@ -196,26 +212,38 @@ export default function OffersSection({
     );
   }
 
+  const bestIdx = pickBestIndex(sorted);
+
   return (
     <ul className="space-y-2">
-      {sorted.map((o) => {
-        const labelForAnalytics = o.storeLabel || "offer";
+      {sorted.map((o, idx) => {
+        const isBest = idx === bestIdx;
 
         const affiliateHref = buildAffiliateUrl(
           { url: o.href, store: o.storeLabel, currency: o.currency, price: o.price },
           { placement, setNum, offerRank: o.rank }
         );
 
-        if (!affiliateHref) return null;
+        // Always show the row: if affiliate is blocked, fall back to safe raw URL.
+        const finalHref = affiliateHref || o.href;
+        const isAffiliate = Boolean(affiliateHref);
+
+        const updatedLabel = formatUpdatedAt(o.updatedAt);
 
         return (
           <li
-            key={`${affiliateHref}-${o.rank}`}
+            key={`${o.href}-${o.rank}`}
             className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
           >
             <div className="min-w-0">
               <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                 {o.storeLabel}
+
+                {isBest ? (
+                  <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                    Best price
+                  </span>
+                ) : null}
 
                 {o.inStock === true ? (
                   <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
@@ -232,22 +260,33 @@ export default function OffersSection({
                 )}
               </div>
 
-              <div className="mt-1 text-xs text-zinc-500">{formatPrice(o.price, o.currency) ?? "Price unavailable"}</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                <div>{formatPrice(o.price, o.currency) ?? "Price unavailable"}</div>
+
+                {updatedLabel ? (
+                  <div className="mt-0.5 text-[11px] text-zinc-400">Updated: {updatedLabel}</div>
+                ) : null}
+
+                {!isAffiliate ? (
+                  <div className="mt-0.5 text-[11px] text-zinc-400">(affiliate disabled for this domain)</div>
+                ) : null}
+              </div>
             </div>
 
             <a
-              href={affiliateHref}
+              href={finalHref}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => {
                 outboundClick({
-                  url: affiliateHref,
-                  label: labelForAnalytics,
+                  url: finalHref,
+                  label: o.storeLabel || "offer",
                   placement,
                   set_num: setNum,
                   offer_rank: o.rank,
                   price: o.price,
                   currency: o.currency,
+                  conversion: isAffiliate, // only flag conversion when affiliate URL was used
                 });
               }}
               className="inline-flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
 import { slugToTheme, themeToSlug } from "@/lib/slug";
 
 export const dynamic = "force-static";
@@ -25,23 +26,20 @@ const TOP_THEMES = [
   "Seasonal",
 ] as const;
 
+const TOP_THEME_SET = new Set<string>(TOP_THEMES);
+
 const DEFAULT_LIMIT = 36;
 
 function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
 }
 function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
 type Params = { themeSlug: string };
 
-function canonicalForThemeTop(themeSlugEncoded: string) {
-  return `/themes/${themeSlugEncoded}/top`;
-}
-
 type UnknownRecord = Record<string, unknown>;
-
 function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -50,7 +48,6 @@ function getString(o: UnknownRecord, key: string): string | null {
   const v = o[key];
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
-
 function getNumber(o: UnknownRecord, key: string): number | null {
   const v = o[key];
   return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -114,7 +111,7 @@ async function fetchTopSetsForThemeSSR(themeName: string): Promise<SetRow[] | "n
   qs.set("sort", "rating");
   qs.set("order", "desc");
 
-  // IMPORTANT: use exact theme endpoint (not fuzzy /sets?q=)
+  // IMPORTANT: encode the THEME NAME for the API path (not the slug)
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
 
   let res: Response;
@@ -155,6 +152,11 @@ function RelatedLinks({ themeName }: { themeName: string }) {
               </li>
             ))}
             <li className="pt-1">
+              <Link href="/themes/top" className="font-semibold hover:underline">
+                View Top Themes hub →
+              </Link>
+            </li>
+            <li className="pt-1">
               <Link href="/themes" className="font-semibold hover:underline">
                 Browse all themes →
               </Link>
@@ -184,36 +186,65 @@ function RelatedLinks({ themeName }: { themeName: string }) {
   );
 }
 
+// NOTE: themeSlug passed here must already be URL-safe (encoded) => do NOT encodeURIComponent again.
+function canonicalForThemeTop(themeSlug: string) {
+  return `/themes/${themeSlug}/top`;
+}
+
 export async function generateMetadata({ params }: { params: Params | Promise<Params> }): Promise<Metadata> {
   const { themeSlug } = await Promise.resolve(params);
+
   const themeName = slugToTheme(themeSlug);
+  const base = new URL(siteBase());
 
   if (!themeName || !themeName.trim()) {
     return {
       title: "Top LEGO sets by theme",
       description: "Browse the highest-rated LEGO sets by theme.",
-      metadataBase: new URL(siteBase()),
+      metadataBase: base,
       robots: { index: false, follow: false },
     };
   }
 
   const canonicalSlug = themeToSlug(themeName);
-  const canonical = canonicalForThemeTop(canonicalSlug);
-  const title = `Top LEGO sets in ${themeName}`;
-  const description = `Browse the highest-rated LEGO sets in the ${themeName} theme.`;
+  const canonicalPath = canonicalForThemeTop(canonicalSlug);
+
+  const title = `Top LEGO sets in ${themeName} (highest-rated)`;
+  const description = `Browse the highest-rated LEGO sets in the ${themeName} theme, ranked by average rating and rating count.`;
+
+  const ogImageUrl = new URL("/opengraph-image", base).toString();
+
+  // ✅ Option A:
+  // - Only curated TOP_THEMES pages are indexable
+  // - All other /themes/{slug}/top pages are noindex,follow
+  const isCuratedTop = TOP_THEME_SET.has(themeName);
 
   return {
     title,
     description,
-    metadataBase: new URL(siteBase()),
-    alternates: { canonical },
-    openGraph: { title, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title, description },
+    metadataBase: base,
+    alternates: { canonical: canonicalPath }, // keep canonical stable
+    robots: isCuratedTop ? undefined : ({ index: false, follow: true } as const),
+    openGraph: {
+      title,
+      description,
+      url: canonicalPath,
+      type: "website",
+      siteName: "LEGO App",
+      images: [{ url: ogImageUrl }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [ogImageUrl],
+    },
   };
 }
 
 export default async function Page({ params }: { params: Params | Promise<Params> }) {
   const { themeSlug } = await Promise.resolve(params);
+
   const themeName = slugToTheme(themeSlug);
   if (!themeName || !themeName.trim()) notFound();
 
@@ -221,6 +252,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
 
   const sets = await fetchTopSetsForThemeSSR(themeName);
   if (sets === "notfound") notFound();
+
+  const isCuratedTop = TOP_THEME_SET.has(themeName);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -247,6 +280,12 @@ export default async function Page({ params }: { params: Params | Promise<Params
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
               Highest-rated sets in this theme (sorted by average rating, then rating count).
             </p>
+
+            {!isCuratedTop ? (
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Note: this page is not part of our curated Top Themes set.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -255,6 +294,12 @@ export default async function Page({ params }: { params: Params | Promise<Params
               className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
             >
               ← Theme
+            </Link>
+            <Link
+              href="/themes/top"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Top themes →
             </Link>
             <Link
               href="/themes"
@@ -286,18 +331,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
                     {imgSrc ? (
                       <div className="relative h-20 w-24">
-                        <Image
-                          src={imgSrc}
-                          alt={s.name || s.set_num}
-                          fill
-                          sizes="96px"
-                          className="object-contain p-2"
-                        />
+                        <Image src={imgSrc} alt={s.name || s.set_num} fill sizes="96px" className="object-contain p-2" />
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-500">
-                        No image
-                      </div>
+                      <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-500">No image</div>
                     )}
                   </div>
 

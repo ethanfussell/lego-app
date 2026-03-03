@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { slugToTheme } from "@/lib/slug";
 
 type SetSummary = {
   set_num: string;
@@ -80,11 +81,14 @@ function toSetSummaryArray(x: unknown): SetSummary[] {
 }
 
 export default function ThemeDetailClient(props: {
-  themeSlug: string;
+  themeSlug: string; // canonical route slug (encoded / stable)
   initialSets: SetSummary[];
   initialQuery: Query;
 }) {
   const { themeSlug, initialSets, initialQuery } = props;
+
+  // Derive display name from slug (works even when initialSets is empty)
+  const themeName = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
 
   // Start with server-rendered data so bots/users see real content immediately.
   const [sets, setSets] = useState<SetSummary[]>(initialSets);
@@ -113,8 +117,9 @@ export default function ThemeDetailClient(props: {
         qs.set("sort", clientQuery.sort);
         qs.set("order", clientQuery.order);
 
-        // Hit your Next route handler (same-origin)
-        const url = `/api/themes/${encodeURIComponent(themeSlug)}/sets?${qs.toString()}`;
+        // Hit your Next route handler (same-origin).
+        // IMPORTANT: themeSlug is already URL-safe; don't double-encode.
+        const url = `/api/themes/${themeSlug}/sets?${qs.toString()}`;
 
         const res = await fetch(url, {
           signal: controller.signal,
@@ -148,7 +153,7 @@ export default function ThemeDetailClient(props: {
     <div className="mx-auto max-w-5xl px-6 py-12">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{sets?.[0]?.theme ?? "Theme"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{themeName || "Theme"}</h1>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
             {loading ? <span>Refreshing…</span> : <span> </span>}

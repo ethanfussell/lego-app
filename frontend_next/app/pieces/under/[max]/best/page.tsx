@@ -132,26 +132,44 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
   const { max } = await Promise.resolve(params);
   const n = normalizeMax(max);
 
+  const base = new URL(siteBase());
+
   if (!n) {
     return {
       title: "Best LEGO sets under N pieces",
       description: "Browse the best LEGO sets under a piece count.",
-      metadataBase: new URL(siteBase()),
+      metadataBase: base,
       robots: { index: false, follow: false },
     };
   }
 
-  const canonical = canonicalFor(n);
-  const title = `Best LEGO sets under ${n.toLocaleString()} pieces`;
-  const description = `Browse top-rated LEGO sets with ${n.toLocaleString()} pieces or fewer.`;
+  const canonicalPath = canonicalFor(n);
+  const canonicalUrl = new URL(canonicalPath, base).toString();
+
+  const title = `Best LEGO sets under ${n.toLocaleString()} pieces (top-rated)`;
+  const description = `Browse top-rated LEGO sets with ${n.toLocaleString()} pieces or fewer, ranked by average rating and rating count.`;
+
+  const ogImageUrl = new URL("/opengraph-image", base).toString();
 
   return {
     title,
     description,
-    metadataBase: new URL(siteBase()),
-    alternates: { canonical },
-    openGraph: { title, description, url: canonical, type: "website" },
-    twitter: { card: "summary", title, description },
+    metadataBase: base,
+    alternates: { canonical: canonicalUrl },
+    openGraph: {
+      title,
+      description,
+      url: canonicalUrl,
+      type: "website",
+      siteName: "LEGO App",
+      images: [{ url: ogImageUrl }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [ogImageUrl],
+    },
   };
 }
 
@@ -181,7 +199,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
           <div>
             <h1 className="m-0 text-2xl font-semibold">Best sets under {n.toLocaleString()} pieces</h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Sorted by average rating, then rating count.
+              Top-rated sets with {n.toLocaleString()} pieces or fewer (sorted by average rating, then rating count).
             </p>
           </div>
 
@@ -222,13 +240,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                   <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
                     {imgSrc ? (
                       <div className="relative h-20 w-24">
-                        <Image
-                          src={imgSrc}
-                          alt={s.name || s.set_num}
-                          fill
-                          sizes="96px"
-                          className="object-contain p-2"
-                        />
+                        <Image src={imgSrc} alt={s.name || s.set_num} fill sizes="96px" className="object-contain p-2" />
                       </div>
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-500">

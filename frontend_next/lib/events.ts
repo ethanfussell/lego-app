@@ -1,4 +1,5 @@
 // frontend_next/lib/events.ts
+
 export type AffiliateClickEvent = {
   event: "affiliate_click";
   url: string;
@@ -8,6 +9,7 @@ export type AffiliateClickEvent = {
   offer_rank?: number;
   price?: number;
   currency?: string;
+  conversion?: boolean; 
   ts: number;
 };
 
@@ -20,9 +22,22 @@ export type CtaEvent = {
   ts: number;
 };
 
-export function logEvent(e: AffiliateClickEvent | CtaEvent) {
+type AnyEvent = AffiliateClickEvent | CtaEvent;
+
+function shouldDebugEvents(): boolean {
+  // Enable locally by setting NEXT_PUBLIC_DEBUG_EVENTS=1 in .env.local
+  if (typeof process !== "undefined") {
+    const v = process.env.NEXT_PUBLIC_DEBUG_EVENTS;
+    if (v === "1" || v === "true") return true;
+  }
+  // Default: log only in dev builds (still quiet unless explicitly enabled)
+  return false;
+}
+
+export function logEvent(e: AnyEvent) {
   // v1: console only (later: POST /events)
-  // eslint-disable-next-line no-console
+  if (!shouldDebugEvents()) return;
+
   console.info("[event]", e);
 }
 
@@ -35,3 +50,4 @@ export function ctaClick(e: Omit<CtaEvent, "event" | "ts">) {
 export function ctaComplete(e: Omit<CtaEvent, "event" | "ts">) {
   logEvent({ event: "cta_complete", ts: Date.now(), ...e });
 }
+
