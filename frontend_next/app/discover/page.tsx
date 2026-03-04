@@ -1,16 +1,28 @@
 // frontend_next/app/discover/page.tsx
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
 
 export const dynamic = "force-static";
 export const revalidate = 3600; // ISR (1 hour)
 
+function siteBase(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
+}
+
 export async function generateMetadata(): Promise<Metadata> {
+  const title = "Discover";
+  const description = "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.";
+  const canonicalPath = "/discover";
+
   return {
-    title: "Discover",
-    description: "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.",
-    alternates: { canonical: "/discover" },
+    title,
+    description,
+    metadataBase: new URL(siteBase()),
+    alternates: { canonical: canonicalPath },
+    openGraph: { title, description, url: canonicalPath, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -44,7 +56,7 @@ type SortKey = "year" | "rating" | "pieces" | "name" | "relevance";
 type Order = "asc" | "desc";
 
 function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
 function errorMessage(e: unknown) {
@@ -110,18 +122,23 @@ async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limi
   const res = await fetch(url, {
     method: "GET",
     headers: { accept: "application/json" },
-    next: { revalidate }, // ✅ THIS is what makes the route cacheable
+    next: { revalidate },
   });
 
   if (!res.ok) {
-    return { results: [] as SetLite[], total: 0, totalPages: 1, page: opts.page, error: `${res.status} ${res.statusText}` };
+    return {
+      results: [] as SetLite[],
+      total: 0,
+      totalPages: 1,
+      page: opts.page,
+      error: `${res.status} ${res.statusText}`,
+    };
   }
 
   const raw: unknown = await res.json().catch(() => null);
   const data = asFeedResponse(raw);
 
   const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
-
   const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
 
   const totalPages =
@@ -132,6 +149,22 @@ async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limi
   const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
 
   return { results, total, totalPages, page, error: null as string | null };
+}
+
+function PopularLinks() {
+  const chip =
+    "rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:text-zinc-50 dark:hover:bg-white/[.06]";
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 pt-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-zinc-500">Popular:</span>
+        <Link href="/pieces/most" className={chip}>
+          Most pieces →
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 export default async function Page({ searchParams }: PageProps) {
@@ -157,17 +190,15 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const r = await fetchFeed({ sort, order, page, limit: pageSize });
-    initial = {
-      ...initial,
-      results: r.results,
-      total: r.total,
-      totalPages: r.totalPages,
-      page: r.page,
-      error: r.error,
-    };
+    initial = { ...initial, results: r.results, total: r.total, totalPages: r.totalPages, page: r.page, error: r.error };
   } catch (e: unknown) {
     initial = { ...initial, error: errorMessage(e) };
   }
 
-  return <DiscoverClient initial={initial} />;
+  return (
+    <>
+      <PopularLinks />
+      <DiscoverClient initial={initial} />
+    </>
+  );
 }

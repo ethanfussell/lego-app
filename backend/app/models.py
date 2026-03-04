@@ -14,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
     Boolean,
+    Float,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -146,4 +147,23 @@ class EmailSignup(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String, nullable=False, unique=True, index=True)
     source = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class AffiliateClick(Base):
+    __tablename__ = "affiliate_clicks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Optional user (if logged in)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    set_num = Column(String, nullable=False, index=True)
+    store = Column(String, nullable=False, index=True)
+
+    price = Column(Float, nullable=True)
+    currency = Column(String(8), nullable=True)
+
+    offer_rank = Column(Integer, nullable=True)
+
+    page_path = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

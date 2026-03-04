@@ -4,6 +4,7 @@
 import React from "react";
 import { outboundClick } from "@/lib/ga";
 import { buildAffiliateUrl } from "@/lib/affiliate";
+import { trackAffiliateClick } from "@/lib/events";
 
 export type Offer = {
   url: string;
@@ -155,6 +156,12 @@ function pickBestIndex(sorted: NormalizedOffer[]): number {
   return priced[0].idx;
 }
 
+function currentPagePath(): string {
+  if (typeof window === "undefined") return "/";
+  // keep it simple and stable (no origin)
+  return window.location.pathname || "/";
+}
+
 export default function OffersSection({
   setNum,
   offers,
@@ -278,6 +285,17 @@ export default function OffersSection({
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => {
+                // ✅ Persist conversion click (best-effort, non-blocking)
+                trackAffiliateClick({
+                  set_num: String(setNum || "").trim(),
+                  store: String(o.storeLabel || "Store").trim(),
+                  price: typeof o.price === "number" ? o.price : null,
+                  currency: o.currency ?? null,
+                  offer_rank: o.rank,
+                  page_path: currentPagePath(),
+                });
+
+                // ✅ Keep existing analytics
                 outboundClick({
                   url: finalHref,
                   label: o.storeLabel || "offer",

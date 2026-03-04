@@ -8,7 +8,6 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import type { MonthKey } from "./featuredThemes";
 
-// Match backend /sets/new payload (plus a few optional fields SetCard may accept)
 type SetLite = {
   set_num: string;
   name?: string | null;
@@ -38,6 +37,12 @@ function toCollectionRowArray(x: unknown): CollectionRow[] {
   return Array.isArray(x) ? x.filter(isCollectionRow) : [];
 }
 
+async function fetchCollectionSetNums(token: string, path: "/collections/me/owned" | "/collections/me/wishlist") {
+  const raw = await apiFetch<unknown>(path, { token, cache: "no-store" });
+  const rows = toCollectionRowArray(raw);
+  return new Set(rows.map((r) => String(r.set_num || "").trim()).filter(Boolean));
+}
+
 function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | "wish" }) {
   const cls =
     tone === "owned"
@@ -45,12 +50,6 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | 
       : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200";
 
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
-}
-
-async function fetchCollectionSetNums(token: string, path: "/collections/me/owned" | "/collections/me/wishlist") {
-  const raw = await apiFetch<unknown>(path, { token, cache: "no-store" });
-  const rows = toCollectionRowArray(raw);
-  return new Set(rows.map((r) => String(r.set_num || "").trim()).filter(Boolean));
 }
 
 function isSafeNextImageSrc(src: unknown): src is string {
@@ -72,9 +71,7 @@ function QuickStatsBar({ sets }: { sets: SetLite[] }) {
   const total = sets.length;
 
   const themeCount = useMemo(() => {
-    const uniq = new Set(
-      sets.map((s) => (typeof s.theme === "string" ? s.theme.trim() : "")).filter(Boolean)
-    );
+    const uniq = new Set(sets.map((s) => (typeof s.theme === "string" ? s.theme.trim() : "")).filter(Boolean));
     return uniq.size;
   }, [sets]);
 
@@ -111,6 +108,24 @@ function QuickStatsBar({ sets }: { sets: SetLite[] }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function ComingSoon() {
+  return (
+    <section className="mt-14 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+      <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Coming soon</h2>
+      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+        We’re upgrading this page to show official monthly release drops (not just “newly added to our database”).
+      </p>
+
+      <ul className="mt-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
+        <li>• Official monthly release calendar (global + regional where available)</li>
+        <li>• “Available now” vs “preorder” labels</li>
+        <li>• Theme highlights you can pick each month</li>
+        <li>• Better sorting (price, popularity, rating)</li>
+      </ul>
+    </section>
   );
 }
 
@@ -188,7 +203,6 @@ function FeaturedThemes({
   const themes = (featuredThemes || []).map((t) => String(t || "").trim()).filter(Boolean);
   if (!themes.length) return null;
 
-  // group sets by theme (only featured themes)
   const byTheme = useMemo(() => {
     const map = new Map<string, SetLite[]>();
     for (const theme of themes) map.set(theme, []);
@@ -200,7 +214,6 @@ function FeaturedThemes({
       map.get(t)!.push(s);
     }
 
-    // keep feed order; cap each carousel
     for (const [k, arr] of map.entries()) {
       map.set(k, arr.slice(0, 14));
     }
@@ -222,9 +235,7 @@ function FeaturedThemes({
           <CarouselRow
             key={theme}
             title={theme}
-            subtitle={
-              themeSets.length ? `${themeSets.length} new set${themeSets.length === 1 ? "" : "s"} in this feed` : undefined
-            }
+            subtitle={themeSets.length ? `${themeSets.length} new set${themeSets.length === 1 ? "" : "s"} in this feed` : undefined}
             sets={themeSets}
             owned={owned}
             wish={wish}
@@ -302,12 +313,9 @@ export default function NewSetsClient({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">New LEGO set releases this month</h1>
-            <p className="mt-2 max-w-[640px] text-sm text-zinc-500">
-              A rolling view of the newest sets we’ve seen this month.
-            </p>
+            <p className="mt-2 max-w-[640px] text-sm text-zinc-500">A rolling view of the newest sets we’ve seen this month.</p>
           </div>
 
-          {/* optional: tiny month label */}
           <div className="text-xs font-semibold text-zinc-500">{monthKey}</div>
         </div>
 
@@ -329,7 +337,6 @@ export default function NewSetsClient({
 
       {!initialError && sets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No sets found.</p> : null}
 
-      {/* Featured Themes ABOVE the full monthly feed */}
       <FeaturedThemes
         sets={sets}
         owned={ownedSetNums}
@@ -338,7 +345,8 @@ export default function NewSetsClient({
         featuredThemes={featuredThemes}
       />
 
-      {/* Full Monthly Drop */}
+      <ComingSoon />
+
       <section className="mt-14">
         <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Full monthly drop</h2>
         <p className="mt-2 text-sm text-zinc-500">Everything in the current “new releases” feed.</p>

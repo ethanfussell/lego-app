@@ -4,6 +4,8 @@ import { themeToSlug } from "@/lib/slug";
 
 export const runtime = "nodejs";
 
+// ---------------- config ----------------
+
 function siteBase(): string {
   const env = process.env.NEXT_PUBLIC_SITE_URL;
 
@@ -22,7 +24,7 @@ const SETS_INDEX = "/sets";
 const THEMES_INDEX = "/themes";
 const PUBLIC_LISTS_INDEX = "/lists/public";
 
-// --- Add your custom static “best under N pieces” pages here ---
+// Custom static “best under N pieces” pages
 const PIECES_UNDER_THRESHOLDS = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000] as const;
 
 // OPTION A: ONLY curated /themes/{slug}/top pages in the sitemap.
@@ -38,6 +40,11 @@ const TOP_THEMES = [
   "Ninjago",
   "Seasonal",
 ] as const;
+
+// Theme exists in /themes list, but /themes/{name}/sets 404s -> keep out of sitemap.
+const SITEMAP_THEME_DENYLIST = new Set<string>(["Dino Attack / Dino 2010"]);
+
+// ---------------- utils ----------------
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -59,6 +66,46 @@ function asTrimmedString(v: unknown): string | null {
 function asFiniteNumber(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function xmlEscape(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+type UrlEntry = {
+  loc: string;
+  lastmod?: string;
+  changefreq?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
+  priority?: number;
+};
+
+function toSitemapXml(entries: UrlEntry[]) {
+  const body = entries
+    .map((e) =>
+      [
+        "<url>",
+        `  <loc>${xmlEscape(e.loc)}</loc>`,
+        e.lastmod ? `  <lastmod>${xmlEscape(e.lastmod)}</lastmod>` : null,
+        e.changefreq ? `  <changefreq>${e.changefreq}</changefreq>` : null,
+        typeof e.priority === "number" ? `  <priority>${e.priority.toFixed(1)}</priority>` : null,
+        "</url>",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .join("\n");
+
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `${body}\n` +
+    `</urlset>\n`
+  );
 }
 
 // --- fetch with timeout (prevents hangs that cause "Couldn't fetch") ---
@@ -93,49 +140,6 @@ async function fetchJsonWithCount(url: string): Promise<{ data: unknown; totalCo
   return { data, totalCount, status };
 }
 
-function xmlEscape(s: string): string {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
-type UrlEntry = {
-  loc: string;
-  lastmod?: string;
-  changefreq?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
-  priority?: number;
-};
-
-function toSitemapXml(entries: UrlEntry[]) {
-  const body = entries
-    .map((e) => {
-      return [
-        "<url>",
-        `  <loc>${xmlEscape(e.loc)}</loc>`,
-        e.lastmod ? `  <lastmod>${xmlEscape(e.lastmod)}</lastmod>` : null,
-        e.changefreq ? `  <changefreq>${e.changefreq}</changefreq>` : null,
-        typeof e.priority === "number" ? `  <priority>${e.priority.toFixed(1)}</priority>` : null,
-        "</url>",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n");
-
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-    `${body}\n` +
-    `</urlset>\n`
-  );
-}
-
-// Theme exists in /themes list, but /themes/{name}/sets 404s -> keep out of sitemap.
-const SITEMAP_THEME_DENYLIST = new Set<string>(["Dino Attack / Dino 2010"]);
-
 function yearRange(min = 1980, max = new Date().getFullYear()): number[] {
   const out: number[] = [];
   for (let y = max; y >= min; y--) out.push(y);
@@ -156,6 +160,35 @@ function readSetNum(r: unknown): string | null {
   return asTrimmedString(sn);
 }
 
+function readThemeName(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+  const t = r.theme ?? r.name ?? (r as UnknownRecord)["theme"] ?? (r as UnknownRecord)["name"];
+  return asTrimmedString(t);
+}
+
+function readPublicListId(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+  const id = r.id ?? (r as UnknownRecord)["id"];
+  if (typeof id === "string") return asTrimmedString(id);
+  const n = asFiniteNumber(id);
+  return n != null ? String(Math.floor(n)) : null;
+}
+
+function readPublicListOwner(r: unknown): string | null {
+  if (!isRecord(r)) return null;
+
+  return (
+    asTrimmedString(r.owner_username) ||
+    asTrimmedString(r.owner) ||
+    asTrimmedString(r.username) ||
+    asTrimmedString((r as UnknownRecord)["owner_username"]) ||
+    asTrimmedString((r as UnknownRecord)["owner"]) ||
+    asTrimmedString((r as UnknownRecord)["username"])
+  );
+}
+
+// ---------------- collectors ----------------
+
 async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> {
   const limit = 100;
   const firstUrl = `${apiBase()}${SETS_INDEX}?limit=${limit}&page=1`;
@@ -164,7 +197,6 @@ async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> 
   const firstRows = pickArrayOrResults(first.data);
 
   const setNums: string[] = [];
-
   for (const r of firstRows) {
     const sn = readSetNum(r);
     if (sn) setNums.push(sn);
@@ -192,12 +224,6 @@ async function collectSetUrls(): Promise<{ paths: string[]; rawCount: number }> 
   return { rawCount: uniq.length, paths: uniq.map((sn) => `/sets/${encodeURIComponent(sn)}`) };
 }
 
-function readThemeName(r: unknown): string | null {
-  if (!isRecord(r)) return null;
-  const t = r.theme ?? r.name ?? (r as UnknownRecord)["theme"] ?? (r as UnknownRecord)["name"];
-  return asTrimmedString(t);
-}
-
 async function collectThemeUrls(): Promise<{
   paths: string[];
   rawThemes: string[];
@@ -211,7 +237,6 @@ async function collectThemeUrls(): Promise<{
   const firstRows = pickArrayOrResults(first.data);
 
   const themes: string[] = [];
-
   for (const r of firstRows) {
     const t = readThemeName(r);
     if (t) themes.push(t);
@@ -253,28 +278,6 @@ async function collectThemeUrls(): Promise<{
   }
 
   return { paths: themePaths, rawThemes: uniqThemes, badSlugThemes, skippedThemes };
-}
-
-function readPublicListId(r: unknown): string | null {
-  if (!isRecord(r)) return null;
-  const id = r.id ?? (r as UnknownRecord)["id"];
-  if (typeof id === "string") return asTrimmedString(id);
-  const n = asFiniteNumber(id);
-  return n != null ? String(Math.floor(n)) : null;
-}
-
-function readPublicListOwner(r: unknown): string | null {
-  if (!isRecord(r)) return null;
-
-  const owner =
-    asTrimmedString(r.owner_username) ||
-    asTrimmedString(r.owner) ||
-    asTrimmedString(r.username) ||
-    asTrimmedString((r as UnknownRecord)["owner_username"]) ||
-    asTrimmedString((r as UnknownRecord)["owner"]) ||
-    asTrimmedString((r as UnknownRecord)["username"]);
-
-  return owner;
 }
 
 /**
@@ -332,6 +335,8 @@ async function collectPublicListAndUserUrls(): Promise<{
   };
 }
 
+// ---------------- handler ----------------
+
 export async function GET() {
   const base = siteBase();
   const now = new Date().toISOString();
@@ -371,8 +376,11 @@ export async function GET() {
     { loc: `${base}/affiliate-disclosure`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/privacy`, changefreq: "yearly", priority: 0.2, lastmod: now },
     { loc: `${base}/terms`, changefreq: "yearly", priority: 0.2, lastmod: now },
-    { loc: `${base}/themes/top`, changefreq: "weekly", priority: 0.6, lastmod: now },
+    { loc: `${base}/pieces/most`, changefreq: "weekly", priority: 0.5, lastmod: now },
     
+    // Hub
+    { loc: `${base}/themes/top`, changefreq: "weekly", priority: 0.6, lastmod: now },
+
     // Pieces “best under N” pages
     ...PIECES_UNDER_THRESHOLDS.map((n) => ({
       loc: `${base}/pieces/under/${n}/best`,
@@ -391,36 +399,26 @@ export async function GET() {
         lastmod: now,
       };
     }),
-
-    // Keep these year top pages (also generated below anyway)
-    { loc: `${base}/years/2026/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/years/2025/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/years/2024/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/years/2023/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
-    { loc: `${base}/years/2022/top`, changefreq: "weekly", priority: 0.5, lastmod: now },
   ];
 
-  // include ALL year pages + year top pages
+  // Year pages + year top pages
   const years = yearRange(1980, new Date().getFullYear());
   const yearEntries: UrlEntry[] = [
-    ...years.map(
-      (y): UrlEntry => ({
-        loc: `${base}/years/${y}`,
-        changefreq: "weekly",
-        priority: 0.4,
-        lastmod: now,
-      })
-    ),
-    ...years.map(
-      (y): UrlEntry => ({
-        loc: `${base}/years/${y}/top`,
-        changefreq: "weekly",
-        priority: 0.5,
-        lastmod: now,
-      })
-    ),
+    ...years.map((y) => ({
+      loc: `${base}/years/${y}`,
+      changefreq: "weekly" as const,
+      priority: 0.4,
+      lastmod: now,
+    })),
+    ...years.map((y) => ({
+      loc: `${base}/years/${y}/top`,
+      changefreq: "weekly" as const,
+      priority: 0.5,
+      lastmod: now,
+    })),
   ];
 
+  // Dynamic pages
   let setPaths: string[] = [];
   let themePaths: string[] = [];
   let publicListPaths: string[] = [];
@@ -461,22 +459,22 @@ export async function GET() {
   } catch {}
 
   const dynamicEntries: UrlEntry[] = [
+    // All theme pages (/themes/{slug})
     ...themePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.6 })),
 
     // Option A: DO NOT include /themes/{slug}/top for all themes here.
-
     ...setPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "monthly" as const, priority: 0.5 })),
+
     ...publicListPaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.4 })),
     ...userProfilePaths.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly" as const, priority: 0.3 })),
   ];
 
-  // de-dupe
+  // De-dupe
   const allEntries = [...staticEntries, ...yearEntries, ...dynamicEntries];
   const seen = new Set<string>();
   const uniqEntries = allEntries.filter((e) => {
-    const key = e.loc;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(e.loc)) return false;
+    seen.add(e.loc);
     return true;
   });
 
@@ -488,7 +486,7 @@ export async function GET() {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
 
-      "X-Sitemap-Route": "v7",
+      "X-Sitemap-Route": "v8",
       "X-Sitemap-ApiBase": api,
 
       "X-Sitemap-ThemesURL": themesProbeUrl,
@@ -500,7 +498,7 @@ export async function GET() {
       "X-Sitemap-SetsProbeCount": String(setsProbeCount),
 
       "X-Sitemap-Themes": String(themePaths.length),
-      "X-Sitemap-ThemesTop": "0", // Option A (dynamic top disabled)
+      "X-Sitemap-ThemesTop": String(TOP_THEMES.length),
       "X-Sitemap-ThemesRaw": String(themesRawCount),
       "X-Sitemap-ThemesBadSlug": String(themesBadSlugCount),
       "X-Sitemap-ThemesBadSlugSample": themesBadSlugSample,

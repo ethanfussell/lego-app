@@ -9,7 +9,7 @@ export const revalidate = 3600;
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
-// Keep in sync with sitemap.xml/route.ts and [themeSlug]/top/page.tsx
+// Keep in sync with sitemap.xml/route.ts and /themes/[themeSlug]/top/page.tsx
 const TOP_THEMES = [
   "Star Wars",
   "Duplo",
@@ -23,77 +23,103 @@ const TOP_THEMES = [
   "Seasonal",
 ] as const;
 
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+function siteBase(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
 }
 
-export async function generateMetadata(): Promise<Metadata> {
-  const title = `Top LEGO sets by theme | ${SITE_NAME}`;
-  const description = "Browse the highest-rated LEGO sets in our curated top LEGO themes.";
-  const canonicalPath = "/themes/top";
+const TITLE = `Top LEGO sets by theme | ${SITE_NAME}`;
+const DESCRIPTION = "Browse the highest-rated LEGO sets in our curated top LEGO themes.";
 
-  return {
-    title,
-    description,
-    metadataBase: new URL(siteBase()),
-    alternates: { canonical: canonicalPath },
-    openGraph: { title, description, url: canonicalPath, type: "website" },
-    twitter: { card: "summary", title, description },
-  };
+export const metadata: Metadata = {
+  title: TITLE,
+  description: DESCRIPTION,
+  metadataBase: new URL(siteBase()),
+  alternates: { canonical: "/themes/top" },
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/themes/top",
+    type: "website",
+    siteName: SITE_NAME,
+  },
+  twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
+};
+
+function ThemeCard({ theme }: { theme: string }) {
+  const slug = themeToSlug(theme);
+  return (
+    <Link
+      href={`/themes/${slug}/top`}
+      className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-white/[.03]"
+    >
+      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{theme}</div>
+      <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View top sets →</div>
+    </Link>
+  );
 }
 
 export default function TopThemesHubPage() {
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Themes", href: "/themes" }, { label: "Top themes" }]} />
+    <div className="mx-auto w-full max-w-5xl px-6 pb-16">
+      <div className="pt-10">
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Themes", href: "/themes" },
+            { label: "Top themes" },
+          ]}
+        />
 
-      <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold">Top themes</h1>
-          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Curated pages: highest-rated sets in the most popular themes.
-          </p>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="m-0 text-2xl font-semibold">Top themes</h1>
+            <p className="mt-2 max-w-[720px] text-sm text-zinc-600 dark:text-zinc-400">
+              Curated pages: highest-rated sets in the most popular themes.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/new"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              New releases →
+            </Link>
+            <Link
+              href="/pieces/under/500/best"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Best under 500 pcs →
+            </Link>
+            <Link
+              href="/years"
+              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            >
+              Browse by year →
+            </Link>
+          </div>
         </div>
+      </div>
 
-        <div className="flex items-center gap-4">
-          <Link href="/themes" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {TOP_THEMES.map((t) => (
+          <ThemeCard key={t} theme={t} />
+        ))}
+      </div>
+
+      <div className="mt-12 rounded-2xl border border-black/[.08] bg-white p-5 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
+        <div className="font-semibold text-zinc-900 dark:text-zinc-50">Want more?</div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+          <Link href="/themes" className="font-semibold hover:underline">
             Browse all themes →
           </Link>
-          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
-            Browse by year →
+          <Link href="/themes" className="font-semibold hover:underline">
+            Explore theme pages →
+          </Link>
+          <Link href="/" className="font-semibold hover:underline">
+            Back to home →
           </Link>
         </div>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {TOP_THEMES.map((t) => {
-          const slug = themeToSlug(t);
-          return (
-            <Link
-              key={t}
-              href={`/themes/${slug}/top`}
-              className="rounded-xl border border-black/[.08] bg-white p-4 hover:bg-zinc-50 dark:border-white/[.145] dark:bg-black dark:hover:bg-zinc-900"
-            >
-              <div className="font-semibold">{t}</div>
-              <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View top sets →</div>
-            </Link>
-          );
-        })}
-      </div>
-
-      <div className="mt-10 flex flex-wrap gap-3">
-        <Link
-          href="/themes"
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-        >
-          ← All themes
-        </Link>
-        <Link
-          href="/"
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-        >
-          ← Home
-        </Link>
       </div>
     </div>
   );
