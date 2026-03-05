@@ -27,6 +27,7 @@ from app.routers import users as users_router
 from app.routers.offers import router as offers_router
 from app.routers import email_signups as email_signups_router
 from app.routers import affiliate_clicks
+from app.routers import admin as admin_router
 
 app = FastAPI(title="LEGO API")
 
@@ -195,3 +196,4 @@ def db_ping(db: Session = Depends(get_db)):
 # Affiliate
 # ---------------------------
 app.include_router(affiliate_clicks.router)
+app.include_router(admin_router.router)

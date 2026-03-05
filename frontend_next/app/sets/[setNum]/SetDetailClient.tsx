@@ -13,6 +13,7 @@ import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
 import EmailCapture from "@/app/components/EmailCapture";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
+import RatingHistogram from "@/app/components/RatingHistogram";
 import { themeToSlug } from "@/lib/slug";
 import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
 
@@ -60,10 +61,11 @@ type SetDetail = {
   retired?: boolean;
 };
 
-type ShopPill = "Retired" | "Available" | "Out of stock" | "Unknown";
+type ShopPill = "Retired" | "Retiring" | "Available" | "Out of stock" | "Unknown";
 
-function computeShopPill(isRetired: boolean, offers: UiOffer[]): ShopPill {
+function computeShopPill(isRetired: boolean, summaryStatus: string | null, offers: UiOffer[]): ShopPill {
   if (isRetired) return "Retired";
+  if (summaryStatus === "retiring_soon") return "Retiring";
 
   const arr = Array.isArray(offers) ? offers : [];
   if (arr.length === 0) return "Unknown";
@@ -75,6 +77,19 @@ function computeShopPill(isRetired: boolean, offers: UiOffer[]): ShopPill {
   if (anyUnknown) return "Unknown";
 
   return "Out of stock";
+}
+
+function shopPillClasses(pill: ShopPill): string {
+  switch (pill) {
+    case "Available":
+      return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30";
+    case "Retiring":
+      return "bg-amber-500/10 text-amber-700 border-amber-500/20 dark:text-amber-300 dark:border-amber-500/30";
+    case "Retired":
+      return "bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-300 dark:border-red-500/30";
+    default:
+      return "bg-zinc-500/10 text-zinc-600 border-zinc-500/20 dark:text-zinc-400 dark:border-zinc-500/30";
+  }
 }
 
 // Backend offer shape (flexible)
@@ -112,6 +127,16 @@ type Props = {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function formatPrice(price?: number, currency?: string): string | null {
+  if (typeof price !== "number" || !Number.isFinite(price)) return null;
+  const code = (currency || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: code }).format(price);
+  } catch {
+    return `$${price.toFixed(2)}`;
+  }
 }
 
 function clamp(n: number, lo: number, hi: number) {
@@ -361,8 +386,27 @@ export default function SetDetailClient(props: Props) {
 
   const shopPill: ShopPill = useMemo(() => {
     const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
-    return computeShopPill(retired, uiOffers);
-  }, [setDetail?.status, setDetail?.is_retired, setDetail?.retired, uiOffers]);
+    return computeShopPill(retired, offersData?.summary?.status ?? null, uiOffers);
+  }, [setDetail?.status, setDetail?.is_retired, setDetail?.retired, offersData?.summary?.status, uiOffers]);
+
+  const bestPrice = useMemo(() => {
+    const priced = uiOffers
+      .filter((o) => typeof o.price === "number" && Number.isFinite(o.price))
+      .sort((a, b) => (a.price as number) - (b.price as number));
+    if (priced.length === 0) return null;
+    return { price: priced[0].price as number, currency: priced[0].currency };
+  }, [uiOffers]);
+
+  const ratingHistogram: Record<string, number> | null = useMemo(() => {
+    const withRating = reviews.filter((r) => typeof r.rating === "number" && Number.isFinite(r.rating));
+    if (withRating.length === 0) return null;
+    const bins: Record<string, number> = {};
+    for (const r of withRating) {
+      const rounded = Math.round((r.rating as number) * 2) / 2;
+      bins[rounded.toFixed(1)] = (bins[rounded.toFixed(1)] || 0) + 1;
+    }
+    return bins;
+  }, [reviews]);
 
   // CTA #2 impression only (after offers)
   useEffect(() => {
@@ -869,15 +913,8 @@ export default function SetDetailClient(props: Props) {
         />
       </div>
 
-      <button
-        onClick={() => router.back()}
-        className="mt-4 rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-      >
-        ← Back
-      </button>
-
       {/* HERO */}
-      <section className="mt-6 grid gap-8 md:grid-cols-[360px_1fr]">
+      <section className="mt-8 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
           <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
             {heroImgSrc ? (
@@ -892,6 +929,12 @@ export default function SetDetailClient(props: Props) {
 
         <div>
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
+
+          {bestPrice ? (
+            <a href="#shop" className="mt-1 inline-block text-lg font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+              From {formatPrice(bestPrice.price, bestPrice.currency)}
+            </a>
+          ) : null}
 
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             <span className="font-semibold text-zinc-900 dark:text-zinc-100">{setNum}</span>
@@ -915,9 +958,15 @@ export default function SetDetailClient(props: Props) {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts} pieces</p> : null}
+          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts.toLocaleString()} pieces</p> : null}
 
-          {isRetired ? <p className="mt-2 text-sm font-semibold text-amber-700 dark:text-amber-400">⏳ This set is retired</p> : null}
+          {description ? (
+            <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{description}</p>
+          ) : null}
+
+          <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold ${shopPillClasses(shopPill)}`}>
+            {shopPill}
+          </span>
 
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             ⭐{" "}
@@ -1003,43 +1052,6 @@ export default function SetDetailClient(props: Props) {
         </div>
       </section>
 
-      {/* ABOUT */}
-      <section className="mt-10">
-        <h2 className="text-lg font-semibold">About this set</h2>
-        {description ? (
-          <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{description}</p>
-        ) : (
-          <p className="mt-2 text-sm text-zinc-500">No description available yet.</p>
-        )}
-
-        <ul className="mt-4 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {theme ? (
-            <li>
-              <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${themeToSlug(String(theme))}`} prefetch={false} className="font-semibold hover:underline">
-                {theme}
-              </Link>
-            </li>
-          ) : null}
-          {typeof year === "number" ? (
-            <li>
-              <span className="font-semibold text-zinc-500">Year:</span>{" "}
-              <Link href={`/years/${year}`} prefetch={false} className="font-semibold hover:underline">
-                {year}
-              </Link>
-            </li>
-          ) : null}
-          {typeof parts === "number" ? (
-            <li>
-              <span className="font-semibold text-zinc-500">Pieces:</span> {parts}
-            </li>
-          ) : null}
-          <li>
-            <span className="font-semibold text-zinc-500">Status:</span> {isRetired ? "Retired" : "Available"}
-          </li>
-        </ul>
-      </section>
-
       {/* SHOP */}
       <section id="shop" className="mt-12 scroll-mt-24">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1048,7 +1060,7 @@ export default function SetDetailClient(props: Props) {
             <p className="mt-1 text-sm text-zinc-500">Compare retailers and find the best price.</p>
           </div>
 
-          <span className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.16] dark:bg-zinc-950 dark:text-zinc-200">
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${shopPillClasses(shopPill)}`}>
             {shopPill}
           </span>
         </div>
@@ -1137,6 +1149,15 @@ export default function SetDetailClient(props: Props) {
       {/* REVIEWS */}
       <section className="mt-12">
         <h2 className="text-lg font-semibold">Reviews</h2>
+
+        {ratingHistogram && ratingCount > 0 ? (
+          <div className="mt-4 rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
+            <div className="mb-2 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              {avgRating != null ? avgRating.toFixed(1) : "—"} average from {ratingCount} rating{ratingCount === 1 ? "" : "s"}
+            </div>
+            <RatingHistogram histogram={ratingHistogram} height={100} barWidth={36} gap={8} />
+          </div>
+        ) : null}
 
         {showReviewForm ? (
           <form
@@ -1285,18 +1306,22 @@ export default function SetDetailClient(props: Props) {
                 type="button"
                 onClick={() => scrollSimilar(-1)}
                 aria-label="Scroll left"
-                className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold shadow-sm hover:bg-black/[.04] dark:border-white/[.16] dark:bg-zinc-950 dark:hover:bg-white/[.06]"
+                className="absolute -left-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-600 shadow-sm backdrop-blur hover:bg-white sm:block dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                ←
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
               </button>
 
               <button
                 type="button"
                 onClick={() => scrollSimilar(1)}
                 aria-label="Scroll right"
-                className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold shadow-sm hover:bg-black/[.04] dark:border-white/[.16] dark:bg-zinc-950 dark:hover:bg-white/[.06]"
+                className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-600 shadow-sm backdrop-blur hover:bg-white sm:block dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                →
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             </div>
           ) : null}
