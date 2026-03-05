@@ -4,13 +4,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import PublicListsClient from "./PublicListsClient";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
+import { siteBase } from "@/lib/url";
+import { isRecord, type UnknownRecord } from "@/lib/types";
+import { first } from "@/lib/searchParams";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
 
 export const metadata: Metadata = {
   title: "Public Lists",
@@ -48,17 +47,6 @@ type ApiResp = {
   total_pages?: unknown;
   page?: unknown;
 };
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function first(sp: SearchParams, key: string): string {
-  const v = sp[key];
-  return (Array.isArray(v) ? v[0] : v || "").toString().trim();
-}
 
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);

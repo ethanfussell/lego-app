@@ -1,4 +1,5 @@
 // frontend_next/lib/events.ts
+import { apiBase } from "@/lib/api";
 
 export type AffiliateClickEvent = {
   event: "affiliate_click";
@@ -65,10 +66,6 @@ export type AffiliateClickPayload = {
   offer_rank?: number | null;
   currency?: string | null;
 };
-
-function apiBase() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-}
 
 export function trackAffiliateClick(payload: AffiliateClickPayload) {
   const url = `${apiBase()}/events/affiliate-click`;

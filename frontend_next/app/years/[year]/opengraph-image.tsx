@@ -1,5 +1,8 @@
 // frontend_next/app/years/[year]/opengraph-image.tsx
 import { ImageResponse } from "next/og";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import { isRecord, type UnknownRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const size = { width: 1200, height: 630 } as const;
@@ -8,23 +11,10 @@ export const contentType = "image/png";
 // ✅ tell Next this can be cached (ISR)
 export const revalidate = 3600;
 
-type UnknownRecord = Record<string, unknown>;
 type SetSummary = { theme?: string | null };
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
-
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-}
 
 function hostLabel(): string {
   return siteBase().replace(/^https?:\/\//, "");
-}
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function getArrayField(v: unknown, key: string): unknown[] | null {

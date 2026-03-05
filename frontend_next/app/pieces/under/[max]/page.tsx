@@ -4,18 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { themeToSlug } from "@/lib/slug";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import { safeImageSrc } from "@/lib/image";
+import { getFiniteNumber as getNumber, getTrimmedString as getString, isRecord, pickRows, type UnknownRecord } from "@/lib/types";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
 export const dynamicParams = true;
 export const fetchCache = "force-cache";
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 type Params = { max: string };
 
@@ -31,22 +28,6 @@ function normalizeMax(raw: string): number | null {
 
 function canonicalFor(max: number) {
   return `/pieces/under/${max}`;
-}
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function getString(o: UnknownRecord, key: string): string | null {
-  const v = o[key];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-function getNumber(o: UnknownRecord, key: string): number | null {
-  const v = o[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 type SetRow = {
@@ -92,12 +73,6 @@ function coerceSetRow(x: unknown): SetRow | null {
     average_rating,
     rating_count,
   };
-}
-
-function pickRows(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
-  return [];
 }
 
 async function fetchBestUnder(maxPieces: number): Promise<SetRow[]> {
@@ -207,7 +182,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
           {sets.map((s) => {
             const rating = typeof s.average_rating === "number" ? s.average_rating.toFixed(1) : null;
             const rcount = typeof s.rating_count === "number" ? s.rating_count : null;
-            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
+            const imgSrc = safeImageSrc(s.image_url);
 
             return (
               <div

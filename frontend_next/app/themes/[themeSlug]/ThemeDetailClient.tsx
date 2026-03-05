@@ -5,6 +5,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { slugToTheme } from "@/lib/slug";
+import { isRecord, type UnknownRecord } from "@/lib/types";
+import { safeImageSrc } from "@/lib/image";
 
 type SetSummary = {
   set_num: string;
@@ -24,12 +26,6 @@ type Query = {
   sort: string;
   order: string;
 };
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);
@@ -170,7 +166,7 @@ export default function ThemeDetailClient(props: {
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
-            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
+            const imgSrc = safeImageSrc(s.image_url);
 
             return (
               <div key={s.set_num} className="h-full">

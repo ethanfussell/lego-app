@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isRecord, type UnknownRecord } from "@/lib/types";
 
 type PublicListRow = {
   id: string | number;
@@ -20,12 +21,6 @@ type PublicListRow = {
 };
 
 type SortKey = "updated_desc" | "name_asc" | "count_desc";
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 function pickOwner(r: PublicListRow) {
   return String(r.owner ?? r.username ?? "").trim();

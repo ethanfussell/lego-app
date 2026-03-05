@@ -2,22 +2,12 @@
 import type { Metadata } from "next";
 import SaleClient from "./SaleClient";
 import AnalyticsClient from "@/app/components/AnalyticsClient";
+import { apiBase } from "@/lib/api";
+import { siteBase, SITE_NAME } from "@/lib/url";
+import { isRecord, type UnknownRecord, type SetLite } from "@/lib/types";
+import { unwrapSearchParams, first, type SP } from "@/lib/searchParams";
 
 export const revalidate = 3600; // ISR
-
-type SP = Record<string, string | string[] | undefined>;
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-};
 
 type FeedResponse =
   | SetLite[]
@@ -27,36 +17,6 @@ type FeedResponse =
       total_pages?: unknown;
       page?: unknown;
     };
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
-
-type UnknownRecord = Record<string, unknown>;
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function isPromiseLike<T>(v: unknown): v is PromiseLike<T> {
-  return isRecord(v) && typeof v.then === "function";
-}
-
-async function unwrapSearchParams<T extends object>(p?: T | Promise<T>): Promise<T> {
-  if (!p) return {} as T;
-  return isPromiseLike<T>(p) ? await p : p;
-}
-
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
-}
 
 function toInt(raw: string, fallback: number) {
   const n = Number(raw);

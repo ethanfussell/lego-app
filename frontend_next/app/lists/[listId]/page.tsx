@@ -5,18 +5,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { themeToSlug } from "@/lib/slug";
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+import { apiBase } from "@/lib/api";
+import { siteBase, SITE_NAME } from "@/lib/url";
+import { getFiniteNumber as getNumber, getTrimmedString as getString, isRecord, type UnknownRecord, type SetLite } from "@/lib/types";
+import { safeImageSrc } from "@/lib/image";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 type Params = { listId: string };
 
@@ -50,15 +45,6 @@ type ListDetail = {
   set_nums?: string[] | null;
 };
 
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-};
-
 type PublicListRow = {
   id: number;
   title: string;
@@ -69,29 +55,13 @@ type PublicListRow = {
   updated_at?: string | null;
 };
 
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 function notNull<T>(v: T | null | undefined): v is T {
   return v != null;
-}
-
-function getString(o: UnknownRecord, key: string): string | null {
-  const v = o[key];
-  return typeof v === "string" ? v : v == null ? null : String(v);
 }
 
 function getTrimmedString(o: UnknownRecord, key: string): string | null {
   const v = getString(o, key);
   return v && v.trim() ? v.trim() : null;
-}
-
-function getNumber(o: UnknownRecord, key: string): number | null {
-  const v = o[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function getBoolean(o: UnknownRecord, key: string, fallback = false): boolean {
@@ -473,7 +443,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
       {sets.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
-            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
+            const imgSrc = safeImageSrc(s.image_url);
 
             return (
               <div

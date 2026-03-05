@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { asTrimmedString, isRecord } from "@/lib/types";
 
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
@@ -19,10 +20,6 @@ import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
 // CTA experiment (CTA #2 after offers)
 import { ctaClick, ctaComplete, ctaImpression } from "@/lib/events";
 import { variantFromKey, variantFromQuery, type Variant } from "@/lib/ab";
-
-function asTrimmedString(v: unknown): string | null {
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
 
 function normalizeUsername(raw: unknown): string | null {
   return asTrimmedString(raw);
@@ -151,10 +148,6 @@ function normalizeSetLiteArray(data: unknown): SetLite[] {
     return Array.isArray(results) ? results.filter(isSetLite) : [];
   }
   return [];
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function pickBestOfferId(offers: ApiOffer[]): string | null {

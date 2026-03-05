@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { asTrimmedString, type SetLite } from "@/lib/types";
 
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
@@ -33,21 +34,8 @@ type ReviewRow = {
   pieces?: number | null;
 };
 
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-};
-
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
-}
-
-function asTrimmedString(v: unknown): string | null {
-  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 function fmtDate(value?: string | null): string {

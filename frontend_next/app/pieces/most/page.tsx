@@ -2,21 +2,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import { asFiniteNumber, asTrimmedString, isRecord, pickRows, type UnknownRecord } from "@/lib/types";
+import { safeImageSrc } from "@/lib/image";
 
 export const revalidate = 3600;
-
-type UnknownRecord = Record<string, unknown>;
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function asTrimmedString(v: unknown): string | null {
-  const s = typeof v === "string" ? v.trim() : "";
-  return s ? s : null;
-}
-function asFiniteNumber(v: unknown): number | null {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-}
 
 type SetRow = {
   set_num: string;
@@ -46,19 +37,6 @@ function coerceSetRow(x: unknown): SetRow | null {
     theme: theme ?? null,
     image_url: image_url ?? null,
   };
-}
-
-function pickRows(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
-  return [];
-}
-
-function siteBase() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
-function apiBase() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 }
 
 async function fetchMostPiecesSets(): Promise<SetRow[]> {
@@ -123,7 +101,7 @@ export default async function Page() {
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
-            const imgSrc = typeof s.image_url === "string" && s.image_url.trim() ? s.image_url.trim() : null;
+            const imgSrc = safeImageSrc(s.image_url);
 
             return (
               <div

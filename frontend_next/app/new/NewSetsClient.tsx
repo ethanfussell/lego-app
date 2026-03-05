@@ -7,20 +7,7 @@ import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import type { MonthKey } from "./featuredThemes";
-
-type SetLite = {
-  set_num: string;
-  name?: string | null;
-  year?: number | null;
-  pieces?: number | null;
-  theme?: string | null;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number | null;
-  review_count?: number | null;
-  created_at?: string | null;
-};
+import type { SetLite } from "@/lib/types";
 
 type CollectionRow = { set_num: string };
 type SetCardSet = React.ComponentProps<typeof SetCard>["set"];

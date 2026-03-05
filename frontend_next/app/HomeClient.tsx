@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiFetch } from "@/lib/api";
-import { isRecord } from "@/lib/types";
+import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
 
 type PublicList = {
@@ -22,18 +22,7 @@ type PublicList = {
   created_at?: string | null;
 };
 
-type UnknownRecord = Record<string, unknown>;
-
 const CARD_MIN_WIDTH = 220;
-
-function asTrimmedString(v: unknown): string | null {
-  const s = typeof v === "string" ? v.trim() : "";
-  return s ? s : null;
-}
-
-function asFiniteNumber(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
 
 function coercePublicList(raw: unknown): PublicList | null {
   if (!isRecord(raw)) return null;

@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
+import { siteBase, SITE_NAME } from "@/lib/url";
+
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 // Keep in sync with sitemap.xml/route.ts and /themes/[themeSlug]/top/page.tsx
 const TOP_THEMES = [
@@ -22,10 +22,6 @@ const TOP_THEMES = [
   "Ninjago",
   "Seasonal",
 ] as const;
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
 
 const TITLE = `Top LEGO sets by theme | ${SITE_NAME}`;
 const DESCRIPTION = "Browse the highest-rated LEGO sets in our curated top LEGO themes.";

@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
+import { apiBase } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);

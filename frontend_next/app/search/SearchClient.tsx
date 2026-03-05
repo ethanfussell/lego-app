@@ -6,25 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
 import Pagination from "@/app/components/Pagination";
 import { apiFetch } from "@/lib/api";
+import type { SetLite } from "@/lib/types";
 
 const RECENT_KEY = "recent_searches_v1";
 const MAX_RECENTS = 5;
 const PAGE_SIZE = 50;
 
 const POPULAR_TERMS = ["Star Wars", "Botanical", "Icons", "Technic", "Modular", "Castle", "Space", "Harry Potter"];
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  num_parts?: number;
-  pieces?: number;
-  image_url?: string | null;
-  theme?: string;
-  rating_avg?: number | null;
-  average_rating?: number | null;
-  rating_count?: number | null;
-};
 
 type SetsResponse =
   | SetLite[]

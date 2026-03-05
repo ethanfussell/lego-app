@@ -7,6 +7,7 @@ import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
+import type { SetLite } from "@/lib/types";
 
 type ListDetail = {
   id: number | string;
@@ -26,16 +27,6 @@ type ListDetail = {
 
   created_at?: string | null;
   updated_at?: string | null;
-};
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  num_parts?: number;
-  image_url?: string | null;
-  theme?: string;
 };
 
 function errorMessage(e: unknown) {

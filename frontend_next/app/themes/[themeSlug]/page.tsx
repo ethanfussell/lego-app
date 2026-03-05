@@ -6,13 +6,15 @@ import { notFound } from "next/navigation";
 import ThemeDetailClient from "./ThemeDetailClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { slugToTheme, themeToSlug } from "@/lib/slug";
+import { apiBase } from "@/lib/api";
+import { siteBase, SITE_NAME } from "@/lib/url";
+
 
 export const revalidate = 3600; // ISR
 export const dynamic = "force-static";
 export const dynamicParams = true;
 export const fetchCache = "force-cache";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 const DEFAULT_LIMIT = 36;
 
 type Params = { themeSlug: string };
@@ -32,14 +34,6 @@ type Query = {
   sort: string;
   order: string;
 };
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
-
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-}
 
 function canonicalForTheme(themeSlug: string): string {
   return `/themes/${themeSlug}`;

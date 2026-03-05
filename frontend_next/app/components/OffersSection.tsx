@@ -1,10 +1,11 @@
 // frontend_next/app/components/OffersSection.tsx
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { outboundClick } from "@/lib/ga";
 import { buildAffiliateUrl } from "@/lib/affiliate";
 import { trackAffiliateClick } from "@/lib/events";
+import { formatPrice } from "@/lib/format";
 
 export type Offer = {
   url: string;
@@ -61,26 +62,6 @@ function safeUrl(raw: unknown): string {
   } catch {
     return "";
   }
-}
-
-function formatPrice(price?: number, currency?: string): string | null {
-  if (typeof price !== "number") return null;
-
-  if (currency && currency.length === 3) {
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency,
-        currencyDisplay: "symbol",
-        maximumFractionDigits: 2,
-      }).format(price);
-    } catch {
-      // fall through
-    }
-  }
-
-  const rounded = Number(price.toFixed(2));
-  return currency ? `${currency} ${rounded}` : `$${rounded}`;
 }
 
 function formatUpdatedAt(value?: string | null): string | null {
@@ -144,13 +125,13 @@ function stockRank(v: boolean | null) {
   return v === true ? 0 : v === null ? 1 : 2;
 }
 
-function pickBestIndex(sorted: NormalizedOffer[]): number {
-  // Best = cheapest among offers that have a price
+function pickBestIndex(sorted: NormalizedOffer[]): number | null {
+  // Best = cheapest among offers that have a numeric price
   const priced = sorted
     .map((o, idx) => ({ idx, price: typeof o.price === "number" ? o.price : null }))
     .filter((x): x is { idx: number; price: number } => typeof x.price === "number");
 
-  if (priced.length === 0) return 0;
+  if (priced.length === 0) return null;
 
   priced.sort((a, b) => a.price - b.price);
   return priced[0].idx;
@@ -158,8 +139,30 @@ function pickBestIndex(sorted: NormalizedOffer[]): number {
 
 function currentPagePath(): string {
   if (typeof window === "undefined") return "/";
-  // keep it simple and stable (no origin)
   return window.location.pathname || "/";
+}
+
+function Badge({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: "in" | "out" | "unknown" | "best";
+}) {
+  const cls =
+    tone === "in"
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      : tone === "out"
+      ? "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+      : tone === "best"
+      ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300"
+      : "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
+
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${cls}`}>
+      {children}
+    </span>
+  );
 }
 
 export default function OffersSection({
@@ -192,24 +195,32 @@ export default function OffersSection({
       const storeLabel = cleanLabel(o?.store, "Store");
       const price = cleanPrice(o?.price);
       const currency = cleanCurrency(o?.currency);
-      const inStock: boolean | null = o?.in_stock === true ? true : o?.in_stock === false ? false : null;
-      const updatedAt = typeof o?.updated_at === "string" && o.updated_at.trim() ? o.updated_at.trim() : null;
+
+      const inStock: boolean | null =
+        o?.in_stock === true ? true : o?.in_stock === false ? false : null;
+
+      const updatedAt =
+        typeof o?.updated_at === "string" && o.updated_at.trim()
+          ? o.updated_at.trim()
+          : null;
 
       return { href, storeLabel, price, currency, inStock, updatedAt, rank: i + 1 };
     })
     .filter((x): x is NormalizedOffer => x !== null);
 
-  const sorted = normalized.slice().sort((a, b) => {
-    const sa = stockRank(a.inStock);
-    const sb = stockRank(b.inStock);
-    if (sa !== sb) return sa - sb;
+  const sorted = useMemo(() => {
+    return normalized.slice().sort((a, b) => {
+      const sa = stockRank(a.inStock);
+      const sb = stockRank(b.inStock);
+      if (sa !== sb) return sa - sb;
 
-    const pa = typeof a.price === "number" ? a.price : Number.POSITIVE_INFINITY;
-    const pb = typeof b.price === "number" ? b.price : Number.POSITIVE_INFINITY;
-    if (pa !== pb) return pa - pb;
+      const pa = typeof a.price === "number" ? a.price : Number.POSITIVE_INFINITY;
+      const pb = typeof b.price === "number" ? b.price : Number.POSITIVE_INFINITY;
+      if (pa !== pb) return pa - pb;
 
-    return a.rank - b.rank;
-  });
+      return a.rank - b.rank;
+    });
+  }, [normalized]);
 
   if (sorted.length === 0) {
     return (
@@ -221,99 +232,105 @@ export default function OffersSection({
 
   const bestIdx = pickBestIndex(sorted);
 
+  // For the single footer disclaimer
+  const anyAffiliateLinks = useMemo(() => {
+    for (const o of sorted) {
+      const aff = buildAffiliateUrl(
+        { url: o.href, store: o.storeLabel, currency: o.currency, price: o.price },
+        { placement, setNum, offerRank: o.rank }
+      );
+      if (aff) return true;
+    }
+    return false;
+  }, [sorted, placement, setNum]);
+
   return (
-    <ul className="space-y-2">
-      {sorted.map((o, idx) => {
-        const isBest = idx === bestIdx;
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {sorted.map((o, idx) => {
+          const isBest = bestIdx != null && idx === bestIdx;
 
-        const affiliateHref = buildAffiliateUrl(
-          { url: o.href, store: o.storeLabel, currency: o.currency, price: o.price },
-          { placement, setNum, offerRank: o.rank }
-        );
+          const affiliateHref = buildAffiliateUrl(
+            { url: o.href, store: o.storeLabel, currency: o.currency, price: o.price },
+            { placement, setNum, offerRank: o.rank }
+          );
 
-        // Always show the row: if affiliate is blocked, fall back to safe raw URL.
-        const finalHref = affiliateHref || o.href;
-        const isAffiliate = Boolean(affiliateHref);
+          // Always show the row: if affiliate is blocked, fall back to safe raw URL.
+          const finalHref = affiliateHref || o.href;
+          const isAffiliate = Boolean(affiliateHref);
 
-        const updatedLabel = formatUpdatedAt(o.updatedAt);
+          const updatedLabel = formatUpdatedAt(o.updatedAt);
+          const priceLabel = formatPrice(o.price, o.currency) ?? "Price unavailable";
 
-        return (
-          <li
-            key={`${o.href}-${o.rank}`}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
-          >
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                {o.storeLabel}
+          const stockTone = o.inStock === true ? "in" : o.inStock === false ? "out" : "unknown";
+          const stockText = o.inStock === true ? "In stock" : o.inStock === false ? "Out of stock" : "Unknown";
 
-                {isBest ? (
-                  <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                    Best price
-                  </span>
-                ) : null}
-
-                {o.inStock === true ? (
-                  <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                    In stock
-                  </span>
-                ) : o.inStock === false ? (
-                  <span className="ml-2 rounded-full bg-zinc-500/10 px-2 py-0.5 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
-                    Out of stock
-                  </span>
-                ) : (
-                  <span className="ml-2 rounded-full bg-zinc-500/10 px-2 py-0.5 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
-                    Unknown
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-1 text-xs text-zinc-500">
-                <div>{formatPrice(o.price, o.currency) ?? "Price unavailable"}</div>
-
-                {updatedLabel ? (
-                  <div className="mt-0.5 text-[11px] text-zinc-400">Updated: {updatedLabel}</div>
-                ) : null}
-
-                {!isAffiliate ? (
-                  <div className="mt-0.5 text-[11px] text-zinc-400">(affiliate disabled for this domain)</div>
-                ) : null}
-              </div>
-            </div>
-
-            <a
-              href={finalHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => {
-                // ✅ Persist conversion click (best-effort, non-blocking)
-                trackAffiliateClick({
-                  set_num: String(setNum || "").trim(),
-                  store: String(o.storeLabel || "Store").trim(),
-                  price: typeof o.price === "number" ? o.price : null,
-                  currency: o.currency ?? null,
-                  offer_rank: o.rank,
-                  page_path: currentPagePath(),
-                });
-
-                // ✅ Keep existing analytics
-                outboundClick({
-                  url: finalHref,
-                  label: o.storeLabel || "offer",
-                  placement,
-                  set_num: setNum,
-                  offer_rank: o.rank,
-                  price: o.price,
-                  currency: o.currency,
-                  conversion: isAffiliate, // only flag conversion when affiliate URL was used
-                });
-              }}
-              className="inline-flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+          return (
+            <li
+              key={`${o.href}-${o.rank}`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
             >
-              View offer →
-            </a>
-          </li>
-        );
-      })}
-    </ul>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    {o.storeLabel}
+                  </div>
+
+                  <Badge tone={stockTone}>{stockText}</Badge>
+
+                  {isBest ? <Badge tone="best">Best price</Badge> : null}
+                </div>
+
+                <div className="mt-1 text-xs text-zinc-500">
+                  <div>{priceLabel}</div>
+
+                  {updatedLabel ? (
+                    <div className="mt-0.5 text-[11px] text-zinc-400">Last updated: {updatedLabel}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <a
+                href={finalHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  // ✅ Persist conversion click (best-effort, non-blocking)
+                  trackAffiliateClick({
+                    set_num: String(setNum || "").trim(),
+                    store: String(o.storeLabel || "Store").trim(),
+                    price: typeof o.price === "number" ? o.price : null,
+                    currency: o.currency ?? null,
+                    offer_rank: o.rank,
+                    page_path: currentPagePath(),
+                  });
+
+                  // ✅ Keep existing analytics
+                  outboundClick({
+                    url: finalHref,
+                    label: o.storeLabel || "offer",
+                    placement,
+                    set_num: setNum,
+                    offer_rank: o.rank,
+                    price: o.price,
+                    currency: o.currency,
+                    conversion: isAffiliate,
+                  });
+                }}
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+              >
+                View offer →
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+
+      {anyAffiliateLinks ? (
+        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          Some links may be affiliate links. If you buy through them, we may earn a commission at no extra cost to you.
+        </div>
+      ) : null}
+    </div>
   );
 }

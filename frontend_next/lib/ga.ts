@@ -1,4 +1,5 @@
 // frontend_next/lib/ga.ts
+import { safeAbsUrl } from "@/lib/url";
 
 type GtagFn = (...args: unknown[]) => void;
 
@@ -20,16 +21,6 @@ function getGtag(): GtagFn | null {
 function cleanString(v: unknown, fallback = ""): string {
   const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
   return s || fallback;
-}
-
-function safeAbsUrl(raw: unknown): string {
-  const s = cleanString(raw);
-  if (!s) return "";
-  try {
-    return new URL(s).toString(); // must be absolute
-  } catch {
-    return "";
-  }
 }
 
 export function gaEvent(name: string, params?: EventParams) {

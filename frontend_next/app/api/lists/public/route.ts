@@ -1,5 +1,7 @@
 // frontend_next/app/api/lists/public/route.ts
 import { NextResponse } from "next/server";
+import { apiBase } from "@/lib/api";
+import { getFiniteNumber as getNumber, getTrimmedString as getString, isRecord, type UnknownRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const revalidate = 3600;
@@ -17,13 +19,7 @@ type PublicListRow = {
 
 type SortKey = "updated_desc" | "count_desc" | "name_asc";
 
-type UnknownRecord = Record<string, unknown>;
-
 // ---- helpers
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
-
 function toInt(raw: string | null, fallback: number) {
   const n = Number(raw);
   return Number.isFinite(n) ? Math.floor(n) : fallback;
@@ -47,20 +43,6 @@ function pickUpdatedTs(r: PublicListRow) {
   const s = (r.updated_at || r.created_at || "").trim();
   const t = Date.parse(s);
   return Number.isFinite(t) ? t : 0;
-}
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function getString(o: UnknownRecord, key: string): string | null {
-  const v = o[key];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-function getNumber(o: UnknownRecord, key: string): number | null {
-  const v = o[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function getBoolean(o: UnknownRecord, key: string): boolean | null {

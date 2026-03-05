@@ -1,12 +1,10 @@
 import { ImageResponse } from "next/og";
+import { siteBase } from "@/lib/url";
+
 
 export const runtime = "nodejs";
 export const size = { width: 1200, height: 630 } as const;
 export const contentType = "image/png";
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
 
 function hostLabel(): string {
   return siteBase().replace(/^https?:\/\//, "");

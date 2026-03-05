@@ -2,15 +2,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+import { siteBase, SITE_NAME } from "@/lib/url";
+import { first, type SP } from "@/lib/searchParams";
 
 type JsonLdObject = Record<string, unknown>;
-type SP = Record<string, string | string[] | undefined>;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
 
 function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
   const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
@@ -28,12 +23,6 @@ function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, ba
 
 function yearBounds() {
   return { min: 1980, max: new Date().getFullYear() };
-}
-
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
 }
 
 function toInt(raw: string, fallback: number) {

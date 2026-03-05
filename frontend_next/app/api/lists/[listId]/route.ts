@@ -1,11 +1,8 @@
 // frontend_next/app/api/lists/[listId]/route.ts
 import { NextResponse, type NextRequest } from "next/server";
+import { apiBase } from "@/lib/api";
 
 export const revalidate = 3600;
-
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 export async function GET(
   _req: NextRequest,

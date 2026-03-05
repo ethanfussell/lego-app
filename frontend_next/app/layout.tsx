@@ -6,12 +6,8 @@ import TopNav from "@/app/components/TopNav";
 import Footer from "@/app/components/Footer";
 import { AuthProvider } from "@/app/providers";
 import AnalyticsClient from "@/app/components/AnalyticsClient";
+import { siteBase, SITE_NAME } from "@/lib/url";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-function siteBase(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-}
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteBase()),

@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+import { siteBase, SITE_NAME } from "@/lib/url";
+import { isRecord, type UnknownRecord } from "@/lib/types";
 
 type PublicUser = {
   id: number;
@@ -22,13 +24,6 @@ type PublicListRow = {
 export const dynamic = "force-static";
 export const revalidate = 3600;
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
-
-function siteBase() {
-  // MUST be absolute for SSR fetch during prerender
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
 type Params = { username: string };
 
 function normalizeUsername(raw: string): string | null {
@@ -40,12 +35,6 @@ function normalizeUsername(raw: string): string | null {
   if (!/^[A-Za-z0-9_]{2,30}$/.test(decoded)) return null;
 
   return decoded;
-}
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function coerceUser(x: unknown): PublicUser | null {

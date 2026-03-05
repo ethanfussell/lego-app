@@ -3,6 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { themeToSlug } from "@/lib/slug";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import { getFiniteNumber as getNumber, getTrimmedString as getString, isRecord, pickRows, type UnknownRecord } from "@/lib/types";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -23,13 +26,6 @@ const TOP_THEMES = [
   "Ninjago",
   "Seasonal",
 ] as const;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 type Params = { year: string };
 
@@ -60,22 +56,6 @@ type SetRow = {
   average_rating?: number | null;
   rating_count?: number | null;
 };
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function getString(o: UnknownRecord, key: string): string | null {
-  const v = o[key];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-function getNumber(o: UnknownRecord, key: string): number | null {
-  const v = o[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
 
 function getNullableString(o: UnknownRecord, key: string): string | null {
   const v = o[key];
@@ -117,12 +97,6 @@ function coerceSetRow(x: unknown): SetRow | null {
     average_rating,
     rating_count,
   };
-}
-
-function pickRows(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (isRecord(data) && Array.isArray(data.results)) return data.results as unknown[];
-  return [];
 }
 
 async function fetchTopSetsForYearSSR(year: number): Promise<SetRow[] | "notfound"> {

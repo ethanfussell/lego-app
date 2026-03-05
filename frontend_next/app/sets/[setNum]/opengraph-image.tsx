@@ -1,6 +1,9 @@
 // frontend_next/app/sets/[setNum]/opengraph-image.tsx
 import React from "react";
 import { ImageResponse } from "next/og";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-static";
@@ -10,14 +13,6 @@ export const size = { width: 1200, height: 630 } as const;
 export const contentType = "image/png";
 
 const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=3600, stale-while-revalidate=31536000";
-
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-}
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
 
 function hostLabel(): string {
   return siteBase().replace(/^https?:\/\//, "");

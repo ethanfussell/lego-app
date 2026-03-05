@@ -6,6 +6,7 @@ import SetCard, { type SetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import { isRecord } from "@/lib/types";
 
 type QueryParams = {
   page?: number;
@@ -25,10 +26,6 @@ type FeedClientProps = {
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function normalizeSetLite(v: unknown): SetLite | null {

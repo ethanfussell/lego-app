@@ -9,6 +9,7 @@ import SetCardActions from "@/app/components/SetCardActions";
 import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
+import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
 
 const PREVIEW_COUNT = 10;
 
@@ -37,23 +38,8 @@ type ListDetail = {
   setNums?: string[] | null;
 };
 
-type UnknownRecord = Record<string, unknown>;
-
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
-}
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function asTrimmedString(v: unknown): string | null {
-  const s = typeof v === "string" ? v.trim() : "";
-  return s ? s : null;
-}
-
-function asFiniteNumber(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function isSystemList(l: ListSummary): boolean {

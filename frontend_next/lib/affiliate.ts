@@ -1,4 +1,6 @@
 // frontend_next/lib/affiliate.ts
+import { safeParseUrl } from "@/lib/url";
+
 export type AffiliateOffer = {
     url: string;
     store?: string;
@@ -26,14 +28,6 @@ export type AffiliateOffer = {
     "www.bestbuy.com",
     "bestbuy.com",
   ]);
-  
-  function safeParseUrl(raw: string): URL | null {
-    try {
-      return new URL(raw);
-    } catch {
-      return null;
-    }
-  }
   
   function isHttp(u: URL) {
     return u.protocol === "https:" || u.protocol === "http:";

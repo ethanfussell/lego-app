@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as SetCardSetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
+import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
 
 type WishlistDetail = {
   items_count: number;
@@ -19,20 +20,6 @@ function errorMessage(e: unknown, fallback = "Something went wrong") {
 
 function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
-}
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function asTrimmedString(v: unknown): string | null {
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-function asFiniteNumber(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function coerceSetLite(raw: unknown): SetCardSetLite | null {

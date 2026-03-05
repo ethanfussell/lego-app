@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { asTrimmedString, isRecord } from "@/lib/types";
 
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
@@ -39,10 +40,6 @@ function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? fallback);
 }
 
-function asTrimmedString(v: unknown): string | null {
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
 function formatRating(rating: unknown): string {
   if (rating === null || rating === undefined) return "—";
   const n = Number(rating);
@@ -57,10 +54,6 @@ function formatDate(iso: unknown): string {
   } catch {
     return "";
   }
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function asNumber(v: unknown): number | null {

@@ -39,7 +39,7 @@ function normalizeLocalhostBase(raw: string): string {
  * Server-side (RSC / route handlers): go straight to backend.
  * Browser: use Next proxy (/api) to avoid CORS.
  */
-function apiBase(): string {
+export function apiBase(): string {
   const raw =
     process.env.API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||

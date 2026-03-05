@@ -2,8 +2,7 @@
 import type { Metadata } from "next";
 import HomeClient from "./HomeClient";
 import QuickJump from "./components/QuickJump";
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+import { SITE_NAME } from "@/lib/url";
 const HOME_TITLE = `Home | ${SITE_NAME}`;
 const HOME_DESC = "Browse LEGO themes and jump to set pages.";
 

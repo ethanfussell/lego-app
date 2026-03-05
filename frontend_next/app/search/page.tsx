@@ -1,34 +1,8 @@
 // frontend_next/app/search/page.tsx
 import type { Metadata } from "next";
 import SearchClient from "./SearchClient";
-
-type SP = Record<string, string | string[] | undefined>;
-
-const SITE_NAME = "LEGO App";
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function isPromiseLike<T>(v: unknown): v is PromiseLike<T> {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "then" in v &&
-    typeof (v as { then?: unknown }).then === "function"
-  );
-}
-
-async function unwrapSearchParams<T extends object>(p?: T | Promise<T>): Promise<T> {
-  if (!p) return {} as T;
-  return isPromiseLike<T>(p) ? await p : p;
-}
-
-function first(sp: SP, key: keyof SP): string {
-  const raw = sp[key as string];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
-}
+import { siteBase } from "@/lib/url";
+import { unwrapSearchParams, first, type SP } from "@/lib/searchParams";
 
 export async function generateMetadata({
   searchParams,

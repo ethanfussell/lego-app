@@ -2,30 +2,12 @@
 import type { Metadata } from "next";
 import NewSetsClient from "./NewSetsClient";
 import { featuredThemesForMonth, monthKeyFromDate, type MonthKey } from "./featuredThemes";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import type { SetLite } from "@/lib/types";
+
 
 export const revalidate = 3600; // ISR (1 hour)
-
-type SetLite = {
-  set_num: string;
-  name?: string | null;
-  year?: number | null;
-  pieces?: number | null;
-  theme?: string | null;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number | null;
-  review_count?: number | null;
-  created_at?: string | null;
-};
-
-function siteBase(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 function isSetLite(x: unknown): x is SetLite {
   return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";

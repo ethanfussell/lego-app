@@ -8,22 +8,10 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  num_parts?: number;
-  image_url?: string | null;
-  theme?: string;
-};
+import { isRecord, type SetLite } from "@/lib/types";
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function toPlain(n: string): string {

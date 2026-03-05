@@ -2,15 +2,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+import { isRecord } from "@/lib/types";
 
 import SetDetailClient from "./SetDetailClient";
 import { themeToSlug } from "@/lib/slug";
+import { apiBase } from "@/lib/api";
 import type { Offer as UiOffer } from "@/app/components/OffersSection";
+import { siteBase, SITE_NAME } from "@/lib/url";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
 type LegoSet = {
   set_num: string;
@@ -38,21 +39,9 @@ type ReviewLite = {
 
 type JsonLdObject = Record<string, unknown>;
 
-function siteBase(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
-
 function canonicalForSet(setNum: string): string {
   const decoded = String(setNum ?? "").trim();
   return `/sets/${encodeURIComponent(decoded)}`;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function isLegoSet(x: unknown): x is LegoSet {

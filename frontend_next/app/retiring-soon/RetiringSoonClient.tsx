@@ -4,18 +4,7 @@
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { useAuth } from "@/app/providers";
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-};
+import type { SetLite } from "@/lib/types";
 
 export default function RetiringSoonClient({
   initialSets,

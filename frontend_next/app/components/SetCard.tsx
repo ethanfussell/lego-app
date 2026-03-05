@@ -5,6 +5,10 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
+import { formatPrice } from "@/lib/format";
+import { safeImageSrc } from "@/lib/image";
+export type { SetLite } from "@/lib/types";
+import type { SetLite } from "@/lib/types";
 
 function CardImage({
   src,
@@ -47,31 +51,6 @@ function CardImage({
   );
 }
 
-export type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number | null;
-  num_parts?: number | null;
-  theme?: string;
-  image_url?: string | null;
-
-  // global ratings
-  rating_avg?: number | null;
-  average_rating?: number | null;
-  rating_count?: number | null;
-
-  // user rating
-  user_rating?: number | null;
-
-  // pricing
-  price_from?: number | null;
-  price?: number | null;
-  original_price?: number | null;
-  sale_price?: number | null;
-  sale_price_from?: number | null;
-};
-
 type Props = {
   set: SetLite;
   variant?: "default" | "owned" | "wishlist" | "feed";
@@ -81,11 +60,6 @@ type Props = {
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
-}
-
-function formatPrice(n: number | null | undefined) {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "";
-  return `$${n.toFixed(2)}`;
 }
 
 function pickRatingAvg(s: SetLite) {
@@ -269,7 +243,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     }
   }
 
-  const imgSrc = typeof set.image_url === "string" && set.image_url.trim() ? set.image_url.trim() : null;
+  const imgSrc = safeImageSrc(set.image_url);
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">

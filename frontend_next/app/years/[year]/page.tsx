@@ -2,18 +2,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { isRecord, type UnknownRecord } from "@/lib/types";
 
 import ThemesClient from "@/app/themes/ThemesClient";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
 import { themeToSlug } from "@/lib/slug";
-
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+import { apiBase } from "@/lib/api";
+import { siteBase, SITE_NAME } from "@/lib/url";
+import { first, type SP } from "@/lib/searchParams";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
 
 type JsonLdObject = Record<string, unknown>;
-type SP = Record<string, string | string[] | undefined>;
 
 type SetSummary = {
   set_num: string;
@@ -26,16 +27,6 @@ type SetSummary = {
   rating_avg?: number | null;
   average_rating?: number | null;
 };
-
-type UnknownRecord = Record<string, unknown>;
-
-function siteBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-}
-
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-}
 
 function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {
   const normBase = String(baseUrl || "").replace(/\/+$/, "") || "http://localhost:3000";
@@ -51,20 +42,10 @@ function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, ba
   };
 }
 
-function isRecord(v: unknown): v is UnknownRecord {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 function getArrayField(v: unknown, key: string): unknown[] | null {
   if (!isRecord(v)) return null;
   const val = v[key];
   return Array.isArray(val) ? val : null;
-}
-
-function first(sp: SP, key: string): string {
-  const raw = sp[key];
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return String(v ?? "").trim();
 }
 
 function toInt(raw: string, fallback: number) {

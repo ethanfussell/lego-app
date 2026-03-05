@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import RatingHistogram from "@/app/components/RatingHistogram";
 import { readSavedListIds, savedListsEventName } from "@/lib/savedLists";
 import Image from "next/image";
+import { getTrimmedString as getString, isRecord, type UnknownRecord } from "@/lib/types";
 
 /** ✅ Use the EXACT prop type expected by RatingHistogram */
 type HistogramProp = React.ComponentProps<typeof RatingHistogram>["histogram"];
@@ -54,22 +55,11 @@ type ReviewRecent = {
   setImage?: string | null;
 };
 
-type UnknownRecord = Record<string, unknown>;
-
-function getString(o: UnknownRecord, key: string): string | null {
-  const v = o[key];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
 function formatRating(rating: unknown): string {
   if (rating === null || rating === undefined) return "—";
   const n = Number(rating);
   if (Number.isNaN(n)) return "—";
   return n.toFixed(1);
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function asString(v: unknown): string {

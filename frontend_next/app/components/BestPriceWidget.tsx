@@ -4,6 +4,7 @@
 import React, { useMemo } from "react";
 import { buildAffiliateUrl } from "@/lib/affiliate";
 import { outboundClick } from "@/lib/ga";
+import { formatPrice } from "@/lib/format";
 
 export type BestPriceOffer = {
   url: string;
@@ -13,26 +14,6 @@ export type BestPriceOffer = {
   in_stock?: boolean | null;
   updated_at?: string | null;
 };
-
-function formatPrice(price?: number, currency?: string): string | null {
-  if (typeof price !== "number" || !Number.isFinite(price)) return null;
-
-  if (currency && currency.length === 3) {
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency,
-        currencyDisplay: "symbol",
-        maximumFractionDigits: 2,
-      }).format(price);
-    } catch {
-      // fall through
-    }
-  }
-
-  const rounded = Number(price.toFixed(2));
-  return currency ? `${currency} ${rounded}` : `$${rounded}`;
-}
 
 function stockLabel(v: boolean | null | undefined): { text: string; cls: string } {
   if (v === true) return { text: "In stock", cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" };

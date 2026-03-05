@@ -3,13 +3,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
+import { apiBase } from "@/lib/api";
+import { siteBase } from "@/lib/url";
+import type { SetLite } from "@/lib/types";
+import { first } from "@/lib/searchParams";
+
 
 export const dynamic = "force-static";
 export const revalidate = 3600; // ISR (1 hour)
-
-function siteBase(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
 
 export async function generateMetadata(): Promise<Metadata> {
   const title = "Discover";
@@ -25,18 +26,6 @@ export async function generateMetadata(): Promise<Metadata> {
     twitter: { card: "summary", title, description },
   };
 }
-
-type SetLite = {
-  set_num: string;
-  name?: string;
-  year?: number;
-  pieces?: number;
-  theme?: string;
-  image_url?: string | null;
-  average_rating?: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-};
 
 type FeedResponse =
   | SetLite[]
@@ -55,17 +44,8 @@ type PageProps = {
 type SortKey = "year" | "rating" | "pieces" | "name" | "relevance";
 type Order = "asc" | "desc";
 
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-}
-
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
-}
-
-function first(sp: SearchParams, key: string): string | undefined {
-  const v = sp[key];
-  return Array.isArray(v) ? v[0] : v;
 }
 
 function toPosInt(v: unknown, fallback: number) {
