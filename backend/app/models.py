@@ -28,9 +28,12 @@ class User(Base):
     # IMPORTANT for SQLite auto-increment:
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    username = Column(String, unique=True, nullable=False, index=True)
+    clerk_id = Column(String, unique=True, nullable=True, index=True)
 
-    # tests create users with password_hash=None, and your fake login doesn’t need it
+    username = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=True, index=True)
+
+    # Kept nullable for backwards compat; unused with Clerk auth
     password_hash = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -59,8 +62,14 @@ class Set(Base):
     theme = Column(String, index=True)
     pieces = Column(Integer)
     image_url = Column(String)
+    ip = Column(String, nullable=True, index=True)
+
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # Retirement tracking (populated via BrickEconomy or manual curation)
+    retirement_status = Column(String, nullable=True)  # "available" | "retiring_soon" | "retired"
+    retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
 
     reviews = relationship(
         "Review",

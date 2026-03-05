@@ -5,9 +5,9 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
+import { UserButton } from "@clerk/nextjs";
 
 import { useAuth } from "@/app/providers";
-import ProfileMenu from "@/app/components/ProfileMenu";
 import {
   trackLoginCta,
   trackNavClick,
@@ -60,8 +60,6 @@ function isSuggestionArray(x: unknown): x is Suggestion[] {
 export default function TopNav() {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const { token, me, logout } = useAuth();
-  const isAuthed = !!token;
 
   const links = useMemo(
     () => [
@@ -84,6 +82,7 @@ export default function TopNav() {
   const MOBILE_ANIM_MS = 220;
 
   const closeFiredRef = useRef(false);
+  const { isAuthed } = useAuth();
 
   const openMobile = useCallback(() => {
     closeFiredRef.current = false;
@@ -257,14 +256,14 @@ export default function TopNav() {
           if (searchText.trim()) setShowSuggest(true);
         }}
         onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-        placeholder="Search sets…"
+        placeholder="Search sets..."
         className="w-full rounded-md border border-black/[.12] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20 dark:border-white/[.18] dark:bg-zinc-950"
       />
 
       {showSuggest && (loading || suggestErr || suggestions.length > 0 || searchText.trim()) ? (
         <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.12] dark:bg-zinc-950">
           <ul className="max-h-[280px] overflow-auto p-1 text-sm">
-            {loading ? <li className="px-3 py-2 text-zinc-500">Searching…</li> : null}
+            {loading ? <li className="px-3 py-2 text-zinc-500">Searching...</li> : null}
             {suggestErr ? <li className="px-3 py-2 text-red-600">Error: {suggestErr}</li> : null}
 
             {!loading && !suggestErr && suggestions.length > 0 ? (
@@ -279,7 +278,7 @@ export default function TopNav() {
                     <div className="font-semibold">{s.name || "Untitled set"}</div>
                     <div className="text-xs text-zinc-500">
                       {s.set_num}
-                      {s.year ? ` • ${s.year}` : ""}
+                      {s.year ? ` \u2022 ${s.year}` : ""}
                     </div>
                   </li>
                 ))}
@@ -312,7 +311,7 @@ export default function TopNav() {
             aria-expanded={mobileOpen}
             aria-controls="topnav-mobile-sheet"
           >
-            ☰
+            &#x2630;
           </button>
 
           <div className="hidden sm:flex flex-wrap items-center gap-2">
@@ -331,16 +330,22 @@ export default function TopNav() {
           <div className="ml-auto hidden sm:flex items-center gap-3">
             <div className="w-[260px]">{SearchBox}</div>
 
-            {!token ? (
+            {!isAuthed ? (
               <Link
-                href="/login"
-                className="text-sm font-semibold hover:underline"
+                href="/sign-in"
+                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
                 onClick={() => trackLoginCta({ placement: "topnav_desktop" })}
               >
-                🔐 Login
+                Sign in
               </Link>
             ) : (
-              <ProfileMenu me={me} onLogout={logout} />
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8",
+                  },
+                }}
+              />
             )}
           </div>
         </div>
@@ -348,16 +353,22 @@ export default function TopNav() {
         <div className="mt-3 sm:hidden space-y-3">
           {SearchBox}
           <div className="flex items-center justify-end">
-            {!token ? (
+            {!isAuthed ? (
               <Link
-                href="/login"
-                className="text-sm font-semibold hover:underline"
+                href="/sign-in"
+                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
                 onClick={() => trackLoginCta({ placement: "topnav_mobile" })}
               >
-                🔐 Login
+                Sign in
               </Link>
             ) : (
-              <ProfileMenu me={me} onLogout={logout} />
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8",
+                  },
+                }}
+              />
             )}
           </div>
         </div>
@@ -397,7 +408,7 @@ export default function TopNav() {
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/[.10] hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
                     aria-label="Close menu"
                   >
-                    ✕
+                    &#x2715;
                   </button>
                 </div>
 
@@ -418,28 +429,28 @@ export default function TopNav() {
                 </div>
 
                 <div className="mt-6 border-t border-black/[.08] pt-4 text-sm dark:border-white/[.12]">
-                  {!token ? (
+                  {!isAuthed ? (
                     <Link
-                      href="/login"
+                      href="/sign-in"
                       className="inline-flex w-full items-center justify-center rounded-full bg-black px-4 py-2 font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
                       onClick={() => {
                         trackLoginCta({ placement: "topnav_mobile_sheet" });
                         closeMobile("login_click");
                       }}
                     >
-                      Log in
+                      Sign in
                     </Link>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closeMobile("logout_click");
-                        logout();
-                      }}
-                      className="inline-flex w-full items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-                    >
-                      Log out
-                    </button>
+                    <div className="flex items-center gap-3 px-2">
+                      <UserButton
+                        appearance={{
+                          elements: {
+                            avatarBox: "w-8 h-8",
+                          },
+                        }}
+                      />
+                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Account</span>
+                    </div>
                   )}
                 </div>
               </div>

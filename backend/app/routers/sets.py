@@ -297,6 +297,9 @@ def list_sets(
     min_num_parts: Optional[int] = Query(None, ge=0),
     max_num_parts: Optional[int] = Query(None, ge=0),
 
+    theme: Optional[str] = Query(None),
+    min_rating: Optional[float] = Query(None, ge=0, le=5),
+
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("relevance"),
@@ -351,6 +354,11 @@ def list_sets(
             p1 = int(hi)
             sets = [s for s in sets if int(s.get("pieces") or 0) <= p1]
 
+    theme_clean = (theme or "").strip()
+    if theme_clean:
+        tl = theme_clean.lower()
+        sets = [s for s in sets if (s.get("theme") or "").strip().lower() == tl]
+
     ratings = _ratings_map(db)
     review_counts = _review_counts_map(db)
 
@@ -365,6 +373,10 @@ def list_sets(
         r["_rating_count"] = cnt
         r["_review_count"] = rev_cnt
         enriched.append(r)
+
+    if min_rating is not None:
+        mr = float(min_rating)
+        enriched = [r for r in enriched if (r.get("_avg_rating") or 0.0) >= mr]
 
     allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
     if sort not in allowed_sorts:
@@ -660,16 +672,16 @@ def list_new_sets(
     db: Session = Depends(get_db),
 ):
     """
-    DB-backed "new releases" list, based on sets.created_at.
+    DB-backed "new releases" list, based on sets.first_seen_at.
     Use days=7 for "this week", days=30 for "this month".
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
 
-    # Base query (newest first)
+    # Base query (newest first by first_seen_at)
     base_q = (
         select(SetModel)
-        .where(SetModel.created_at >= cutoff)
-        .order_by(SetModel.created_at.desc(), SetModel.set_num.asc())
+        .where(SetModel.first_seen_at >= cutoff)
+        .order_by(SetModel.first_seen_at.desc(), SetModel.set_num.asc())
     )
 
     # Total count
@@ -703,6 +715,57 @@ def list_new_sets(
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
                 "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+        )
+
+    return out
+
+
+@router.get("/retiring")
+def list_retiring_sets(
+    response: Response,
+    page: int = Query(1, ge=1),
+    limit: int = Query(60, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """
+    Sets with retirement_status='retiring_soon', ordered by retirement_date.
+    Returns empty until retirement data is populated (via BrickEconomy or manual curation).
+    """
+    base_q = (
+        select(SetModel)
+        .where(SetModel.retirement_status == "retiring_soon")
+        .order_by(SetModel.retirement_date.asc(), SetModel.name.asc())
+    )
+
+    total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
+    response.headers["X-Total-Count"] = str(total)
+
+    offset = (page - 1) * limit
+    rows = db.execute(base_q.offset(offset).limit(limit)).scalars().all()
+
+    ratings = _ratings_map(db)
+    review_counts = _review_counts_map(db)
+
+    out: List[Dict[str, Any]] = []
+    for s in rows:
+        canonical = s.set_num
+        avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = int(review_counts.get(canonical, 0))
+
+        out.append(
+            {
+                "set_num": s.set_num,
+                "name": s.name,
+                "year": s.year,
+                "theme": s.theme,
+                "pieces": s.pieces,
+                "image_url": s.image_url,
+                "average_rating": avg,
+                "rating_avg": avg,
+                "rating_count": int(cnt or 0),
+                "review_count": int(rev_cnt or 0),
+                "retirement_date": s.retirement_date,
             }
         )
 

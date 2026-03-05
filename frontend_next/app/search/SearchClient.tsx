@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
 import Pagination from "@/app/components/Pagination";
 import { apiFetch } from "@/lib/api";
+import SearchFilters, { type FilterValues, EMPTY_FILTERS, activeFilterCount } from "./SearchFilters";
 
 const RECENT_KEY = "recent_searches_v1";
 const MAX_RECENTS = 5;
@@ -173,6 +174,17 @@ function buildCleanSearchUrl(params: URLSearchParams) {
   return qs ? `/search?${qs}` : "/search";
 }
 
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+      {label}
+      <button type="button" onClick={onRemove} className="ml-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" title="Remove filter">
+        ✕
+      </button>
+    </span>
+  );
+}
+
 type Props = {
   initialQ: string;
   initialSort: string;
@@ -214,9 +226,26 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
 
   const sortValue = useMemo(() => toSortValue(sortParam, orderParam), [sortParam, orderParam]);
 
+  // --- Filter URL state ---
+  const filters: FilterValues = useMemo(() => ({
+    theme: (sp.get("theme") || "").trim(),
+    minYear: (sp.get("minYear") || "").trim(),
+    maxYear: (sp.get("maxYear") || "").trim(),
+    minPieces: (sp.get("minPieces") || "").trim(),
+    maxPieces: (sp.get("maxPieces") || "").trim(),
+    minRating: (() => {
+      const n = Number(sp.get("minRating") || 0);
+      return Number.isFinite(n) && n >= 1 && n <= 5 ? Math.round(n) : 0;
+    })(),
+  }), [sp]);
+
+  const filterCount = activeFilterCount(filters);
+
   // --- URL writer (keeps it clean) ---
+  type UrlNext = { q?: string; sort?: string; order?: string; page?: number; filters?: FilterValues };
+
   const pushUrl = useCallback(
-    (next: { q?: string; sort?: string; order?: string; page?: number }, opts?: { replace?: boolean }) => {
+    (next: UrlNext, opts?: { replace?: boolean }) => {
       const params = new URLSearchParams(sp?.toString?.() || "");
 
       // q
@@ -247,11 +276,29 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         else params.set("page", String(p));
       }
 
+      // filters
+      if (next.filters) {
+        const f = next.filters;
+        const setOrDel = (key: string, val: string) => {
+          if (val) params.set(key, val);
+          else params.delete(key);
+        };
+        setOrDel("theme", f.theme.trim());
+        setOrDel("minYear", f.minYear.trim());
+        setOrDel("maxYear", f.maxYear.trim());
+        setOrDel("minPieces", f.minPieces.trim());
+        setOrDel("maxPieces", f.maxPieces.trim());
+        if (f.minRating > 0) params.set("minRating", String(f.minRating));
+        else params.delete("minRating");
+      }
+
       // If q missing -> keep /search clean
       if (!(params.get("q") || "").trim()) {
         params.delete("sort");
         params.delete("order");
         params.delete("page");
+        // Also clear filters when no query
+        for (const k of ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating"]) params.delete(k);
       } else {
         // If sort is relevance -> drop order (clean)
         const s = sanitizeSort(params.get("sort"));
@@ -298,6 +345,12 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
       if (sort0 !== "relevance" && useOrder && useOrder !== def) next.set("order", useOrder);
 
       if (page0 > 1) next.set("page", String(page0));
+
+      // Preserve filter params
+      for (const k of ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating"] as const) {
+        const v = (cur.get(k) || "").trim();
+        if (v) next.set(k, v);
+      }
     }
 
     const normalizedUrl = buildCleanSearchUrl(next);
@@ -368,6 +421,14 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
     [q, pushUrl]
   );
 
+  const changeFilters = useCallback(
+    (next: FilterValues) => {
+      if (!q) return;
+      pushUrl({ filters: next, page: 1 });
+    },
+    [q, pushUrl],
+  );
+
   // --- Fetch whenever URL-derived state changes ---
   useEffect(() => {
     let cancelled = false;
@@ -381,7 +442,8 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         return;
       }
 
-      const reqKey = `${q}__${sortParam}__${orderParam}__${page}`;
+      const filterKey = `${filters.theme}|${filters.minYear}|${filters.maxYear}|${filters.minPieces}|${filters.maxPieces}|${filters.minRating}`;
+      const reqKey = `${q}__${sortParam}__${orderParam}__${page}__${filterKey}`;
       lastReqKeyRef.current = reqKey;
 
       try {
@@ -399,6 +461,14 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
 
         params.set("page", String(page));
         params.set("limit", String(PAGE_SIZE)); // API-only, never in URL
+
+        // Filter params -> backend query params
+        if (filters.theme) params.set("theme", filters.theme);
+        if (filters.minYear) params.set("min_year", filters.minYear);
+        if (filters.maxYear) params.set("max_year", filters.maxYear);
+        if (filters.minPieces) params.set("min_pieces", filters.minPieces);
+        if (filters.maxPieces) params.set("max_pieces", filters.maxPieces);
+        if (filters.minRating > 0) params.set("min_rating", String(filters.minRating));
 
         const data = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
 
@@ -424,7 +494,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
     return () => {
       cancelled = true;
     };
-  }, [q, sortParam, orderParam, page, pushUrl]);
+  }, [q, sortParam, orderParam, page, filters, pushUrl]);
 
   const computedHeading = heading ?? (q ? `Search: "${q}"` : "Search");
   const computedDescription =
@@ -487,9 +557,38 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         </div>
       </div>
 
+      {/* Active filter chips */}
+      {q && filterCount > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {filters.theme && (
+            <FilterChip label={`Theme: ${filters.theme}`} onRemove={() => changeFilters({ ...filters, theme: "" })} />
+          )}
+          {(filters.minYear || filters.maxYear) && (
+            <FilterChip
+              label={`Year: ${filters.minYear || "…"}–${filters.maxYear || "…"}`}
+              onRemove={() => changeFilters({ ...filters, minYear: "", maxYear: "" })}
+            />
+          )}
+          {(filters.minPieces || filters.maxPieces) && (
+            <FilterChip
+              label={`Pieces: ${filters.minPieces || "0"}–${filters.maxPieces || "∞"}`}
+              onRemove={() => changeFilters({ ...filters, minPieces: "", maxPieces: "" })}
+            />
+          )}
+          {filters.minRating > 0 && (
+            <FilterChip label={`${filters.minRating}+ stars`} onRemove={() => changeFilters({ ...filters, minRating: 0 })} />
+          )}
+        </div>
+      )}
+
       <div className="mt-6 grid gap-4 lg:grid-cols-[280px_1fr]">
         <aside className="lg:sticky lg:top-6 lg:self-start">
-          <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+          {/* Filters — collapsible on mobile */}
+          {q && (
+            <SearchFilters values={filters} onChange={changeFilters} disabled={loading} />
+          )}
+
+          <div className={`${q ? "mt-3" : ""} rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950`}>
             <div className="text-sm font-extrabold">Popular right now</div>
 
             <div className="mt-3 flex flex-wrap gap-2">

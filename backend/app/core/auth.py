@@ -1,15 +1,21 @@
 # backend/app/core/auth.py
+"""
+Clerk-based authentication.
+
+Verifies Clerk session JWTs using the JWKS endpoint (RS256).
+Auto-creates local User records on first authenticated API call.
+Keeps ALLOW_FAKE_AUTH support for tests (fake-token-for-{username}).
+"""
 from __future__ import annotations
 
-import hashlib
 import os
-import time
-from typing import Optional, Tuple
+import threading
+from typing import Optional
 
+import jwt as pyjwt
+from jwt import PyJWKClient, PyJWKClientError
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from pydantic import BaseModel
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -17,33 +23,56 @@ from app.models import User
 
 router = APIRouter()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# ---------------------------------------------------------------------------
+# Bearer scheme — using OAuth2PasswordBearer for backwards compat (returns 401)
+# tokenUrl is irrelevant since login is handled by Clerk, but required by FastAPI
+# ---------------------------------------------------------------------------
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=True)
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
-def _settings() -> Tuple[str, str, int, bool, bool, str]:
-    """
-    Read settings from env at runtime (important for Render deploys / rolling restarts).
-    """
-    secret = (os.getenv("SECRET_KEY") or "").strip()
-    alg = (os.getenv("JWT_ALGORITHM") or "HS256").strip()
-    exp_min = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or "60")
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+def _settings():
     allow_fake = (os.getenv("ALLOW_FAKE_AUTH") or "").lower() in ("1", "true", "yes", "on")
     debug = (os.getenv("AUTH_DEBUG") or "").lower() in ("1", "true", "yes", "on")
-    kid = hashlib.sha256(secret.encode("utf-8")).hexdigest()[:8] if secret else "none"
 
-    # In tests, allow fake auth by default so SECRET_KEY isn't required
+    # In tests, allow fake auth by default
     if os.getenv("PYTEST_CURRENT_TEST") is not None:
         allow_fake = True
 
-    return secret, alg, exp_min, allow_fake, debug, kid
+    jwks_url = (os.getenv("CLERK_JWKS_URL") or "").strip()
+
+    return allow_fake, debug, jwks_url
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+# ---------------------------------------------------------------------------
+# JWKS client — lazily initialized, cached
+# ---------------------------------------------------------------------------
+_jwks_client: Optional[PyJWKClient] = None
+_jwks_lock = threading.Lock()
 
 
+def _get_jwks_client() -> Optional[PyJWKClient]:
+    global _jwks_client
+    if _jwks_client is not None:
+        return _jwks_client
+
+    _, _, jwks_url = _settings()
+    if not jwks_url:
+        return None
+
+    with _jwks_lock:
+        if _jwks_client is not None:
+            return _jwks_client
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True, lifespan=3600)
+        return _jwks_client
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def _unauth(detail: str = "Invalid token") -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -52,78 +81,102 @@ def _unauth(detail: str = "Invalid token") -> HTTPException:
     )
 
 
-def create_access_token(username: str) -> str:
-    username = (username or "").strip()
-    if not username:
-        raise ValueError("username required for token")
-
-    secret, alg, exp_min, allow_fake, debug, kid = _settings()
-
-    # Dev/test-only escape hatch (ONLY when enabled and secret missing)
-    if allow_fake and not secret:
-        return f"fake-token-for-{username}"
-
-    if not secret:
-        raise RuntimeError("SECRET_KEY is not set (and ALLOW_FAKE_AUTH is not enabled).")
-
-    now_ts = int(time.time())
-    exp_ts = now_ts + (exp_min * 60)
-
-    payload = {"sub": username, "iat": now_ts, "exp": exp_ts}
-    tok = jwt.encode(payload, secret, algorithm=alg)
-
-    if debug:
-        print(f"[auth] minted sub={username} alg={alg} kid={kid} iat={now_ts} exp={exp_ts}")
-
-    return tok
-
-
-def _username_from_token(token: str) -> Optional[str]:
+def _clerk_id_from_token(token: str) -> Optional[str]:
+    """
+    Verify a Clerk JWT and return the `sub` claim (Clerk user ID).
+    For fake tokens (test mode), returns the username portion.
+    Returns None on failure (unless debug mode raises).
+    """
     token = (token or "").strip()
     if not token:
         return None
 
-    secret, alg, _exp_min, allow_fake, debug, kid = _settings()
+    allow_fake, debug, _ = _settings()
 
+    # Test/dev fake auth
     if allow_fake and token.startswith("fake-token-for-"):
         return token.replace("fake-token-for-", "", 1).strip() or None
 
-    if not secret:
-        raise _unauth("Server misconfigured: SECRET_KEY missing")
-
-    hdr = None
-    claims = None
-    if debug:
-        try:
-            hdr = jwt.get_unverified_header(token)
-            claims = jwt.get_unverified_claims(token)
-        except Exception as e:
-            raise _unauth(f"Bad token format (kid={kid} alg={alg}): {e!r}")
+    client = _get_jwks_client()
+    if client is None:
+        if allow_fake:
+            # No JWKS URL configured + fake auth allowed: can't verify
+            return None
+        raise _unauth("Server misconfigured: CLERK_JWKS_URL not set")
 
     try:
-        payload = jwt.decode(token, secret, algorithms=[alg])
+        signing_key = client.get_signing_key_from_jwt(token)
+        payload = pyjwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={
+                "verify_exp": True,
+                "verify_aud": False,  # Clerk tokens may not have aud
+            },
+        )
         sub = payload.get("sub")
         return str(sub).strip() if sub else None
-    except JWTError as e:
+    except pyjwt.ExpiredSignatureError:
         if debug:
-            raise _unauth(f"JWT decode failed (kid={kid} alg={alg} hdr={hdr} claims={claims}): {e!r}")
+            raise _unauth("Token expired")
+        return None
+    except (pyjwt.InvalidTokenError, PyJWKClientError) as e:
+        if debug:
+            raise _unauth(f"JWT verification failed: {e!r}")
         return None
     except Exception as e:
         if debug:
-            raise _unauth(f"JWT decode error (kid={kid} alg={alg}): {e!r}")
+            raise _unauth(f"JWT error: {e!r}")
         return None
 
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
-    username = _username_from_token(token)
-    if not username:
+def _get_or_create_user(db: Session, clerk_id: str) -> User:
+    """
+    Look up a user by clerk_id. If not found, auto-create one.
+    This handles first-time users seamlessly — they're created in our DB
+    on their first authenticated API call after signing up via Clerk.
+    """
+    user = db.query(User).filter(User.clerk_id == clerk_id).first()
+    if user:
+        return user
+
+    # For real Clerk, clerk_id is like "user_2abc123..."
+    is_clerk_format = clerk_id.startswith("user_")
+
+    user = User(
+        clerk_id=clerk_id,
+        username=clerk_id if not is_clerk_format else f"user_{clerk_id[-8:]}",
+        email=None,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependencies — same function signatures as before
+# ---------------------------------------------------------------------------
+def get_current_user(
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> User:
+    clerk_id = _clerk_id_from_token(token)
+    if not clerk_id:
         raise _unauth("Invalid token")
 
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise _unauth(f"User not found: {username}")
+    allow_fake, _, _ = _settings()
 
-    return user
+    # Fake auth mode: look up by username (backwards compat with tests)
+    if allow_fake and not clerk_id.startswith("user_"):
+        user = db.query(User).filter(User.username == clerk_id).first()
+        if user:
+            return user
+        # If not found by username, auto-create with clerk_id
+        return _get_or_create_user(db, clerk_id)
+
+    return _get_or_create_user(db, clerk_id)
 
 
 def get_current_user_optional(
@@ -133,37 +186,28 @@ def get_current_user_optional(
     if not token:
         return None
     try:
-        username = _username_from_token(token)
+        clerk_id = _clerk_id_from_token(token)
     except HTTPException:
         return None
-    if not username:
+    if not clerk_id:
         return None
-    return db.query(User).filter(User.username == username).first()
+
+    allow_fake, _, _ = _settings()
+
+    if allow_fake and not clerk_id.startswith("user_"):
+        user = db.query(User).filter(User.username == clerk_id).first()
+        if user:
+            return user
+
+    try:
+        return _get_or_create_user(db, clerk_id)
+    except Exception:
+        return None
 
 
-@router.post("/auth/login", response_model=Token)
-async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    username = (form.username or "").strip()
-    password = (form.password or "").strip()
-
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-    secret, _alg, _exp_min, allow_fake, _debug, _kid = _settings()
-
-    # Test/dev fake auth behavior:
-    # - if fake-auth mode AND no SECRET_KEY, treat ONLY "wrong-password" as invalid (400)
-    #   (so the tests can call login() without having to know the magic password)
-    if allow_fake and not secret:
-        if password == "wrong-password":
-            raise HTTPException(status_code=400, detail="bad_password")
-        return Token(access_token=create_access_token(user.username))
-
-    # Real auth path (requires SECRET_KEY)
-    return Token(access_token=create_access_token(user.username))
-
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 @router.get("/auth/me")
 def me(current_user: User = Depends(get_current_user)):
-    # keep it simple for tests: return the user identity
     return {"username": current_user.username}

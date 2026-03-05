@@ -1,12 +1,17 @@
 // frontend_next/app/providers.tsx
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch } from "@/lib/api";
-import { getToken as loadToken, setToken as persistToken } from "@/lib/token";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  useAuth as useClerkAuth,
+  useUser as useClerkUser,
+  useClerk,
+} from "@clerk/nextjs";
+
+// ---------- Types ----------
 
 type Me = {
-  id: number;
+  id: number | string;
   username: string;
 };
 
@@ -20,122 +25,99 @@ type AuthContextValue = {
   logout: () => void;
 };
 
+// ---------- Context ----------
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function normalizeToken(t: unknown): string {
-  return typeof t === "string" ? t.trim() : "";
-}
+/**
+ * AuthBridge — thin compatibility wrapper around Clerk hooks.
+ *
+ * Exposes the same `useAuth()` shape that all 30+ components already use:
+ *   { token, me, loadingMe, hydrated, isAuthed, loginWithToken, logout }
+ *
+ * - `token`: Clerk session JWT (fetched via getToken())
+ * - `me`: derived from Clerk's useUser()
+ * - `isAuthed`: from Clerk's isSignedIn
+ * - `hydrated`: from Clerk's isLoaded
+ * - `loginWithToken`: no-op (Clerk handles sign-in via its own UI)
+ * - `logout`: calls Clerk signOut()
+ */
+export function AuthBridge({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn, getToken } = useClerkAuth();
+  const { user } = useClerkUser();
+  const clerk = useClerk();
 
-function getStatus(err: unknown): number | null {
-  if (typeof err !== "object" || err === null) return null;
-  const v = (err as { status?: unknown }).status;
-  return typeof v === "number" ? v : null;
-}
+  // Session token state — refreshed from Clerk on mount and sign-in changes
+  const [token, setToken] = useState("");
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Keep token empty until after mount to avoid SSR/localStorage access warnings.
-  const [token, setToken] = useState<string>("");
-  const [hydrated, setHydrated] = useState(false);
-
-  const [me, setMe] = useState<Me | null>(null);
-  const [loadingMe, setLoadingMe] = useState(false);
-
-  // Prevent older /me responses from overwriting newer state
-  const meReqId = useRef(0);
-
-  // 1) Hydrate token from storage after mount
   useEffect(() => {
-    const t = normalizeToken(loadToken());
-    setToken(t);
-    setHydrated(true);
-  }, []);
-
-  // 2) Persist token changes after hydration
-  useEffect(() => {
-    if (!hydrated) return;
-    persistToken(token); // lib/token should remove when empty
-  }, [token, hydrated]);
-
-  // 3) Load /users/me when token changes (after hydration)
-  useEffect(() => {
-    if (!hydrated) return;
-
-    if (!token) {
-      setMe(null);
-      setLoadingMe(false);
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setToken("");
       return;
     }
 
     let cancelled = false;
-    const reqId = ++meReqId.current;
-
     (async () => {
-      setLoadingMe(true);
-
       try {
-        const data = await apiFetch<Me>("/users/me", { token, cache: "no-store" });
-
-        if (cancelled) return;
-        if (reqId !== meReqId.current) return;
-
-        setMe(data ?? null);
-      } catch (e: unknown) {
-        if (cancelled) return;
-        if (reqId !== meReqId.current) return;
-
-        const status = getStatus(e);
-        const unauthorized = status === 401 || status === 403;
-
-        // Expected when token is missing/expired/invalid:
-        // clear `me` and (optionally) clear token so we don't keep re-trying
-        setMe(null);
-
-        if (unauthorized) {
-          // Clear token + storage to stop noisy retries and "bad response" logs.
-          persistToken("");
-          setToken("");
-        }
-      } finally {
-        if (!cancelled && reqId === meReqId.current) setLoadingMe(false);
+        const t = await getToken();
+        if (!cancelled) setToken(t || "");
+      } catch {
+        if (!cancelled) setToken("");
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [token, hydrated]);
+  }, [isLoaded, isSignedIn, getToken]);
+
+  // Derive `me` from Clerk user
+  const me = useMemo<Me | null>(() => {
+    if (!isLoaded || !isSignedIn || !user) return null;
+
+    return {
+      id: user.id,
+      username:
+        user.username ||
+        user.firstName ||
+        user.primaryEmailAddress?.emailAddress?.split("@")[0] ||
+        "user",
+    };
+  }, [isLoaded, isSignedIn, user]);
+
+  // loginWithToken is a no-op — Clerk manages sign-in
+  const loginWithToken = useCallback((_t: string) => {
+    // no-op: Clerk handles sign-in via its own UI / redirect
+  }, []);
+
+  const logout = useCallback(() => {
+    setToken("");
+    clerk.signOut({ redirectUrl: "/" });
+  }, [clerk]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       token,
       me,
-      loadingMe,
-      hydrated,
-      isAuthed: hydrated && token.length > 0,
-
-      loginWithToken: (t: string) => {
-        const next = normalizeToken(t);
-        setMe(null);
-
-        // Persist immediately so it’s written before any navigation
-        persistToken(next);
-        setToken(next);
-      },
-
-      logout: () => {
-        setMe(null);
-        persistToken("");
-        setToken("");
-      },
+      loadingMe: !isLoaded,
+      hydrated: isLoaded ?? false,
+      isAuthed: !!(isLoaded && isSignedIn),
+      loginWithToken,
+      logout,
     }),
-    [token, me, loadingMe, hydrated]
+    [token, me, isLoaded, isSignedIn, loginWithToken, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/**
+ * Drop-in replacement hook — same API surface as before.
+ * All existing components keep calling useAuth() unchanged.
+ */
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
+  if (!ctx) throw new Error("useAuth must be used inside <AuthBridge> (or <ClerkProvider>)");
   return ctx;
 }
