@@ -14,7 +14,7 @@ from typing import Optional
 
 import jwt as pyjwt
 from jwt import PyJWKClient, PyJWKClientError
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,10 @@ def _settings():
     # In tests, allow fake auth by default
     if os.getenv("PYTEST_CURRENT_TEST") is not None:
         allow_fake = True
+
+    # NEVER allow fake auth in production (Render sets RENDER env var)
+    if os.getenv("RENDER") is not None:
+        allow_fake = False
 
     jwks_url = (os.getenv("CLERK_JWKS_URL") or "").strip()
 
@@ -205,9 +209,29 @@ def get_current_user_optional(
         return None
 
 
+def get_admin_user(
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> User:
+    """
+    FastAPI dependency: returns the authenticated user only if they are an admin.
+    Raises 401 if not authenticated, 403 if not admin.
+    """
+    user = get_current_user(db=db, token=token)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @router.get("/auth/me")
-def me(current_user: User = Depends(get_current_user)):
-    return {"username": current_user.username}
+def me(request: Request, current_user: User = Depends(get_current_user)):
+    return {
+        "username": current_user.username,
+        "is_admin": bool(getattr(current_user, "is_admin", False)),
+    }

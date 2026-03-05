@@ -36,6 +36,8 @@ class User(Base):
     # Kept nullable for backwards compat; unused with Clerk auth
     password_hash = Column(String, nullable=True)
 
+    is_admin = Column(Boolean, nullable=False, server_default="false")
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     reviews = relationship(

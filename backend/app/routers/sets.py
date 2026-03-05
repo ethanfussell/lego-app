@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
@@ -14,6 +14,7 @@ from sqlalchemy.orm.properties import RelationshipProperty
 from app.schemas.set import SetBulkOut
 
 from ..core.auth import get_current_user, get_current_user_optional
+from ..core.limiter import limiter
 from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
 from ..data import offers as offers_data  # used by /sets/{set_num}/offers
@@ -280,7 +281,9 @@ def _user_rating_for_set(
 # ---------------- endpoints ----------------
 
 @router.get("")
+@limiter.limit("30/minute")
 def list_sets(
+    request: Request,
     response: Response,
     q: Optional[str] = Query(None),
 
@@ -424,7 +427,9 @@ def list_sets(
 
 
 @router.get("/suggest")
+@limiter.limit("30/minute")
 def suggest_sets(
+    request: Request,
     q: str = Query(..., min_length=1),
     limit: int = Query(6, ge=1, le=20),
     db: Session = Depends(get_db),

@@ -2,13 +2,27 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.sanitize import sanitize_oneline, sanitize_text
 
 
 class ListCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
+    title: str = Field(..., max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
     is_public: bool = True
+
+    @field_validator("title")
+    @classmethod
+    def sanitize_title(cls, value: str) -> str:
+        return sanitize_oneline(value)
+
+    @field_validator("description")
+    @classmethod
+    def sanitize_description(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return sanitize_text(value)
 
 
 class ListItemsOrderUpdate(BaseModel):
@@ -53,6 +67,20 @@ class ListDetail(ListSummary):
 
 
 class ListUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
     is_public: Optional[bool] = None
+
+    @field_validator("title")
+    @classmethod
+    def sanitize_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return sanitize_oneline(value)
+
+    @field_validator("description")
+    @classmethod
+    def sanitize_description(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return sanitize_text(value)
