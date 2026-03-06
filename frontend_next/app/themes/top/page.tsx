@@ -46,10 +46,10 @@ function ThemeCard({ theme }: { theme: string }) {
   return (
     <Link
       href={`/themes/${slug}/top`}
-      className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-white/[.03]"
+      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300 hover:bg-zinc-100"
     >
-      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{theme}</div>
-      <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View top sets →</div>
+      <div className="text-sm font-semibold text-zinc-900">{theme}</div>
+      <div className="mt-1 text-sm text-zinc-500">View top sets →</div>
     </Link>
   );
 }
@@ -69,7 +69,7 @@ export default function TopThemesHubPage() {
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Top themes</h1>
-            <p className="mt-2 max-w-[720px] text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="mt-2 max-w-[720px] text-sm text-zinc-500">
               Curated pages: highest-rated sets in the most popular themes.
             </p>
           </div>
@@ -77,19 +77,19 @@ export default function TopThemesHubPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/new"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
             >
               New releases →
             </Link>
             <Link
               href="/pieces/under/500/best"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
             >
               Best under 500 pcs →
             </Link>
             <Link
               href="/years"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
             >
               Browse by year →
             </Link>
@@ -103,8 +103,8 @@ export default function TopThemesHubPage() {
         ))}
       </div>
 
-      <div className="mt-12 rounded-2xl border border-black/[.08] bg-white p-5 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
-        <div className="font-semibold text-zinc-900 dark:text-zinc-50">Want more?</div>
+      <div className="mt-12 rounded-2xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600 shadow-sm">
+        <div className="font-semibold text-zinc-900">Want more?</div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
           <Link href="/themes" className="font-semibold hover:underline">
             Browse all themes →

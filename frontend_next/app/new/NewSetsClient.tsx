@@ -33,8 +33,8 @@ async function fetchCollectionSetNums(token: string, path: "/collections/me/owne
 function Badge({ children, tone }: { children: React.ReactNode; tone: "owned" | "wish" }) {
   const cls =
     tone === "owned"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200"
-      : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200";
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-amber-200 bg-amber-50 text-amber-700";
 
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
 }
@@ -74,21 +74,21 @@ function QuickStatsBar({ sets }: { sets: SetLite[] }) {
   }, [sets]);
 
   return (
-    <div className="mt-5 rounded-2xl border border-black/[.08] bg-white px-4 py-3 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
+    <div className="mt-5 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 shadow-sm">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <div>
-          <span className="font-semibold text-zinc-900 dark:text-zinc-50">Total releases:</span> {total}
+          <span className="font-semibold text-zinc-900">Total releases:</span> {total}
         </div>
-        <div className="text-zinc-400 dark:text-zinc-600">•</div>
+        <div className="text-zinc-600">•</div>
         <div>
-          <span className="font-semibold text-zinc-900 dark:text-zinc-50">Themes:</span> {themeCount}
+          <span className="font-semibold text-zinc-900">Themes:</span> {themeCount}
         </div>
 
         {biggest ? (
           <>
-            <div className="text-zinc-400 dark:text-zinc-600">•</div>
+            <div className="text-zinc-600">•</div>
             <div>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-50">Biggest set:</span> {biggest.set_num}
+              <span className="font-semibold text-zinc-900">Biggest set:</span> {biggest.set_num}
               {typeof biggest.pieces === "number" ? ` (${biggest.pieces.toLocaleString()} pcs)` : ""}
             </div>
           </>
@@ -100,13 +100,13 @@ function QuickStatsBar({ sets }: { sets: SetLite[] }) {
 
 function ComingSoon() {
   return (
-    <section className="mt-14 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-      <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Coming soon</h2>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+    <section className="mt-14 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <h2 className="m-0 text-base font-semibold text-zinc-900">Coming soon</h2>
+      <p className="mt-2 text-sm text-zinc-600">
         We’re upgrading this page to show official monthly release drops (not just “newly added to our database”).
       </p>
 
-      <ul className="mt-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
+      <ul className="mt-4 space-y-2 text-sm text-zinc-600">
         <li>• Official monthly release calendar (global + regional where available)</li>
         <li>• “Available now” vs “preorder” labels</li>
         <li>• Theme highlights you can pick each month</li>
@@ -138,7 +138,7 @@ function CarouselRow({
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h2 className="m-0 text-lg font-semibold">{title}</h2>
-          {subtitle ? <p className="mt-1 text-sm text-zinc-500">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-1 text-sm text-zinc-9000">{subtitle}</p> : null}
         </div>
       </div>
 
@@ -213,8 +213,8 @@ function FeaturedThemes({
 
   return (
     <section className="mt-10">
-      <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Featured themes</h2>
-      <p className="mt-2 text-sm text-zinc-500">A quick look at new drops in a few highlighted themes.</p>
+      <h2 className="m-0 text-base font-semibold text-zinc-900">Featured themes</h2>
+      <p className="mt-2 text-sm text-zinc-9000">A quick look at new drops in a few highlighted themes.</p>
 
       {themes.map((theme) => {
         const themeSets = byTheme.get(theme) ?? [];
@@ -300,13 +300,13 @@ export default function NewSetsClient({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">New LEGO set releases this month</h1>
-            <p className="mt-2 max-w-[640px] text-sm text-zinc-500">A rolling view of the newest sets we’ve seen this month.</p>
+            <p className="mt-2 max-w-[640px] text-sm text-zinc-9000">A rolling view of the newest sets we’ve seen this month.</p>
           </div>
 
-          <div className="text-xs font-semibold text-zinc-500">{monthKey}</div>
+          <div className="text-xs font-semibold text-zinc-9000">{monthKey}</div>
         </div>
 
-        <div className="mt-3 text-xs text-zinc-500">
+        <div className="mt-3 text-xs text-zinc-9000">
           Note: “New” is currently based on when sets were added to our database (not an official LEGO release calendar).
         </div>
 
@@ -315,14 +315,14 @@ export default function NewSetsClient({
         <QuickStatsBar sets={sets} />
 
         {hydrated && token ? (
-          <div className="mt-4 text-sm text-zinc-500">
+          <div className="mt-4 text-sm text-zinc-9000">
             {listsLoading ? "Loading your lists…" : null}
             {listsError ? <span className="text-red-600"> Error loading your lists: {listsError}</span> : null}
           </div>
         ) : null}
       </section>
 
-      {!initialError && sets.length === 0 ? <p className="mt-6 text-sm text-zinc-500">No sets found.</p> : null}
+      {!initialError && sets.length === 0 ? <p className="mt-6 text-sm text-zinc-9000">No sets found.</p> : null}
 
       <FeaturedThemes
         sets={sets}
@@ -335,8 +335,8 @@ export default function NewSetsClient({
       <ComingSoon />
 
       <section className="mt-14">
-        <h2 className="m-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">Full monthly drop</h2>
-        <p className="mt-2 text-sm text-zinc-500">Everything in the current “new releases” feed.</p>
+        <h2 className="m-0 text-base font-semibold text-zinc-900">Full monthly drop</h2>
+        <p className="mt-2 text-sm text-zinc-9000">Everything in the current “new releases” feed.</p>
 
         <div className="mt-5 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
           {sets.map((s) => {

@@ -5,15 +5,18 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select, func
+from pydantic import BaseModel, field_validator
+from sqlalchemy import select, func, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..core.auth import get_current_user
+from ..core.auth import get_current_user, get_current_user_optional
+from ..core.sanitize import contains_profanity
 from ..core.set_nums import base_set_num
 from ..data.sets import get_set_by_num
 from ..db import get_db
 from ..models import Review as ReviewModel
+from ..models import ReviewVote as ReviewVoteModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
 from ..schemas.review import Review, ReviewCreate, MyReviewItem
@@ -24,7 +27,53 @@ router = APIRouter(tags=["reviews"])
 
 # ---------------- helpers ----------------
 
-def _review_to_dict(r: ReviewModel, username: str, image_url: Optional[str]) -> Dict[str, Any]:
+def _vote_counts_for_reviews(
+    db: Session, review_ids: List[int], current_user_id: Optional[int] = None
+) -> Dict[int, Dict[str, Any]]:
+    """Batch-fetch vote counts + current user's vote for a list of review IDs."""
+    if not review_ids:
+        return {}
+
+    # Aggregate up/down counts per review
+    rows = db.execute(
+        select(
+            ReviewVoteModel.review_id,
+            func.count(case((ReviewVoteModel.vote_type == "up", 1))).label("upvotes"),
+            func.count(case((ReviewVoteModel.vote_type == "down", 1))).label("downvotes"),
+        )
+        .where(ReviewVoteModel.review_id.in_(review_ids))
+        .group_by(ReviewVoteModel.review_id)
+    ).all()
+
+    result: Dict[int, Dict[str, Any]] = {
+        rid: {"upvotes": 0, "downvotes": 0, "user_vote": None} for rid in review_ids
+    }
+    for review_id, up, down in rows:
+        result[review_id] = {"upvotes": up, "downvotes": down, "user_vote": None}
+
+    # If we have a current user, also fetch their votes
+    if current_user_id is not None:
+        user_votes = db.execute(
+            select(ReviewVoteModel.review_id, ReviewVoteModel.vote_type)
+            .where(
+                ReviewVoteModel.review_id.in_(review_ids),
+                ReviewVoteModel.user_id == current_user_id,
+            )
+        ).all()
+        for review_id, vote_type in user_votes:
+            if review_id in result:
+                result[review_id]["user_vote"] = vote_type
+
+    return result
+
+
+def _review_to_dict(
+    r: ReviewModel,
+    username: str,
+    image_url: Optional[str],
+    vote_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    vi = vote_info or {"upvotes": 0, "downvotes": 0, "user_vote": None}
     return {
         "id": int(r.id),
         "set_num": r.set_num,
@@ -34,8 +83,9 @@ def _review_to_dict(r: ReviewModel, username: str, image_url: Optional[str]) -> 
         "image_url": image_url,
         "created_at": r.created_at,
         "updated_at": getattr(r, "updated_at", None),
-        "likes_count": 0,
-        "liked_by": [],
+        "upvotes": vi["upvotes"],
+        "downvotes": vi["downvotes"],
+        "user_vote": vi["user_vote"],
     }
 
 
@@ -97,6 +147,19 @@ def _get_set_image_url(db: Session, canonical_set_num: str) -> Optional[str]:
     ).scalar_one_or_none()
 
 
+# ---------------- Vote schema ----------------
+
+class VoteCreate(BaseModel):
+    vote_type: str
+
+    @field_validator("vote_type")
+    @classmethod
+    def validate_vote_type(cls, v: str) -> str:
+        if v not in ("up", "down"):
+            raise ValueError("vote_type must be 'up' or 'down'")
+        return v
+
+
 # ---------------- endpoints ----------------
 
 # ✅ Put this FIRST so it never collides with "/{set_num}"
@@ -138,6 +201,7 @@ def list_my_reviews(
 def list_reviews_for_set(
     set_num: str,
     limit: int = 50,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     canonical = _canonicalize_and_ensure_set(db, set_num)
@@ -151,7 +215,14 @@ def list_reviews_for_set(
         .limit(int(limit))
     ).all()
 
-    return [_review_to_dict(r, username, image_url) for (r, username, image_url) in rows]
+    review_ids = [r.id for (r, _, _) in rows]
+    user_id = current_user.id if current_user else None
+    vote_map = _vote_counts_for_reviews(db, review_ids, user_id)
+
+    return [
+        _review_to_dict(r, username, image_url, vote_map.get(r.id))
+        for (r, username, image_url) in rows
+    ]
 
 
 # POST /sets/{set_num}/reviews
@@ -164,6 +235,13 @@ def create_or_update_review(
 ) -> Dict[str, Any]:
     canonical = _canonicalize_and_ensure_set(db, set_num)
     image_url = _get_set_image_url(db, canonical)
+
+    # Profanity check on review text
+    if payload.text and contains_profanity(payload.text):
+        raise HTTPException(
+            status_code=400,
+            detail="review_contains_inappropriate_language",
+        )
 
     existing = db.execute(
         select(ReviewModel).where(
@@ -181,7 +259,8 @@ def create_or_update_review(
         existing.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(existing)
-        return _review_to_dict(existing, current_user.username, image_url)
+        vote_map = _vote_counts_for_reviews(db, [existing.id], current_user.id)
+        return _review_to_dict(existing, current_user.username, image_url, vote_map.get(existing.id))
 
     new_row = ReviewModel(
         user_id=current_user.id,
@@ -219,6 +298,87 @@ def delete_my_review(
         )
         .delete(synchronize_session=False)
     )
+    db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# -------------------- Vote endpoints --------------------
+
+# POST /sets/{set_num}/reviews/{review_id}/vote
+@router.post("/{set_num}/reviews/{review_id}/vote")
+def vote_on_review(
+    set_num: str,
+    review_id: int,
+    payload: VoteCreate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    # Verify the review exists
+    review = db.execute(
+        select(ReviewModel).where(ReviewModel.id == review_id)
+    ).scalar_one_or_none()
+
+    if review is None:
+        raise HTTPException(status_code=404, detail="review_not_found")
+
+    # Don't allow voting on your own review
+    if review.user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="cannot_vote_own_review")
+
+    # Check for existing vote
+    existing_vote = db.execute(
+        select(ReviewVoteModel).where(
+            ReviewVoteModel.review_id == review_id,
+            ReviewVoteModel.user_id == current_user.id,
+        )
+    ).scalar_one_or_none()
+
+    if existing_vote is not None:
+        if existing_vote.vote_type == payload.vote_type:
+            # Same vote type → toggle off (remove vote)
+            db.delete(existing_vote)
+            db.commit()
+        else:
+            # Different vote type → update
+            existing_vote.vote_type = payload.vote_type
+            db.commit()
+    else:
+        # New vote
+        new_vote = ReviewVoteModel(
+            review_id=review_id,
+            user_id=current_user.id,
+            vote_type=payload.vote_type,
+        )
+        db.add(new_vote)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+
+    # Return updated counts
+    vote_map = _vote_counts_for_reviews(db, [review_id], current_user.id)
+    vi = vote_map.get(review_id, {"upvotes": 0, "downvotes": 0, "user_vote": None})
+    return {
+        "review_id": review_id,
+        "upvotes": vi["upvotes"],
+        "downvotes": vi["downvotes"],
+        "user_vote": vi["user_vote"],
+    }
+
+
+# DELETE /sets/{set_num}/reviews/{review_id}/vote
+@router.delete("/{set_num}/reviews/{review_id}/vote", status_code=status.HTTP_204_NO_CONTENT)
+def remove_vote(
+    set_num: str,
+    review_id: int,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    db.query(ReviewVoteModel).filter(
+        ReviewVoteModel.review_id == review_id,
+        ReviewVoteModel.user_id == current_user.id,
+    ).delete(synchronize_session=False)
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

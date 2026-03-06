@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/app/ui-providers/ToastProvider";
 
 type ListSummary = {
   id: number | string;
@@ -60,6 +61,7 @@ export default function AddToListMenu({
   fullWidth?: boolean;
   buttonClassName?: string;
 }) {
+  const toast = useToast();
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -317,7 +319,7 @@ export default function AddToListMenu({
     <div
       ref={menuRef}
       onMouseDown={(e) => e.stopPropagation()}
-      className="z-[9999] w-64 overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
+      className="z-[9999] w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 shadow-lg"
       style={{
         position: "fixed",
         left: pos.left,
@@ -326,7 +328,7 @@ export default function AddToListMenu({
       }}
     >
       <div className="px-4 py-2 text-xs font-semibold text-zinc-500">
-        {loading ? "Loading…" : err ? `Error: ${err}` : "Choose lists"}
+        {loading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-zinc-200" /> : err ? `Error: ${err}` : "Choose lists"}
       </div>
 
       <button
@@ -334,13 +336,15 @@ export default function AddToListMenu({
         disabled={disableButtons}
         onClick={async () => {
           try {
+            const wasSelected = ownedSelected;
             await toggleOwned();
+            toast.push(wasSelected ? "Removed from Owned" : "Added to Owned", { type: "success" });
             setOpen(false);
           } catch (e: unknown) {
             setErr(errorMessage(e));
           }
         }}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
       >
         <span>Owned</span>
         <span className="text-xs font-semibold text-zinc-500">{ownedSelected ? "✓" : ""}</span>
@@ -351,24 +355,26 @@ export default function AddToListMenu({
         disabled={disableButtons}
         onClick={async () => {
           try {
+            const wasSelected = wishlistSelected;
             await toggleWishlist();
+            toast.push(wasSelected ? "Removed from Wishlist" : "Added to Wishlist", { type: "success" });
             setOpen(false);
           } catch (e: unknown) {
             setErr(errorMessage(e));
           }
         }}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
       >
         <span>Wishlist</span>
         <span className="text-xs font-semibold text-zinc-500">{wishlistSelected ? "✓" : ""}</span>
       </button>
 
-      <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />
+      <div className="my-1 h-px bg-zinc-200" />
 
       {!enableCustomLists ? (
-        <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">Custom lists coming soon.</div>
+        <div className="px-4 py-3 text-sm text-zinc-500">Custom lists coming soon.</div>
       ) : customLists.length === 0 ? (
-        <div className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">No custom lists yet.</div>
+        <div className="px-4 py-3 text-sm text-zinc-500">No custom lists yet.</div>
       ) : (
         <div className="max-h-72 overflow-auto">
           {customLists.map((l) => {
@@ -382,13 +388,15 @@ export default function AddToListMenu({
                 disabled={disableButtons}
                 onClick={async () => {
                   try {
+                    const wasSelected = customSelected(id);
                     await toggleCustom(l);
+                    toast.push(wasSelected ? `Removed from ${l.title || "list"}` : `Added to ${l.title || "list"}`, { type: "success" });
                     setOpen(false);
                   } catch (e: unknown) {
                     setErr(errorMessage(e));
                   }
                 }}
-                className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-black/[.04] disabled:opacity-60 dark:hover:bg-white/[.06]"
+                className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
                 title={l.title || `List ${id}`}
               >
                 <span className="truncate">{l.title || `List ${id}`}</span>
@@ -412,7 +420,7 @@ export default function AddToListMenu({
         }}
         className={[
           fullWidth ? "w-full" : "min-w-0",
-          "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border border-black/[.10] bg-white px-4 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
+          "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border border-zinc-200 bg-transparent px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 disabled:opacity-60 transition-colors",
           buttonClassName,
         ]
           .filter(Boolean)

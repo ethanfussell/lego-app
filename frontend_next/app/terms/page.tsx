@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-8">
-      <h2 className="text-lg font-extrabold text-zinc-900 dark:text-zinc-50">{title}</h2>
-      <div className="mt-2 space-y-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+      <h2 className="text-lg font-extrabold text-zinc-900">{title}</h2>
+      <div className="mt-2 space-y-3 text-sm leading-relaxed text-zinc-600">
         {children}
       </div>
     </section>
@@ -21,13 +21,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function Page() {
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-10">
-      <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900">
         Terms of Service
       </h1>
 
       <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-02-01</p>
 
-      <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+      <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-600">
         <p>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of {SITE_NAME}.
           By using {SITE_NAME}, you agree to these Terms.

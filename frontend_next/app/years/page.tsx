@@ -88,21 +88,21 @@ export default function YearsPage() {
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Browse by year</h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 text-sm text-zinc-9000">
             Pick a year from {min} to {max}.
           </p>
 
           <div className="mt-3 flex flex-wrap gap-3 text-sm font-semibold">
-            <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
+            <Link href="/themes" className="text-zinc-900 hover:text-amber-600 hover:underline">
               Browse themes →
             </Link>
-            <Link href={`/years/${max}`} className="text-zinc-900 hover:underline dark:text-zinc-50">
+            <Link href={`/years/${max}`} className="text-zinc-900 hover:text-amber-600 hover:underline">
               Newest year →
             </Link>
           </div>
         </div>
 
-        <Link href="/" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+        <Link href="/" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
           ← Home
         </Link>
       </div>
@@ -112,7 +112,7 @@ export default function YearsPage() {
           <Link
             key={y}
             href={`/years/${y}`}
-            className="grid h-11 place-items-center rounded-xl border border-black/[.08] bg-white text-sm font-semibold text-zinc-900 hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
+            className="grid h-11 place-items-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100"
           >
             {y}
           </Link>

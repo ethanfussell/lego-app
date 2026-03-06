@@ -6,7 +6,7 @@ import Link from "next/link";
 
 type CarouselRowProps = {
   title: string;
-  subtitle?: string; // e.g. "Private • 42 sets"
+  subtitle?: string; // e.g. "Private \u00b7 42 sets"
   viewHref?: string; // e.g. "/collection/owned" or `/lists/${id}`
   emptyText?: string;
   children?: React.ReactNode;
@@ -83,11 +83,11 @@ export default function CarouselRow({
   }, [children]);
 
   return (
-    <section className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="m-0 text-base font-semibold">{title}</h2>
+            <h2 className="m-0 text-base font-semibold text-zinc-900">{title}</h2>
             {subtitle ? <span className="text-sm text-zinc-500">{subtitle}</span> : null}
           </div>
         </div>
@@ -97,23 +97,23 @@ export default function CarouselRow({
             type="button"
             onClick={() => scrollByPage(-1)}
             aria-label="Scroll left"
-            className="rounded-full border border-black/[.10] bg-white px-2.5 py-1 text-sm font-extrabold leading-none hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            className="hidden sm:inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-sm font-extrabold leading-none text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
           >
-            ◀
+            &#x25C0;
           </button>
 
           <button
             type="button"
             onClick={() => scrollByPage(1)}
             aria-label="Scroll right"
-            className="rounded-full border border-black/[.10] bg-white px-2.5 py-1 text-sm font-extrabold leading-none hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            className="hidden sm:inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-sm font-extrabold leading-none text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
           >
-            ▶
+            &#x25B6;
           </button>
 
           {viewHref ? (
-            <Link href={viewHref} className="text-sm font-extrabold text-zinc-900 hover:underline dark:text-zinc-50">
-              View →
+            <Link href={viewHref} className="text-sm font-extrabold text-amber-600 hover:text-amber-500 transition-colors">
+              View &rarr;
             </Link>
           ) : null}
         </div>
@@ -129,7 +129,7 @@ export default function CarouselRow({
           onMouseLeave={endDrag}
           onMouseMove={onMouseMove}
           onClickCapture={onClickCapture}
-          className="flex gap-3 overflow-x-auto overflow-y-visible pb-2"
+          className="flex gap-3 overflow-x-auto overflow-y-visible pb-2 scrollbar-hide"
           style={{ cursor: "grab", WebkitOverflowScrolling: "touch" }}
         >
           {children}

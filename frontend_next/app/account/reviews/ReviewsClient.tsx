@@ -10,6 +10,8 @@ import { asTrimmedString, type SetLite } from "@/lib/types";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import RequireAuth from "@/app/components/RequireAuth";
+import EmptyState from "@/app/components/EmptyState";
+import ErrorState from "@/app/components/ErrorState";
 
 type ReviewRow = {
   id?: number | string;
@@ -72,8 +74,8 @@ function pill(active: boolean) {
   return [
     "rounded-full px-3 py-1.5 text-sm font-semibold border",
     active
-      ? "bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-black dark:border-white"
-      : "bg-white text-zinc-900 border-black/[.10] hover:bg-black/[.04] dark:bg-transparent dark:text-zinc-50 dark:border-white/[.14] dark:hover:bg-white/[.06]",
+      ? "bg-amber-500 text-black border-amber-500"
+      : "bg-transparent text-zinc-900 border-zinc-300 hover:bg-zinc-100",
   ].join(" ");
 }
 
@@ -177,14 +179,14 @@ export default function ReviewsClient() {
           <div>
             <h1 className="m-0 text-2xl font-semibold">My reviews</h1>
             <p className="mt-2 text-sm text-zinc-500">
-              {loading ? "Loading…" : `${filtered.length.toLocaleString()} review${filtered.length === 1 ? "" : "s"}`}
+              {loading ? <span className="inline-block h-3 w-20 animate-pulse rounded bg-zinc-200" /> : `${filtered.length.toLocaleString()} review${filtered.length === 1 ? "" : "s"}`}
             </p>
           </div>
 
           <button
             type="button"
             onClick={() => router.push("/account")}
-            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
           >
             ← Back to account
           </button>
@@ -203,14 +205,19 @@ export default function ReviewsClient() {
         </div>
 
         {err ? (
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
-            <div className="font-semibold">Couldn’t load your reviews</div>
-            <div className="mt-2 whitespace-pre-wrap">{err}</div>
+          <div className="mt-6">
+            <ErrorState message={err} onRetry={() => window.location.reload()} />
           </div>
         ) : null}
 
         {!err && !loading && filtered.length === 0 ? (
-          <p className="mt-6 text-sm text-zinc-500">No reviews yet.</p>
+          <div className="mt-8">
+            <EmptyState
+              title="No reviews yet"
+              description="Share your thoughts on LEGO sets you've built"
+              action={{ href: "/search", label: "Browse sets to review" }}
+            />
+          </div>
         ) : null}
 
         {!err && filtered.length > 0 ? (
@@ -229,13 +236,13 @@ export default function ReviewsClient() {
               return (
                 <li
                   key={String(r.id ?? `${setNum}-${r.created_at ?? ""}-${title}`)}
-                  className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
+                  className="rounded-2xl border border-zinc-200 bg-white p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <Link
                         href={setNum ? `/sets/${encodeURIComponent(setNum)}` : "/"}
-                        className="block font-extrabold text-zinc-900 hover:underline dark:text-zinc-50"
+                        className="block font-extrabold text-zinc-900 hover:underline hover:text-amber-600"
                       >
                         {title}
                       </Link>
@@ -250,28 +257,28 @@ export default function ReviewsClient() {
                     </div>
 
                     <div className="shrink-0 text-right">
-                      <div className="font-extrabold text-zinc-900 dark:text-zinc-50">
+                      <div className="font-extrabold text-zinc-900">
                         {rating == null ? "—" : rating.toFixed(1)} <span className="text-sm">★</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-3 flex gap-3">
-                    <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-zinc-50 dark:border-white/[.14] dark:bg-white/5">
+                    <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
                       {imgSrc ? (
                         <div className="relative h-full w-full">
                           <Image src={imgSrc} alt="" fill sizes="80px" className="object-contain p-1" />
                         </div>
                       ) : (
-                        <div className="text-xs font-bold text-zinc-400">—</div>
+                        <div className="text-xs font-bold text-zinc-500">—</div>
                       )}
                     </div>
 
                     <div className="min-w-0 flex-1">
                       {text ? (
-                        <p className="m-0 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">{text}</p>
+                        <p className="m-0 whitespace-pre-wrap text-sm text-zinc-600">{text}</p>
                       ) : (
-                        <p className="m-0 text-sm text-zinc-400">No review text</p>
+                        <p className="m-0 text-sm text-zinc-500">No review text</p>
                       )}
                     </div>
                   </div>

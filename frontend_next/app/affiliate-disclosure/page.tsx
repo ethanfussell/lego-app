@@ -11,13 +11,13 @@ export const metadata: Metadata = {
 export default function Page() {
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-10">
-      <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900">
         Affiliate Disclosure
       </h1>
 
       <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-02-01</p>
 
-      <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+      <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-600">
         <p>
           Some links on {SITE_NAME} may be affiliate links. This means we may earn a commission if
           you click a link and make a purchase, at no additional cost to you.

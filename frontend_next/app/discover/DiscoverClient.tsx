@@ -5,8 +5,13 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 import Pagination from "@/app/components/Pagination";
+import { SetGridSkeleton } from "@/app/components/Skeletons";
+import EmptyState from "@/app/components/EmptyState";
+import ErrorState from "@/app/components/ErrorState";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/app/providers";
 
 export type DiscoverInitial = {
   q: string; // kept for compatibility, but Discover ignores it
@@ -93,6 +98,7 @@ async function fetchFeed(opts: { sort: string; order: "asc" | "desc"; page: numb
 export default function DiscoverClient({ initial }: { initial: DiscoverInitial }) {
   const router = useRouter();
   const sp = useSearchParams();
+  const { token } = useAuth();
 
   const sort = normalizeSort(sp.get("sort") ?? initial.sort);
   const order = normalizeOrder(sp.get("order") ?? initial.order);
@@ -104,6 +110,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
   const [totalPages, setTotalPages] = useState<number>(initial.totalPages || 1);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(initial.error || null);
+  const [retryKey, setRetryKey] = useState(0);
 
   function pushUrl(next: { sort?: string; order?: "asc" | "desc"; page?: number }) {
     const params = new URLSearchParams();
@@ -134,7 +141,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
       page === toNum(initialPage, 1) &&
       !initialError;
 
-    if (matchesInitial) return;
+    if (matchesInitial && retryKey === 0) return;
 
     (async () => {
       try {
@@ -162,7 +169,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
     return () => {
       ignore = true;
     };
-  }, [sort, order, page, pageSize, initialSort, initialOrder, initialPage, initialError]);
+  }, [sort, order, page, pageSize, initialSort, initialOrder, initialPage, initialError, retryKey]);
 
   function handleSortChange(e: React.ChangeEvent<HTMLSelectElement>) {
     pushUrl({ sort: e.target.value, page: 1 });
@@ -179,13 +186,13 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
         <div className="mt-2 text-sm text-zinc-500">{total ? `${total.toLocaleString()} sets` : ""}</div>
 
         <div className="mt-3 flex justify-end">
-          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <label className="flex items-center gap-2 text-sm text-zinc-500">
             <span className="text-zinc-500">Sort</span>
             <select
               value={sort}
               onChange={handleSortChange}
               disabled={loading}
-              className="rounded-lg border border-black/[.10] bg-white px-3 py-2 text-sm outline-none dark:border-white/[.14] dark:bg-zinc-950"
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none"
             >
               <option value="year">Year</option>
               <option value="rating">Rating</option>
@@ -198,14 +205,14 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
 
       <div className="mt-6 grid gap-6 md:grid-cols-[280px_1fr]">
         <aside className="sticky top-24 h-fit">
-          <div className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="mb-3 font-semibold">Popular searches</div>
             <div className="flex flex-wrap gap-2">
               {POPULAR_TERMS.map((t) => (
                 <Link
                   key={t}
                   href={`/search?q=${encodeURIComponent(t)}`}
-                  className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-xs font-semibold hover:bg-black/[.04] dark:border-white/[.14] dark:bg-transparent dark:hover:bg-white/[.06]"
+                  className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold hover:bg-zinc-100"
                   title={`Search "${t}"`}
                 >
                   {t}
@@ -218,13 +225,21 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
         </aside>
 
         <main>
-          {loading ? <p className="mt-0 text-sm">Loading…</p> : null}
-          {error && !loading ? <p className="mt-0 text-sm text-red-600">Error: {error}</p> : null}
+          {loading ? <SetGridSkeleton count={12} /> : null}
+          {error && !loading ? <ErrorState message={error} onRetry={() => setRetryKey((k) => k + 1)} /> : null}
+
+          {!loading && !error && results.length === 0 ? (
+            <EmptyState
+              title="No sets found"
+              description="Try adjusting your filters"
+              action={{ href: "/search", label: "Search sets" }}
+            />
+          ) : null}
 
           <div className="mt-2 grid grid-cols-[repeat(auto-fill,220px)] gap-4">
             {results.map((set) => (
               <div key={set.set_num}>
-                <SetCard set={set} />
+                <SetCard set={set} footer={token ? <SetCardActions token={token} setNum={set.set_num} /> : undefined} />
               </div>
             ))}
           </div>

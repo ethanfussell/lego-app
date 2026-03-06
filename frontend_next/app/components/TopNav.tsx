@@ -4,16 +4,14 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { createPortal } from "react-dom";
+import { UserButton } from "@clerk/nextjs";
 
 import { useAuth } from "@/app/providers";
-import ProfileMenu from "@/app/components/ProfileMenu";
 import {
   trackLoginCta,
   trackNavClick,
   trackSearchSubmit,
   trackSearchSuggestionClick,
-  trackMenuToggle,
 } from "@/lib/analytics";
 
 type Suggestion = {
@@ -28,19 +26,10 @@ function cx(...parts: Array<string | false | null | undefined>) {
 
 function pillClass(active: boolean) {
   return cx(
-    "px-3 py-2 rounded-full text-sm whitespace-nowrap",
-    active ? "bg-zinc-900 text-white font-semibold" : "text-zinc-900 hover:bg-zinc-100",
-    "dark:text-zinc-50 dark:hover:bg-white/10",
-    active && "dark:bg-zinc-50 dark:text-zinc-900"
-  );
-}
-
-function mobileLinkClass(active: boolean) {
-  return cx(
-    "block w-full rounded-xl px-3 py-2 text-sm font-semibold",
+    "px-3 py-2 rounded-full text-sm whitespace-nowrap transition-colors",
     active
-      ? "bg-black text-white dark:bg-white dark:text-black"
-      : "text-zinc-900 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-white/10"
+      ? "bg-amber-100 text-amber-600 font-semibold"
+      : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100"
   );
 }
 
@@ -60,8 +49,7 @@ function isSuggestionArray(x: unknown): x is Suggestion[] {
 export default function TopNav() {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const { token, me, logout } = useAuth();
-  const isAuthed = !!token;
+  const { isAuthed } = useAuth();
 
   const links = useMemo(
     () => [
@@ -75,67 +63,6 @@ export default function TopNav() {
     ],
     [pathname]
   );
-
-  // -------------------------
-  // Mobile slide-in menu (portal)
-  // -------------------------
-  const [mobileMounted, setMobileMounted] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const MOBILE_ANIM_MS = 220;
-
-  const closeFiredRef = useRef(false);
-
-  const openMobile = useCallback(() => {
-    closeFiredRef.current = false;
-    setMobileMounted(true);
-    requestAnimationFrame(() => setMobileOpen(true));
-
-    trackMenuToggle({
-      action: "open",
-      reason: "hamburger",
-      placement: "topnav_mobile",
-      path: pathname,
-      authed: isAuthed,
-    });
-  }, [pathname, isAuthed]);
-
-  const closeMobile = useCallback(
-    (reason: string) => {
-      if (!mobileMounted) return;
-
-      setMobileOpen(false);
-      window.setTimeout(() => setMobileMounted(false), MOBILE_ANIM_MS);
-
-      if (!closeFiredRef.current) {
-        closeFiredRef.current = true;
-        trackMenuToggle({
-          action: "close",
-          reason,
-          placement: "topnav_mobile",
-          path: pathname,
-          authed: isAuthed,
-        });
-      }
-    },
-    [mobileMounted, pathname, isAuthed]
-  );
-
-  // Close on route change (only if currently open)
-  useEffect(() => {
-    if (!mobileMounted) return;
-    if (!mobileOpen) return;
-    closeMobile("route_change");
-  }, [pathname, mobileMounted, mobileOpen, closeMobile]);
-
-  // Lock body scroll while sheet is mounted
-  useEffect(() => {
-    if (!mobileMounted) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [mobileMounted]);
 
   // -------------------------
   // Search suggestions
@@ -191,17 +118,15 @@ export default function TopNav() {
 
       trackSearchSubmit({
         query: q,
-        placement: mobileMounted ? "topnav_mobile" : "topnav_desktop",
+        placement: "topnav_desktop",
         source,
       });
 
       setShowSuggest(false);
-      if (mobileMounted) closeMobile("nav_click");
-
       router.push(`/search?q=${encodeURIComponent(q)}`);
       setSearchText("");
     },
-    [searchText, mobileMounted, closeMobile, router]
+    [searchText, router]
   );
 
   const pickSuggestion = useCallback(
@@ -213,29 +138,25 @@ export default function TopNav() {
       trackSearchSuggestionClick({
         query: q,
         set_num: setNum,
-        placement: mobileMounted ? "topnav_mobile" : "topnav_desktop",
+        placement: "topnav_desktop",
       });
 
       setShowSuggest(false);
-      if (mobileMounted) closeMobile("nav_click");
-
       router.push(`/sets/${encodeURIComponent(setNum)}`);
       setSearchText("");
     },
-    [searchText, mobileMounted, closeMobile, router]
+    [searchText, router]
   );
 
-  // Escape closes suggestions + mobile sheet
+  // Escape closes suggestions
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (showSuggest) setShowSuggest(false);
-      if (mobileMounted && mobileOpen) closeMobile("escape");
+      if (e.key === "Escape" && showSuggest) setShowSuggest(false);
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mobileMounted, mobileOpen, showSuggest, closeMobile]);
+  }, [showSuggest]);
 
   const SearchBox: React.ReactNode = (
     <div className="relative w-full">
@@ -257,15 +178,15 @@ export default function TopNav() {
           if (searchText.trim()) setShowSuggest(true);
         }}
         onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-        placeholder="Search sets…"
-        className="w-full rounded-md border border-black/[.12] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20 dark:border-white/[.18] dark:bg-zinc-950"
+        placeholder="Search sets..."
+        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
       />
 
       {showSuggest && (loading || suggestErr || suggestions.length > 0 || searchText.trim()) ? (
-        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.12] dark:bg-zinc-950">
+        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 shadow-lg">
           <ul className="max-h-[280px] overflow-auto p-1 text-sm">
-            {loading ? <li className="px-3 py-2 text-zinc-500">Searching…</li> : null}
-            {suggestErr ? <li className="px-3 py-2 text-red-600">Error: {suggestErr}</li> : null}
+            {loading ? <li className="px-3 py-2 text-zinc-500">Searching...</li> : null}
+            {suggestErr ? <li className="px-3 py-2 text-red-400">Error: {suggestErr}</li> : null}
 
             {!loading && !suggestErr && suggestions.length > 0 ? (
               <>
@@ -274,12 +195,12 @@ export default function TopNav() {
                   <li
                     key={s.set_num}
                     onMouseDown={() => pickSuggestion(s)}
-                    className="cursor-pointer rounded-lg px-3 py-2 hover:bg-black/[.04] dark:hover:bg-white/[.06]"
+                    className="cursor-pointer rounded-lg px-3 py-2 text-zinc-700 hover:bg-zinc-100"
                   >
                     <div className="font-semibold">{s.name || "Untitled set"}</div>
                     <div className="text-xs text-zinc-500">
                       {s.set_num}
-                      {s.year ? ` • ${s.year}` : ""}
+                      {s.year ? ` \u2022 ${s.year}` : ""}
                     </div>
                   </li>
                 ))}
@@ -289,9 +210,9 @@ export default function TopNav() {
             {!loading && !suggestErr && searchText.trim() ? (
               <li
                 onMouseDown={() => goSearchAll(undefined, "search_all")}
-                className="cursor-pointer rounded-lg px-3 py-2 hover:bg-black/[.04] dark:hover:bg-white/[.06]"
+                className="cursor-pointer rounded-lg px-3 py-2 text-zinc-600 hover:bg-zinc-100"
               >
-                Search all sets for <span className="font-semibold">{`\u201C${searchText.trim()}\u201D`}</span>
+                Search all sets for <span className="font-semibold text-zinc-800">{`\u201C${searchText.trim()}\u201D`}</span>
               </li>
             ) : null}
           </ul>
@@ -301,20 +222,10 @@ export default function TopNav() {
   );
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-black/[.08] bg-white/90 backdrop-blur dark:border-white/[.12] dark:bg-black/60">
+    <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/90 backdrop-blur">
       <div className="mx-auto w-full max-w-5xl px-6 py-3">
+        {/* Desktop: pills + search + auth */}
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={openMobile}
-            className="sm:hidden inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/[.10] bg-white hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-            aria-label="Open menu"
-            aria-expanded={mobileOpen}
-            aria-controls="topnav-mobile-sheet"
-          >
-            ☰
-          </button>
-
           <div className="hidden sm:flex flex-wrap items-center gap-2">
             {links.map((l) => (
               <Link
@@ -331,122 +242,51 @@ export default function TopNav() {
           <div className="ml-auto hidden sm:flex items-center gap-3">
             <div className="w-[260px]">{SearchBox}</div>
 
-            {!token ? (
+            {!isAuthed ? (
               <Link
-                href="/login"
-                className="text-sm font-semibold hover:underline"
+                href="/sign-in"
+                className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
                 onClick={() => trackLoginCta({ placement: "topnav_desktop" })}
               >
-                🔐 Login
+                Sign in
               </Link>
             ) : (
-              <ProfileMenu me={me} onLogout={logout} />
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8",
+                  },
+                }}
+              />
             )}
           </div>
-        </div>
 
-        <div className="mt-3 sm:hidden space-y-3">
-          {SearchBox}
-          <div className="flex items-center justify-end">
-            {!token ? (
+          {/* Mobile: just logo + search + auth (nav is in BottomTabBar) */}
+          <div className="sm:hidden flex items-center gap-3 w-full">
+            <Link href="/" className="text-base font-bold text-amber-500 whitespace-nowrap">
+              BrickTrack
+            </Link>
+            <div className="flex-1">{SearchBox}</div>
+            {!isAuthed ? (
               <Link
-                href="/login"
-                className="text-sm font-semibold hover:underline"
+                href="/sign-in"
+                className="rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-amber-400 transition-colors whitespace-nowrap"
                 onClick={() => trackLoginCta({ placement: "topnav_mobile" })}
               >
-                🔐 Login
+                Sign in
               </Link>
             ) : (
-              <ProfileMenu me={me} onLogout={logout} />
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "w-7 h-7",
+                  },
+                }}
+              />
             )}
           </div>
         </div>
       </div>
-
-      {mobileMounted && typeof document !== "undefined"
-        ? createPortal(
-            <div className="sm:hidden fixed inset-0 z-[999]">
-              <button
-                type="button"
-                aria-label="Close menu"
-                onClick={() => closeMobile("backdrop")}
-                className={cx(
-                  "absolute inset-0 h-full w-full transition-opacity duration-200",
-                  mobileOpen ? "bg-black/60 opacity-100 backdrop-blur-[2px]" : "bg-black/0 opacity-0"
-                )}
-              />
-
-              <div
-                id="topnav-mobile-sheet"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Menu"
-                className={cx(
-                  "absolute left-0 top-0 h-full w-[82%] max-w-[320px]",
-                  "border-r border-black/[.08] bg-white p-4 shadow-2xl",
-                  "dark:border-white/[.12] dark:bg-zinc-950",
-                  "transition-transform duration-200 ease-out will-change-transform",
-                  mobileOpen ? "translate-x-0" : "-translate-x-full"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Menu</div>
-                  <button
-                    type="button"
-                    onClick={() => closeMobile("close_button")}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/[.10] hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
-                    aria-label="Close menu"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="mt-4 space-y-1">
-                  {links.map((l) => (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className={mobileLinkClass(l.active)}
-                      onClick={() => {
-                        trackNavClick({ href: l.href, label: l.label, placement: "topnav_mobile_sheet" });
-                        closeMobile("nav_click");
-                      }}
-                    >
-                      {l.label}
-                    </Link>
-                  ))}
-                </div>
-
-                <div className="mt-6 border-t border-black/[.08] pt-4 text-sm dark:border-white/[.12]">
-                  {!token ? (
-                    <Link
-                      href="/login"
-                      className="inline-flex w-full items-center justify-center rounded-full bg-black px-4 py-2 font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
-                      onClick={() => {
-                        trackLoginCta({ placement: "topnav_mobile_sheet" });
-                        closeMobile("login_click");
-                      }}
-                    >
-                      Log in
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closeMobile("logout_click");
-                        logout();
-                      }}
-                      className="inline-flex w-full items-center justify-center rounded-full border border-black/[.10] bg-white px-4 py-2 font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-                    >
-                      Log out
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
     </nav>
   );
 }

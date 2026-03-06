@@ -1,4 +1,8 @@
 # tests/test_lists_auth.py
+"""
+List auth tests — updated for Clerk-based authentication.
+Uses fake-token-for-{username} pattern (ALLOW_FAKE_AUTH=true in tests).
+"""
 from datetime import datetime, UTC
 
 from fastapi.testclient import TestClient
@@ -9,25 +13,11 @@ from app.data.lists import LISTS
 client = TestClient(app)
 
 
-def login(username: str = "ethan", password: str = "lego123"):
+def auth_header_for(username: str = "ethan"):
     """
-    Helper to log in via /auth/login and return the raw response.
+    Build an Authorization header using fake token.
     """
-    return client.post(
-        "/auth/login",
-        data={"username": username, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-
-def auth_header_for(username: str = "ethan", password: str = "lego123"):
-    """
-    Helper to log in and build an Authorization header for later requests.
-    """
-    resp = login(username, password)
-    assert resp.status_code == 200, f"Login failed: {resp.status_code} {resp.text}"
-    token = resp.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": f"Bearer fake-token-for-{username}"}
 
 
 def test_create_list_requires_auth():
@@ -54,7 +44,7 @@ def test_create_list_uses_current_user_as_owner():
     """
     LISTS.clear()
 
-    headers = auth_header_for("ethan", "lego123")
+    headers = auth_header_for("ethan")
     payload = {
         "owner": "someone-else",   # should be ignored
         "title": "My Auth List",
@@ -91,7 +81,7 @@ def test_update_list_for_wrong_owner_forbidden():
         "updated_at": now,
     })
 
-    headers = auth_header_for("ethan", "lego123")
+    headers = auth_header_for("ethan")
 
     resp = client.patch(
         "/lists/1",

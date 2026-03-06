@@ -67,14 +67,8 @@ function asFeedResponse(x: unknown): FeedResponse {
 }
 
 async function fetchRetiringSoonSets(): Promise<SetLite[]> {
-  const params = new URLSearchParams();
-  params.set("q", "retiring");
-  params.set("sort", "rating");
-  params.set("order", "desc");
-  params.set("page", "1");
-  params.set("limit", "60");
-
-  const raw = await apiFetch<unknown>(`/sets?${params.toString()}`, { next: { revalidate } });
+  // Use the dedicated retiring endpoint (populated via BrickEconomy or manual curation)
+  const raw = await apiFetch<unknown>(`/sets/retiring?limit=60`, { cache: "no-store" });
   const data = asFeedResponse(raw);
 
   const items: SetLite[] = Array.isArray(data)

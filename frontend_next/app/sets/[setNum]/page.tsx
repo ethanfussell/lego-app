@@ -306,7 +306,11 @@ const fetchOffers = cache(async (setNum: string): Promise<UiOffer[]> => {
   if (!res.ok) return [];
 
   const data: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(data) ? data : [];
+  // API returns { offers: [...], msrp: {...} } or legacy array
+  const raw = data && typeof data === "object" && !Array.isArray(data) && "offers" in (data as Record<string, unknown>)
+    ? (data as Record<string, unknown>).offers
+    : data;
+  const arr = Array.isArray(raw) ? raw : [];
 
   return arr
     .filter(isRecord)

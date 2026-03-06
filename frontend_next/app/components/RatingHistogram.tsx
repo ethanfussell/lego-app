@@ -107,15 +107,15 @@ export default function RatingHistogram({
                     width: "100%",
                     height: barH,
                     borderRadius: 10,
-                    background: isZero ? "#e5e7eb" : "#111827",
-                    border: isZero ? "1px solid #d1d5db" : "1px solid transparent",
+                    background: isZero ? "#e4e4e7" : "#f59e0b",
+                    border: isZero ? "1px solid #d4d4d8" : "1px solid transparent",
                     transition: "height 160ms ease",
                   }}
                 />
               </div>
 
               {showLabels ? (
-                <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 900 }}>
+                <div style={{ fontSize: 12, color: "#71717a", fontWeight: 900 }}>
                   {r.rating.toFixed(1)}
                 </div>
               ) : null}

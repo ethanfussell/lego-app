@@ -5,6 +5,8 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
+import EmptyState from "@/app/components/EmptyState";
+import ErrorState from "@/app/components/ErrorState";
 
 type ListRow = {
   id?: string | number;
@@ -74,8 +76,8 @@ export default function MyListsClient() {
       </div>
 
       {!isLoggedIn ? (
-        <div className="mt-6 rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="m-0 text-sm text-zinc-500">
             You’re not logged in. Go to{" "}
             <Link href="/login" className="font-semibold hover:underline">
               /login
@@ -85,11 +87,17 @@ export default function MyListsClient() {
         </div>
       ) : (
         <>
-          {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
-          {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
+          {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
+          {err ? <div className="mt-6"><ErrorState message={err} onRetry={() => window.location.reload()} /></div> : null}
 
           {!loading && !err && lists.length === 0 ? (
-            <p className="mt-6 text-sm text-zinc-500">You don’t have any lists yet.</p>
+            <div className="mt-6">
+              <EmptyState
+                title="No lists yet"
+                description="Create custom lists to organize your favorite sets"
+                action={{ href: "/account/lists", label: "Create a list" }}
+              />
+            </div>
           ) : null}
 
           <div className="mt-6 grid gap-3">
@@ -111,9 +119,9 @@ export default function MyListsClient() {
                 <Link
                   key={String(id)}
                   href={`/lists/${encodeURIComponent(String(id))}`}
-                  className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+                  className="block rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300 hover:shadow-md"
                 >
-                  <div className="font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
+                  <div className="font-extrabold text-zinc-900">{title}</div>
                   <div className="mt-1 text-sm text-zinc-500">
                     {count} sets · {vis}
                   </div>

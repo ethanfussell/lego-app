@@ -110,9 +110,9 @@ function MiniStat({
   href?: string;
 }) {
   const base = (
-    <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="text-xs font-extrabold uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="mt-2 text-xl font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">{value}</div>
+      <div className="mt-2 text-xl font-extrabold leading-tight text-zinc-900">{value}</div>
       {sub ? <div className="mt-1 text-xs font-semibold text-zinc-500">{sub}</div> : null}
     </div>
   );
@@ -144,26 +144,26 @@ function MiniSetReviewCard({ r }: { r: ReviewRow }) {
   return (
     <Link
       href={setNum ? `/sets/${encodeURIComponent(setNum)}` : "/sets"}
-      className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+      className="block rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:border-zinc-300 hover:shadow-md"
     >
       <div className="grid grid-cols-[72px_1fr] gap-3">
-        <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-zinc-50 dark:border-white/[.14] dark:bg-white/5">
+        <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
           {imgSrc ? (
             <div className="relative h-full w-full">
               <Image src={imgSrc} alt="" fill sizes="72px" className="object-contain p-1" />
             </div>
           ) : (
-            <div className="text-xs font-bold text-zinc-400">—</div>
+            <div className="text-xs font-bold text-zinc-500">—</div>
           )}
         </div>
 
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-3">
             <div className="min-w-0" style={clampStyle(2)}>
-              <div className="font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">{setName}</div>
+              <div className="font-extrabold leading-tight text-zinc-900">{setName}</div>
             </div>
 
-            <div className="shrink-0 whitespace-nowrap font-extrabold text-zinc-900 dark:text-zinc-50">
+            <div className="shrink-0 whitespace-nowrap font-extrabold text-zinc-900">
               {rating} <span className="text-xs">★</span>
             </div>
           </div>
@@ -174,11 +174,11 @@ function MiniSetReviewCard({ r }: { r: ReviewRow }) {
           </div>
 
           {text ? (
-            <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-300" style={clampStyle(2)}>
+            <div className="mt-2 text-sm text-zinc-600" style={clampStyle(2)}>
               {text}
             </div>
           ) : (
-            <div className="mt-2 text-sm text-zinc-400">No review text</div>
+            <div className="mt-2 text-sm text-zinc-500">No review text</div>
           )}
         </div>
       </div>
@@ -289,10 +289,10 @@ export default function MyReviewsClient() {
       <div className="mt-10 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="m-0 text-2xl font-semibold">My Reviews</h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 text-sm text-zinc-500">
             {isLoggedIn ? (
               <>
-                Reviews by <span className="font-semibold text-zinc-900 dark:text-zinc-100">{username}</span>
+                Reviews by <span className="font-semibold text-zinc-800">{username}</span>
               </>
             ) : (
               "Log in to see your reviews."
@@ -303,15 +303,15 @@ export default function MyReviewsClient() {
         <button
           type="button"
           onClick={() => router.push("/account")}
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
         >
           ← Back to Account
         </button>
       </div>
 
       {!isLoggedIn ? (
-        <div className="mt-6 rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
-          <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="m-0 text-sm text-zinc-500">
             You’re not logged in. Go to{" "}
             <Link href="/login" className="font-semibold hover:underline">
               /login
@@ -336,10 +336,10 @@ export default function MyReviewsClient() {
               </div>
 
               <div className="min-w-[320px] flex-[2]">
-                <div className="grid min-h-[70px] grid-cols-[140px_1fr] items-center gap-3 rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+                <div className="grid min-h-[70px] grid-cols-[140px_1fr] items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="grid gap-2">
                     <div className="text-xs font-extrabold uppercase tracking-wide text-zinc-500">Ratings</div>
-                    <div className="text-xl font-extrabold text-zinc-900 dark:text-zinc-50">
+                    <div className="text-xl font-extrabold text-zinc-900">
                       {avgRating == null ? "—" : Number(avgRating).toFixed(2)}
                       <span className="ml-2 text-xs font-semibold text-zinc-500">avg</span>
                     </div>
@@ -351,7 +351,7 @@ export default function MyReviewsClient() {
                     ) : histogram ? (
                       <RatingHistogram histogram={histogram} height={52} barWidth={18} gap={8} showLabels={false} maxWidth={420} />
                     ) : (
-                      <div className="text-sm text-zinc-500">Loading…</div>
+                      <div className="animate-pulse"><div className="h-[52px] w-full max-w-[420px] rounded bg-zinc-100" /></div>
                     )}
                   </div>
                 </div>
@@ -360,7 +360,7 @@ export default function MyReviewsClient() {
           </section>
 
           <section className="mt-4 flex flex-wrap items-center gap-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-900">
               <input
                 type="checkbox"
                 checked={onlyRated}
@@ -373,7 +373,7 @@ export default function MyReviewsClient() {
               Only rated
             </label>
 
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-900">
               <input
                 type="checkbox"
                 checked={onlyWithText}
@@ -387,8 +387,8 @@ export default function MyReviewsClient() {
             </label>
 
             <div className="ml-auto text-sm font-semibold text-zinc-500">
-              Showing <span className="text-zinc-900 dark:text-zinc-100">{filtered.length}</span> of{" "}
-              <span className="text-zinc-900 dark:text-zinc-100">{rows.length}</span>
+              Showing <span className="text-zinc-800">{filtered.length}</span> of{" "}
+              <span className="text-zinc-800">{rows.length}</span>
             </div>
           </section>
 

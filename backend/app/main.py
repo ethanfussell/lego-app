@@ -9,10 +9,13 @@ from urllib.parse import quote
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response as FastAPIResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 
 from app.core import auth as auth_router
+from app.core.limiter import limiter
 from app.db import get_db
 from app.models import List as ListModel
 from app.models import Set as SetModel
@@ -27,23 +30,43 @@ from app.routers import users as users_router
 from app.routers.offers import router as offers_router
 from app.routers import email_signups as email_signups_router
 from app.routers import affiliate_clicks
+from app.routers import admin as admin_router
+from app.routers import reports as reports_router
+from app.routers import alerts as alerts_router
 
 app = FastAPI(title="LEGO API")
 
+# ---------------------------
+# Rate limiting
+# ---------------------------
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 # ---------------------------
-# Debug headers (safe)
+# Security + debug headers
 # ---------------------------
+_is_production = os.getenv("RENDER") is not None  # Render sets this automatically
+
+
 @app.middleware("http")
-async def add_debug_headers(request: Request, call_next):
+async def add_headers(request: Request, call_next):
     resp = await call_next(request)
 
-    secret = (os.getenv("SECRET_KEY") or "").encode("utf-8")
-    kid = hashlib.sha256(secret).hexdigest()[:8] if secret else "none"
+    # Security headers — prevent clickjacking, MIME sniffing, XSS
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["X-XSS-Protection"] = "1; mode=block"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-    resp.headers["x-secret-kid"] = kid
-    resp.headers["x-host"] = socket.gethostname()
-    resp.headers["x-git-sha"] = (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
+    # Debug headers (only in dev, not production)
+    if not _is_production:
+        secret = (os.getenv("SECRET_KEY") or "").encode("utf-8")
+        kid = hashlib.sha256(secret).hexdigest()[:8] if secret else "none"
+        resp.headers["x-secret-kid"] = kid
+        resp.headers["x-host"] = socket.gethostname()
+        resp.headers["x-git-sha"] = (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
+
     return resp
 
 
@@ -184,14 +207,18 @@ app.include_router(email_signups_router.router)
 
 
 # ---------------------------
-# Debug
+# Debug (dev only)
 # ---------------------------
-@app.get("/db/ping", tags=["debug"])
-def db_ping(db: Session = Depends(get_db)):
-    return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
+if not _is_production:
+    @app.get("/db/ping", tags=["debug"])
+    def db_ping(db: Session = Depends(get_db)):
+        return db.execute(text("select current_database() as db, current_user as user")).mappings().one()
 
 
 # ---------------------------
 # Affiliate
 # ---------------------------
 app.include_router(affiliate_clicks.router)
+app.include_router(admin_router.router)
+app.include_router(reports_router.router)
+app.include_router(alerts_router.router)

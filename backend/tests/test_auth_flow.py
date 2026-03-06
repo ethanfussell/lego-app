@@ -1,60 +1,17 @@
 # tests/test_auth_flow.py
+"""
+Auth flow tests — updated for Clerk-based authentication.
 
-from fastapi.testclient import TestClient
+Uses fake-token-for-{username} pattern for test auth (ALLOW_FAKE_AUTH=true).
+Login/register endpoints have been removed (handled by Clerk).
+"""
+import pytest
+from sqlalchemy.orm import Session
 
-from app.main import app
-
-client = TestClient(app)
-
-# 🔑 Make sure these match whatever you configured in app/core/auth.py
-# If you used different credentials there, change these two values.
-VALID_USERNAME = "ethan"
-VALID_PASSWORD = "lego123"
-
-
-def login(username: str = VALID_USERNAME, password: str = VALID_PASSWORD):
-    """
-    Helper: perform a login request and return the response.
-    Uses form-encoded data, which is what OAuth2PasswordRequestForm expects.
-    """
-    return client.post(
-        "/auth/login",
-        data={
-            "username": username,
-            "password": password,
-        },
-    )
+from app.models import User
 
 
-def test_login_success_returns_token():
-    resp = login()
-    assert resp.status_code == 200
-
-    data = resp.json()
-    # Basic structure of the token response
-    assert "access_token" in data
-    assert "token_type" in data
-    assert data["token_type"] == "bearer"
-
-    token = data["access_token"]
-    assert isinstance(token, str)
-    assert token != ""
-    # Optional: if your create_access_token uses a prefix like "fake-token-for-"
-    assert "fake" in token or "token" in token
-
-
-def test_login_with_bad_password_fails():
-    resp = login(password="wrong-password")
-    # In our fake auth we raise HTTPException(status_code=400)
-    assert resp.status_code == 400
-
-    data = resp.json()
-    # Optional, depending on what you used in auth.py
-    # e.g. "Incorrect username or password"
-    assert "detail" in data
-
-
-def test_me_requires_auth():
+def test_me_requires_auth(client):
     """
     Calling /auth/me with NO token should give 401.
     """
@@ -65,25 +22,56 @@ def test_me_requires_auth():
     assert "detail" in data
 
 
-def test_me_with_valid_token_returns_user():
+def test_me_with_valid_fake_token(client, db_session: Session):
     """
-    Full flow:
-    1. Login → get token
-    2. Call /auth/me with Authorization: Bearer <token>
+    Full flow with fake auth:
+    1. Create a user in the DB
+    2. Call /auth/me with Authorization: Bearer fake-token-for-{username}
     3. Expect current user back
     """
-    # 1) login
-    login_resp = login()
-    assert login_resp.status_code == 200
-    token = login_resp.json()["access_token"]
+    # Create test user
+    user = User(username="testuser", email="test@example.com")
+    db_session.add(user)
+    db_session.commit()
 
-    # 2) call /auth/me
-    me_resp = client.get(
+    # Call /auth/me with fake token
+    resp = client.get(
         "/auth/me",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": "Bearer fake-token-for-testuser"},
     )
-    assert me_resp.status_code == 200
+    assert resp.status_code == 200
 
-    user = me_resp.json()
-    # shape should match your User model
-    assert user["username"] == VALID_USERNAME
+    data = resp.json()
+    assert data["username"] == "testuser"
+
+
+def test_me_with_invalid_token_returns_401(client):
+    """
+    A non-fake, non-Clerk token should return 401.
+    """
+    resp = client.get(
+        "/auth/me",
+        headers={"Authorization": "Bearer invalid-random-token"},
+    )
+    assert resp.status_code == 401
+
+
+def test_auto_create_user_on_first_api_call(client, db_session: Session):
+    """
+    When a fake token references a username that doesn't exist,
+    the user should be auto-created on first API call.
+    """
+    # Verify user doesn't exist
+    assert db_session.query(User).filter(User.username == "newuser").first() is None
+
+    resp = client.get(
+        "/auth/me",
+        headers={"Authorization": "Bearer fake-token-for-newuser"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["username"] == "newuser"
+
+    # Verify user was created in DB
+    user = db_session.query(User).filter(User.username == "newuser").first()
+    assert user is not None
+    assert user.clerk_id == "newuser"

@@ -51,7 +51,7 @@ export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
                   <SetCardActions token={token ?? null} setNum={original.set_num} />
                   <Link
                     href={`/sets/${encodeURIComponent(original.set_num)}`}
-                    className="block text-center text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                    className="block text-center text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline"
                   >
                     View set →
                   </Link>

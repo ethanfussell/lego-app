@@ -81,7 +81,7 @@ function toRows(x: unknown): PublicListRow[] {
 
 function FeaturedBadge() {
   return (
-    <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-extrabold text-amber-700 dark:text-amber-300">
+    <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-50 px-2 py-0.5 text-[11px] font-extrabold text-amber-300">
       Featured
     </span>
   );
@@ -208,19 +208,19 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <h1 className="m-0 text-2xl font-semibold">Public Lists</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
+        <p className="mt-2 text-sm text-zinc-500">Browse lists shared by the community.</p>
       </div>
 
       {/* Featured section */}
       {featured.length > 0 ? (
-        <section className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+        <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="m-0 text-lg font-semibold">Featured lists</h2>
                 <FeaturedBadge />
               </div>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Curated picks to explore.</p>
+              <p className="mt-1 text-sm text-zinc-500">Curated picks to explore.</p>
             </div>
             <Link href="/discover" className="text-sm font-semibold hover:underline">
               Discover sets →
@@ -235,13 +235,13 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
               return (
                 <div
                   key={id}
-                  className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                  className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-zinc-300 hover:bg-zinc-100"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <Link
                         href={`/lists/${encodeURIComponent(id)}`}
-                        className="block truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                        className="block truncate text-sm font-semibold text-zinc-900 hover:underline hover:text-amber-600"
                       >
                         {l.title}
                       </Link>
@@ -260,7 +260,7 @@ export default async function Page({ searchParams }: { searchParams?: SearchPara
                   </div>
 
                   {l.description ? (
-                    <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                    <p className="mt-3 line-clamp-3 text-sm text-zinc-500">{l.description}</p>
                   ) : (
                     <div className="mt-3">
                       <Link

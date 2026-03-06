@@ -129,13 +129,13 @@ function RelatedLinks({ year }: { year: number }) {
   const otherYears = RECENT_YEARS.filter((y) => y !== year);
 
   return (
-    <div className="mt-10 rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 className="text-base font-semibold">Related pages</h2>
 
       <div className="mt-3 grid gap-6 sm:grid-cols-2">
         <div>
-          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">More years</div>
-          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+          <div className="text-sm font-semibold text-zinc-900">More years</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-600">
             {otherYears.map((y) => (
               <li key={y}>
                 <Link href={`/years/${y}/top`} className="hover:underline">
@@ -152,8 +152,8 @@ function RelatedLinks({ year }: { year: number }) {
         </div>
 
         <div>
-          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Top themes</div>
-          <ul className="mt-2 space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+          <div className="text-sm font-semibold text-zinc-900">Top themes</div>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-600">
             {TOP_THEMES.map((t) => {
               const slug = themeToSlug(t);
               return (
@@ -214,7 +214,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="text-sm text-zinc-9000">
           <Link href="/" className="font-semibold hover:underline">
             Home
           </Link>
@@ -227,13 +227,13 @@ export default async function Page({ params }: { params: Params | Promise<Params
             {y}
           </Link>
           <span className="mx-2">›</span>
-          <span className="text-zinc-900 dark:text-zinc-50">Top sets</span>
+          <span className="text-zinc-900">Top sets</span>
         </div>
 
         <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Top sets of {y}</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="mt-2 text-sm text-zinc-9000">
               Highest-rated sets from {y} (sorted by average rating, then rating count).
             </p>
           </div>
@@ -241,13 +241,13 @@ export default async function Page({ params }: { params: Params | Promise<Params
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={`/years/${y}`}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
             >
               ← Year {y}
             </Link>
             <Link
               href="/years"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
             >
               Browse years →
             </Link>
@@ -256,7 +256,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
       </div>
 
       {sets.length === 0 ? (
-        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-8 text-sm text-zinc-9000">
           No results yet (needs ratings). Add a few reviews/ratings and this page will populate.
         </p>
       ) : (
@@ -268,10 +268,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
             return (
               <div
                 key={s.set_num}
-                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950"
+                className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300"
               >
                 <div className="flex gap-3">
-                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
+                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                     {s.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -291,7 +291,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                       {s.name}
                     </Link>
 
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="mt-1 text-xs text-zinc-9000">
                       <span className="font-semibold">{s.set_num}</span>
                       {typeof s.pieces === "number" ? (
                         <>
@@ -301,7 +301,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                       ) : null}
                     </div>
 
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="mt-1 text-xs text-zinc-9000">
                       {rating ? (
                         <>
                           ⭐ <span className="font-semibold">{rating}</span>
@@ -315,12 +315,12 @@ export default async function Page({ params }: { params: Params | Promise<Params
                           ) : null}
                         </>
                       ) : (
-                        <span className="text-zinc-500">No ratings yet</span>
+                        <span className="text-zinc-9000">No ratings yet</span>
                       )}
                     </div>
 
                     {s.theme ? (
-                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      <div className="mt-1 text-xs text-zinc-9000">
                         Theme:{" "}
                         <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
                           {s.theme}

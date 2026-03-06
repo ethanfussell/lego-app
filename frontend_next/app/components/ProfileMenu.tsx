@@ -41,7 +41,7 @@ function cx(...parts: Array<string | false | null | undefined>) {
 }
 
 function Divider() {
-  return <div className="my-1 h-px bg-black/[.06] dark:bg-white/[.10]" />;
+  return <div className="my-1 h-px bg-zinc-200" />;
 }
 
 function MenuButton({
@@ -59,8 +59,8 @@ function MenuButton({
       onClick={onClick}
       className={cx(
         "flex w-full items-center justify-between px-4 py-3 text-left text-sm",
-        "hover:bg-black/[.04] dark:hover:bg-white/[.06]",
-        danger ? "text-red-700 font-semibold dark:text-red-300" : "text-zinc-900 font-medium dark:text-zinc-50"
+        "hover:bg-zinc-100",
+        danger ? "text-red-700 font-semibold" : "text-zinc-900 font-medium"
       )}
     >
       <span className="truncate">{label}</span>
@@ -83,9 +83,8 @@ function SheetButton({
       onClick={onClick}
       className={cx(
         "mt-2 w-full rounded-2xl border px-4 py-3 text-left text-base font-semibold",
-        "border-black/[.10] bg-white hover:bg-black/[.04]",
-        "dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
-        danger ? "text-red-700 dark:text-red-300" : "text-zinc-900 dark:text-zinc-50"
+        "border-zinc-200 bg-white hover:bg-zinc-100",
+        danger ? "text-red-700" : "text-zinc-900"
       )}
     >
       {label}
@@ -172,13 +171,13 @@ export default function ProfileMenu({ me, onLogout }: { me: MeUser; onLogout?: (
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((p) => !p)}
-        className="flex items-center gap-2 rounded-full border border-black/[.10] bg-white px-3 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+        className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-100"
         aria-label="Account menu"
         aria-expanded={open}
       >
         <div
           aria-hidden
-          className="grid h-7 w-7 place-items-center rounded-full bg-zinc-900 text-xs font-extrabold text-white dark:bg-zinc-50 dark:text-zinc-900"
+          className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-xs font-extrabold text-black"
         >
           {initials}
         </div>
@@ -194,7 +193,7 @@ export default function ProfileMenu({ me, onLogout }: { me: MeUser; onLogout?: (
       {open && !isMobile ? (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-[calc(100%+10px)] z-50 w-56 overflow-hidden rounded-2xl border border-black/[.10] bg-white shadow-lg dark:border-white/[.14] dark:bg-zinc-950"
+          className="absolute right-0 top-[calc(100%+10px)] z-50 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
         >
           <MenuButton label="Account" onClick={() => closeThen(() => router.push("/account"))} />
           <MenuButton label="My Collection" onClick={() => closeThen(() => router.push("/collection"))} />
@@ -225,30 +224,30 @@ export default function ProfileMenu({ me, onLogout }: { me: MeUser; onLogout?: (
           />
 
           {/* Panel */}
-          <div className="absolute right-0 top-0 h-full w-[min(92vw,360px)] border-l border-black/[.10] bg-white p-4 shadow-2xl dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="absolute right-0 top-0 h-full w-[min(92vw,360px)] border-l border-zinc-200 bg-white p-4 shadow-2xl">
             <div className="flex items-center gap-3">
               <div
                 aria-hidden
-                className="grid h-10 w-10 place-items-center rounded-full bg-zinc-900 text-base font-extrabold text-white dark:bg-zinc-50 dark:text-zinc-900"
+                className="grid h-10 w-10 place-items-center rounded-full bg-amber-500 text-base font-extrabold text-black"
               >
                 {initials}
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-zinc-900 dark:text-zinc-50">{username}</div>
+                <div className="truncate font-semibold text-zinc-900">{username}</div>
               </div>
 
               <button
                 type="button"
                 onClick={close}
-                className="rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-100"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
 
-            <div className="my-4 h-px bg-black/[.06] dark:bg-white/[.10]" />
+            <div className="my-4 h-px bg-zinc-200" />
 
             <SheetButton label="Account" onClick={() => closeThen(() => router.push("/account"))} />
             <SheetButton label="My Collection" onClick={() => closeThen(() => router.push("/collection"))} />

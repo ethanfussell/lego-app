@@ -176,16 +176,16 @@ export default async function Page({ params }: { params: Params | Promise<Params
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">{SITE_NAME}</div>
+        <div className="text-sm font-semibold tracking-tight text-zinc-600">{SITE_NAME}</div>
 
         <h1 className="mt-2 text-3xl font-bold">@{user.username}</h1>
 
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Public lists by this user</p>
+        <p className="mt-2 text-sm text-zinc-500">Public lists by this user</p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
             href="/lists/public"
-            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
           >
             Browse public lists
           </Link>
@@ -193,25 +193,25 @@ export default async function Page({ params }: { params: Params | Promise<Params
       </div>
 
       {lists.length === 0 ? (
-        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No public lists yet.</p>
+        <p className="mt-8 text-sm text-zinc-500">No public lists yet.</p>
       ) : (
         <ul className="mt-8 space-y-3">
           {lists.map((l) => (
             <li
               key={l.id}
-              className="rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              className="rounded-2xl border border-zinc-200 bg-white p-5 hover:border-zinc-300"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Link
                     href={`/lists/${encodeURIComponent(String(l.id))}`}
-                    className="truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                    className="truncate text-sm font-semibold text-zinc-900 hover:text-amber-600"
                   >
                     {l.title}
                   </Link>
 
                   {l.description ? (
-                    <p className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{l.description}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-zinc-500">{l.description}</p>
                   ) : null}
 
                   <div className="mt-2 text-xs text-zinc-500">

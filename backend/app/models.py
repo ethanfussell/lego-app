@@ -28,10 +28,15 @@ class User(Base):
     # IMPORTANT for SQLite auto-increment:
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    username = Column(String, unique=True, nullable=False, index=True)
+    clerk_id = Column(String, unique=True, nullable=True, index=True)
 
-    # tests create users with password_hash=None, and your fake login doesn’t need it
+    username = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=True, index=True)
+
+    # Kept nullable for backwards compat; unused with Clerk auth
     password_hash = Column(String, nullable=True)
+
+    is_admin = Column(Boolean, nullable=False, server_default="false")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -59,8 +64,18 @@ class Set(Base):
     theme = Column(String, index=True)
     pieces = Column(Integer)
     image_url = Column(String)
+    ip = Column(String, nullable=True, index=True)
+
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # Price data
+    retail_price = Column(Float, nullable=True)  # MSRP/RRP
+    retail_currency = Column(String(8), nullable=True, server_default="USD")
+
+    # Retirement tracking (populated via BrickEconomy or manual curation)
+    retirement_status = Column(String, nullable=True)  # "available" | "retiring_soon" | "retired"
+    retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
 
     reviews = relationship(
         "Review",
@@ -84,6 +99,12 @@ class Review(Base):
 
     user = relationship("User", back_populates="reviews")
     set = relationship("Set", back_populates="reviews")
+    votes = relationship(
+        "ReviewVote",
+        back_populates="review",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         UniqueConstraint("user_id", "set_num", name="reviews_user_set_unique"),
@@ -91,6 +112,24 @@ class Review(Base):
         Index("idx_reviews_set_num", "set_num"),
     )
 
+
+
+class ReviewVote(Base):
+    __tablename__ = "review_votes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    vote_type = Column(String, nullable=False)  # "up" or "down"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    review = relationship("Review", back_populates="votes")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("review_id", "user_id", name="review_votes_review_user_unique"),
+        CheckConstraint("vote_type IN ('up', 'down')", name="review_votes_type_check"),
+    )
 
 
 class List(Base):
@@ -167,3 +206,59 @@ class AffiliateClick(Base):
 
     page_path = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Offer(Base):
+    __tablename__ = "offers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    set_num = Column(String, nullable=False, index=True)
+    store = Column(String, nullable=False)
+    price = Column(Float, nullable=False)
+    currency = Column(String(8), nullable=False, server_default="USD")
+    url = Column(String, nullable=False)
+    in_stock = Column(Boolean, nullable=True)  # True / False / None (unknown)
+    asin = Column(String, nullable=True)  # Amazon Standard Identification Number
+    last_checked = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reporter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_type = Column(String, nullable=False)  # "review" or "list"
+    target_id = Column(Integer, nullable=False)
+    reason = Column(String, nullable=False)  # "spam", "offensive", "inappropriate", "other"
+    notes = Column(Text, nullable=True)
+    status = Column(String, nullable=False, server_default="pending")  # "pending", "resolved", "dismissed"
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    reporter = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "target_type", "target_id", name="reports_reporter_target_unique"),
+        CheckConstraint("target_type IN ('review', 'list')", name="reports_target_type_check"),
+        CheckConstraint("reason IN ('spam', 'offensive', 'inappropriate', 'other')", name="reports_reason_check"),
+        CheckConstraint("status IN ('pending', 'resolved', 'dismissed')", name="reports_status_check"),
+    )
+
+
+class DealAlert(Base):
+    __tablename__ = "deal_alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    set_num = Column(String, nullable=False, index=True)
+    alert_type = Column(String, nullable=False)  # "price_drop" or "retiring"
+    active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "set_num", "alert_type", name="deal_alerts_user_set_type_unique"),
+        CheckConstraint("alert_type IN ('price_drop', 'retiring')", name="deal_alerts_type_check"),
+    )

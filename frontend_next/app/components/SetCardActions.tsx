@@ -36,9 +36,8 @@ export default function SetCardActions({
           }}
           className={[
             "inline-flex w-full items-center justify-center",
-            "whitespace-nowrap rounded-full border border-black/[.10] bg-white",
-            "px-4 py-2 text-sm font-semibold hover:bg-black/[.04]",
-            "dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
+            "whitespace-nowrap rounded-full border border-zinc-200 bg-white",
+            "px-4 py-2 text-sm font-semibold hover:bg-zinc-100",
           ].join(" ")}
         >
           Shop
@@ -69,9 +68,8 @@ export default function SetCardActions({
             }}
             className={[
               "inline-flex w-full items-center justify-center",
-              "whitespace-nowrap rounded-full border border-black/[.10] bg-white",
-              "px-4 py-2 text-sm font-semibold hover:bg-black/[.04]",
-              "dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]",
+              "whitespace-nowrap rounded-full border border-zinc-200 bg-white",
+              "px-4 py-2 text-sm font-semibold hover:bg-zinc-100",
             ].join(" ")}
           >
             Log in

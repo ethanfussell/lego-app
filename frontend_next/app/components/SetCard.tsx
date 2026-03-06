@@ -98,15 +98,15 @@ function StarIcon({ className = "" }: { className?: string }) {
 }
 
 /**
- * ✅ Declared OUTSIDE render to satisfy react-hooks/static-components
+ * Declared OUTSIDE render to satisfy react-hooks/static-components
  */
 function RatingStar({ fillPct }: { fillPct: 0 | 50 | 100 }) {
   return (
     <span className="relative inline-block h-4 w-4">
-      <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300 dark:text-zinc-700" />
+      <StarIcon className="absolute inset-0 h-4 w-4 text-zinc-300" />
       {fillPct !== 0 ? (
         <span className="absolute inset-0 overflow-hidden" style={{ width: `${fillPct}%` }}>
-          <StarIcon className="h-4 w-4 text-zinc-900 dark:text-zinc-50" />
+          <StarIcon className="h-4 w-4 text-amber-500" />
         </span>
       ) : null}
     </span>
@@ -141,11 +141,11 @@ function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: numb
           type="button"
           disabled={disabled}
           onClick={() => onPick(n)}
-          className="rounded p-0.5 disabled:opacity-60"
+          className="rounded p-0.5 disabled:opacity-60 hover:scale-110 transition-transform"
           aria-label={`Rate ${n} stars`}
           title={`Rate ${n}`}
         >
-          <StarIcon className="h-5 w-5 text-zinc-900 dark:text-zinc-50" />
+          <StarIcon className="h-5 w-5 text-amber-500" />
         </button>
       ))}
     </div>
@@ -153,10 +153,9 @@ function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: numb
 }
 
 function TitleTwoLines({ title }: { title: string }) {
-  // Works without Tailwind line-clamp plugin
   return (
     <div
-      className="h-[2.5rem] overflow-hidden text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-50"
+      className="h-[2.5rem] overflow-hidden text-sm font-semibold leading-5 text-zinc-900"
       style={{
         display: "-webkit-box",
         WebkitBoxOrient: "vertical",
@@ -170,15 +169,27 @@ function TitleTwoLines({ title }: { title: string }) {
 }
 
 function imageSizesForVariant(variant: Props["variant"]) {
-  // Cards are typically in 1-col on mobile, 2-col on small screens, 3-col on large.
-  // This keeps the requested image width close to reality (bandwidth + LCP).
   if (variant === "feed") return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 420px";
   return "(max-width: 640px) 92vw, (max-width: 1024px) 48vw, 320px";
 }
 
+/** Skeleton placeholder for loading states */
+export function SetCardSkeleton() {
+  return (
+    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white animate-pulse">
+      <div className="aspect-[4/3] w-full bg-zinc-100 rounded-t-2xl" />
+      <div className="px-4 pb-4 pt-3 space-y-2">
+        <div className="h-4 w-3/4 rounded bg-zinc-200" />
+        <div className="h-3 w-1/2 rounded bg-zinc-100" />
+        <div className="h-3 w-1/3 rounded bg-zinc-100" />
+      </div>
+    </div>
+  );
+}
+
 export default function SetCard({ set, variant = "default", footer, token }: Props) {
   const title = set.name || set.set_num;
-  const year = set.year ? String(set.year) : "—";
+  const year = set.year ? String(set.year) : "\u2014";
   const pieces = pickPieces(set);
 
   const ratingAvg = pickRatingAvg(set);
@@ -246,16 +257,16 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const imgSrc = safeImageSrc(set.image_url);
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300 transition-colors">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
-        <div className="aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
+        <div className="aspect-[4/3] w-full overflow-hidden rounded-t-2xl bg-zinc-100">
           {imgSrc ? (
             <div className="relative h-full w-full">
               <CardImage src={imgSrc} alt={title} sizes={imageSizesForVariant(variant)} quality={70} />
             </div>
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">No image</div>
+            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-600">No image</div>
           )}
         </div>
 
@@ -265,23 +276,23 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
 
           <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
             <span className="truncate">{set.set_num}</span>
-            <span aria-hidden="true">•</span>
+            <span aria-hidden="true">&bull;</span>
             <span className="shrink-0">{year}</span>
           </div>
 
-          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <div className="truncate">{pieces != null ? `${pieces.toLocaleString()} pcs` : "—"}</div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-500">
+            <div className="truncate">{pieces != null ? `${pieces.toLocaleString()} pcs` : "\u2014"}</div>
 
             {globalRatingCompact ? (
               <div className="flex items-center gap-1 whitespace-nowrap">
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200">{globalRatingCompact.text}</span>
-                <StarIcon className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />
+                <span className="font-semibold text-amber-600">{globalRatingCompact.text}</span>
+                <StarIcon className="h-4 w-4 text-amber-500" />
                 {typeof globalRatingCompact.count === "number" ? (
                   <span className="text-zinc-500">({globalRatingCompact.count})</span>
                 ) : null}
               </div>
             ) : (
-              <span className="text-zinc-500"> </span>
+              <span className="text-zinc-600">&nbsp;</span>
             )}
           </div>
 
@@ -293,13 +304,13 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
               Number.isFinite(price.original) &&
               price.sale < price.original ? (
                 <>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.sale)}</span>
+                  <span className="font-semibold text-zinc-900">{formatPrice(price.sale)}</span>
                   <span className="text-xs text-zinc-500 line-through">{formatPrice(price.original)}</span>
                 </>
               ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
-                <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatPrice(price.original)}</span>
+                <span className="font-semibold text-zinc-900">{formatPrice(price.original)}</span>
               ) : (
-                <span className="text-xs text-zinc-500"> </span>
+                <span className="text-xs text-zinc-600">&nbsp;</span>
               )}
             </div>
           ) : null}
@@ -307,7 +318,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       </Link>
 
       {isOwned ? (
-        <div className="border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">
+        <div className="border-t border-zinc-200 px-4 py-3">
           <div className="flex flex-col items-center gap-2">
             {userRating != null ? (
               <Stars value={userRating} className="justify-center" />
@@ -320,17 +331,17 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
                   setRateErr(null);
                   setShowRate(true);
                 }}
-                className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
               >
                 Add a rating
               </button>
             )}
 
-            {rateErr ? <div className="text-xs text-red-600">{rateErr}</div> : null}
+            {rateErr ? <div className="text-xs text-red-400">{rateErr}</div> : null}
           </div>
         </div>
       ) : footer ? (
-        <div className="overflow-visible border-t border-black/[.06] px-4 py-3 dark:border-white/[.10]">{footer}</div>
+        <div className="overflow-visible border-t border-zinc-200 px-4 py-3">{footer}</div>
       ) : null}
     </div>
   );

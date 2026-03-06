@@ -116,12 +116,12 @@ export default function PublicListsClient() {
           <p className="mt-2 text-sm text-zinc-500">Browse lists created by other LEGO fans.</p>
         </div>
 
-        <label className="text-sm text-zinc-600 dark:text-zinc-400">
+        <label className="text-sm text-zinc-500">
           Sort{" "}
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
-            className="ml-2 rounded-lg border border-black/[.10] bg-white px-2 py-1 text-sm dark:border-white/[.14] dark:bg-zinc-950"
+            className="ml-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm"
           >
             <option value="newest">Newest</option>
             <option value="most_sets">Most sets</option>
@@ -151,13 +151,13 @@ export default function PublicListsClient() {
             return (
               <li
                 key={String(id)}
-                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950"
+                className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <Link
                       href={`/lists/${encodeURIComponent(String(id))}`}
-                      className="font-extrabold leading-tight text-zinc-900 hover:underline dark:text-zinc-50"
+                      className="font-extrabold leading-tight text-zinc-900 hover:underline"
                     >
                       {title}
                     </Link>
@@ -169,7 +169,7 @@ export default function PublicListsClient() {
                     {desc ? <div className="mt-2 text-sm text-zinc-500">{desc}</div> : null}
                   </div>
 
-                  <span className="shrink-0 whitespace-nowrap rounded-full border border-black/[.08] bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600 dark:border-white/[.14] dark:bg-white/5 dark:text-zinc-300">
+                  <span className="shrink-0 whitespace-nowrap rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
                     {count} {count === 1 ? "set" : "sets"}
                   </span>
                 </div>

@@ -45,10 +45,10 @@ export default function EmailCapture({ source = "homepage", onComplete }: Props)
   }
 
   return (
-    <div className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold">Get updates</div>
+          <div className="text-sm font-semibold text-zinc-700">Get updates</div>
           <div className="text-xs text-zinc-500">New features, deals, and retiring soon alerts.</div>
         </div>
       </div>
@@ -60,21 +60,21 @@ export default function EmailCapture({ source = "homepage", onComplete }: Props)
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
-          className="h-10 w-[260px] flex-1 rounded-full border border-black/[.12] bg-white px-4 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.16] dark:bg-zinc-950 dark:focus:ring-white/10"
+          className="h-10 w-[260px] flex-1 rounded-full border border-zinc-300 bg-white px-4 text-sm text-zinc-700 placeholder:text-zinc-400 outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
           disabled={status === "loading"}
         />
         <button
           type="submit"
           disabled={status === "loading"}
-          className="h-10 rounded-full bg-black px-4 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-black"
+          className="h-10 rounded-full bg-amber-500 px-4 text-sm font-semibold text-black disabled:opacity-60 hover:bg-amber-400 transition-colors"
         >
-          {status === "loading" ? "Saving…" : "Notify me"}
+          {status === "loading" ? "Saving\u2026" : "Notify me"}
         </button>
       </form>
 
-      {status === "success" ? <p className="mt-2 text-xs text-emerald-600">Saved! 🎉</p> : null}
-      {status === "already" ? <p className="mt-2 text-xs text-zinc-500">You’re already on the list.</p> : null}
-      {status === "error" ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
+      {status === "success" ? <p className="mt-2 text-xs text-emerald-600">Saved!</p> : null}
+      {status === "already" ? <p className="mt-2 text-xs text-zinc-500">You&apos;re already on the list.</p> : null}
+      {status === "error" ? <p className="mt-2 text-xs text-red-400">{error}</p> : null}
     </div>
   );
 }

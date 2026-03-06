@@ -14,8 +14,32 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import json
+import threading
 import time
 import requests
+
+# ----- Simple TTL Cache -----
+
+def _mem_cache(ttl: float = 300):
+    """Decorator: caches a no-arg function result in memory for *ttl* seconds."""
+    lock = threading.Lock()
+    state: dict = {"ts": 0.0, "val": None}
+
+    def decorator(fn):
+        def wrapper():
+            now = time.monotonic()
+            with lock:
+                if now - state["ts"] < ttl and state["val"] is not None:
+                    return state["val"]
+            result = fn()
+            with lock:
+                state["ts"] = time.monotonic()
+                state["val"] = result
+            return result
+        wrapper.cache_clear = lambda: state.update(ts=0.0, val=None)
+        return wrapper
+    return decorator
+
 
 # ----- Paths / Constants -----
 CACHE_FILE = Path(__file__).with_name("sets_cache.json")
@@ -181,7 +205,15 @@ def fetch_all_lego_sets(page_size: int = 1000, throttle: float = 0.2) -> List[Di
 
 
 def load_cached_sets() -> List[Dict[str, Any]]:
-    """Load cached sets from sets_cache.json (or empty list if missing)."""
+    """Load cached sets from sets_cache.json (or empty list if missing).
+
+    Results are cached in memory for 10 minutes to avoid repeated disk I/O.
+    """
+    return _load_cached_sets_inner()
+
+
+@_mem_cache(ttl=600)
+def _load_cached_sets_inner() -> List[Dict[str, Any]]:
     if not CACHE_FILE.exists():
         print("⚠️ Cache not found — run fetch_all_lego_sets() first.")
         return []

@@ -6,6 +6,8 @@ from typing import List, Optional, Any, Dict
 
 from pydantic import BaseModel, ConfigDict, field_validator, Field
 
+from app.core.sanitize import sanitize_text
+
 
 class Review(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -17,8 +19,9 @@ class Review(BaseModel):
     text: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    likes_count: int = 0
-    liked_by: List[str] = Field(default_factory=list)
+    upvotes: int = 0
+    downvotes: int = 0
+    user_vote: Optional[str] = None  # "up", "down", or None
 
 
 class ActorPayload(BaseModel):
@@ -32,7 +35,7 @@ class ActorPayload(BaseModel):
 class ReviewCreate(BaseModel):
     # the client (React) only sends these
     rating: Optional[float] = None  # can be rating-only, text-only, or both
-    text: Optional[str] = None
+    text: Optional[str] = Field(default=None, max_length=5000)
 
     @field_validator("rating")
     @classmethod
@@ -51,6 +54,13 @@ class ReviewCreate(BaseModel):
             raise ValueError("Rating must be in increments of 0.5")
 
         return value
+
+    @field_validator("text")
+    @classmethod
+    def sanitize_review_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return sanitize_text(value)
     
 class RecentReview(BaseModel):
     model_config = ConfigDict(from_attributes=True)
