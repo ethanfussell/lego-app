@@ -1,9 +1,11 @@
-"""Lightweight text sanitization utilities.
-
-Uses only stdlib (html, re) — no external dependencies.
-"""
+"""Lightweight text sanitization utilities."""
 import html
 import re
+
+from better_profanity import profanity as _profanity
+
+# Initialise the profanity filter once at module load
+_profanity.load_censor_words()
 
 
 def sanitize_text(value: str) -> str:
@@ -29,3 +31,10 @@ def sanitize_oneline(value: str) -> str:
     escaped = html.escape(stripped, quote=False)
     # Collapse all whitespace (including newlines) to single space
     return re.sub(r"\s+", " ", escaped).strip()
+
+
+def contains_profanity(text: str) -> bool:
+    """Return True if the text contains profane language."""
+    if not text or not text.strip():
+        return False
+    return _profanity.contains_profanity(text)

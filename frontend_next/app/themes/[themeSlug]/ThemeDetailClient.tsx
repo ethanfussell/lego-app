@@ -155,13 +155,13 @@ export default function ThemeDetailClient(props: {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{themeName || "Theme"}</h1>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
             {loading ? <span>Refreshing…</span> : <span> </span>}
-            {refreshWarning ? <span className="text-xs text-zinc-500 dark:text-zinc-400">{refreshWarning}</span> : null}
+            {refreshWarning ? <span className="text-xs text-zinc-500">{refreshWarning}</span> : null}
           </div>
         </div>
 
-        <Link href="/themes" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+        <Link href="/themes" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
           ← All themes
         </Link>
       </div>
@@ -174,9 +174,9 @@ export default function ThemeDetailClient(props: {
 
             return (
               <div key={s.set_num} className="h-full">
-                <div className="flex h-full flex-col rounded-2xl border border-black/[.08] bg-white shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+                <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300">
                   <Link className="block flex-1" href={`/sets/${encodeURIComponent(s.set_num)}`}>
-                    <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-50 dark:bg-white/5">
+                    <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-100">
                       {imgSrc ? (
                         <Image
                           src={imgSrc}
@@ -190,7 +190,7 @@ export default function ThemeDetailClient(props: {
                     </div>
 
                     <div className="px-4 pb-4 pt-3">
-                      <div className="text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-50">{s.name}</div>
+                      <div className="text-sm font-semibold leading-5 text-zinc-900">{s.name}</div>
 
                       <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
                         <span className="truncate">{s.set_num}</span>
@@ -203,7 +203,7 @@ export default function ThemeDetailClient(props: {
                       </div>
 
                       {typeof s.pieces === "number" ? (
-                        <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{s.pieces} pcs</div>
+                        <div className="mt-2 text-xs text-zinc-500">{s.pieces} pcs</div>
                       ) : null}
                     </div>
                   </Link>
@@ -214,7 +214,7 @@ export default function ThemeDetailClient(props: {
         </div>
       ) : (
         <div className="mt-6">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">No sets found for this theme.</p>
+          <p className="text-sm text-zinc-500">No sets found for this theme.</p>
         </div>
       )}
     </div>

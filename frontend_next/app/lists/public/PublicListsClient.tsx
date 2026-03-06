@@ -296,7 +296,7 @@ export default function PublicListsClient(props: {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-2xl font-semibold">Public lists</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Browse lists shared by the community.</p>
+            <p className="mt-2 text-sm text-zinc-500">Browse lists shared by the community.</p>
           </div>
           <Link href="/discover" className="text-sm font-semibold hover:underline">
             Browse sets →
@@ -317,7 +317,7 @@ export default function PublicListsClient(props: {
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
                 placeholder="e.g. ethan"
-                className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
               />
             </div>
 
@@ -327,19 +327,19 @@ export default function PublicListsClient(props: {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="e.g. star wars"
-                className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-black"
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
               />
             </div>
 
             <button
-              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
+              className="h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
               type="submit"
             >
               Apply
             </button>
 
             <button
-              className="h-10 rounded-xl border border-black/[.08] bg-white px-4 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.14] dark:bg-black dark:hover:bg-zinc-900"
+              className="h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
               type="button"
               onClick={() => {
                 setOwner("");
@@ -360,7 +360,7 @@ export default function PublicListsClient(props: {
                 setSort(next);
                 pushToUrl({ owner: canonical.owner, q: canonical.q, sort: next, page: 1 });
               }}
-              className="h-10 w-full rounded-xl border border-black/[.08] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-black"
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700"
             >
               <option value="updated_desc">Recently updated</option>
               <option value="count_desc">Most sets</option>
@@ -375,7 +375,7 @@ export default function PublicListsClient(props: {
         </div>
 
         {sorted.length === 0 ? (
-          <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No public lists found.</p>
+          <p className="mt-8 text-sm text-zinc-500">No public lists found.</p>
         ) : (
           <>
             <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -393,11 +393,11 @@ export default function PublicListsClient(props: {
                   <ClickCard
                     key={id}
                     href={href}
-                    className="cursor-pointer rounded-2xl border border-black/[.08] bg-white p-5 shadow-sm hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                    className="cursor-pointer rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-zinc-300 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+                        <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
 
                         <div className="mt-1 text-xs text-zinc-500">
                           {ownerHref ? (
@@ -421,13 +421,13 @@ export default function PublicListsClient(props: {
                         </div>
                       </div>
 
-                      <div className="shrink-0 rounded-full border border-black/[.08] px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/[.14] dark:text-zinc-200">
+                      <div className="shrink-0 rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-700">
                         {count} {count === 1 ? "set" : "sets"}
                       </div>
                     </div>
 
                     {r.description ? (
-                      <p className="mt-3 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">
+                      <p className="mt-3 line-clamp-3 text-sm text-zinc-500">
                         {String(r.description)}
                       </p>
                     ) : (
@@ -450,7 +450,7 @@ export default function PublicListsClient(props: {
                     page: Math.max(1, page - 1),
                   })
                 }
-                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
               >
                 ← Prev
               </button>
@@ -471,7 +471,7 @@ export default function PublicListsClient(props: {
                     page: Math.min(totalPages, page + 1),
                   })
                 }
-                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
               >
                 Next →
               </button>

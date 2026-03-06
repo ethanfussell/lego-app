@@ -35,9 +35,9 @@ function formatPrice(price?: number, currency?: string): string | null {
 }
 
 function stockLabel(v: boolean | null | undefined): { text: string; cls: string } {
-  if (v === true) return { text: "In stock", cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" };
-  if (v === false) return { text: "Out of stock", cls: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300" };
-  return { text: "Unknown", cls: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300" };
+  if (v === true) return { text: "In stock", cls: "bg-emerald-50 text-emerald-700" };
+  if (v === false) return { text: "Out of stock", cls: "bg-zinc-100 text-zinc-600" };
+  return { text: "Unknown", cls: "bg-zinc-100 text-zinc-600" };
 }
 
 function safeDateLabel(iso?: string | null): string | null {
@@ -90,8 +90,8 @@ export default function BestPriceWidget({
 
   if (!best || count === 0) {
     return (
-      <div className="rounded-xl border border-black/[.06] bg-white p-3 dark:border-white/[.10] dark:bg-zinc-950">
-        <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Best price</div>
+      <div className="rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="text-sm font-semibold text-zinc-900">Best price</div>
         <div className="mt-1 text-xs text-zinc-500">No offers yet.</div>
       </div>
     );
@@ -107,17 +107,17 @@ export default function BestPriceWidget({
   );
 
   return (
-    <div className="rounded-xl border border-black/[.06] bg-white p-3 dark:border-white/[.10] dark:bg-zinc-950">
+    <div className="rounded-xl border border-zinc-200 bg-white p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Best price</div>
+          <div className="text-sm font-semibold text-zinc-900">Best price</div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{priceText}</span>
+            <span className="text-lg font-semibold text-zinc-900">{priceText}</span>
 
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${stock.cls}`}>{stock.text}</span>
 
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">{store}</span>
+            <span className="text-xs font-semibold text-zinc-600">{store}</span>
           </div>
 
           <div className="mt-1 text-xs text-zinc-500">
@@ -142,7 +142,7 @@ export default function BestPriceWidget({
                 currency: best.currency,
               });
             }}
-            className="inline-flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+            className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:opacity-90"
           >
             View best →
           </a>

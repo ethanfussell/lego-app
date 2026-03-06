@@ -15,7 +15,10 @@ export default function AuthedGate({ children }: { children: React.ReactNode }) 
   if (!hydrated) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <div className="text-sm text-zinc-500">Loading...</div>
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-32 rounded bg-zinc-200" />
+          <div className="h-3 w-24 rounded bg-zinc-100" />
+        </div>
       </div>
     );
   }

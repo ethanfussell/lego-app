@@ -5,8 +5,12 @@ import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import TopNav from "@/app/components/TopNav";
 import Footer from "@/app/components/Footer";
+import BottomTabBar from "@/app/components/BottomTabBar";
 import { AuthBridge } from "@/app/providers";
+import { ToastProvider } from "@/app/ui-providers/ToastProvider";
 import AnalyticsClient from "@/app/components/AnalyticsClient";
+import WebVitals from "@/app/components/WebVitals";
+import CookieConsent from "@/app/components/CookieConsent";
 
 const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
 
@@ -62,12 +66,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           ) : null}
 
           <AuthBridge>
-            <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
-              <TopNav />
-              <AnalyticsClient />
-              <main className="mx-auto w-full max-w-5xl px-6 pb-16">{children}</main>
-              <Footer />
-            </div>
+            <ToastProvider>
+              <div className="min-h-screen bg-white text-zinc-900">
+                <TopNav />
+                <AnalyticsClient />
+                <WebVitals />
+                <main className="mx-auto w-full max-w-5xl px-6 pb-20 md:pb-16">{children}</main>
+                <Footer />
+                <BottomTabBar />
+                <CookieConsent />
+              </div>
+            </ToastProvider>
           </AuthBridge>
         </body>
       </html>

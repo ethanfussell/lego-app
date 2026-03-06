@@ -153,7 +153,7 @@ async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limi
 
 function PopularLinks() {
   const chip =
-    "rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:text-zinc-50 dark:hover:bg-white/[.06]";
+    "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 hover:bg-zinc-100";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pt-8">

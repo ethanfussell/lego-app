@@ -104,22 +104,22 @@ export default async function Page() {
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="text-sm text-zinc-9000">
           <Link href="/" className="font-semibold hover:underline">
             Home
           </Link>
           <span className="mx-2">›</span>
-          <span className="text-zinc-900 dark:text-zinc-50">Most pieces</span>
+          <span className="text-zinc-900">Most pieces</span>
         </div>
 
         <div className="mt-3">
           <h1 className="m-0 text-2xl font-semibold">{TITLE}</h1>
-          <p className="mt-2 max-w-[720px] text-sm text-zinc-600 dark:text-zinc-400">{DESCRIPTION}</p>
+          <p className="mt-2 max-w-[720px] text-sm text-zinc-9000">{DESCRIPTION}</p>
         </div>
       </div>
 
       {sets.length === 0 ? (
-        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found yet.</p>
+        <p className="mt-8 text-sm text-zinc-9000">No sets found yet.</p>
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
@@ -128,10 +128,10 @@ export default async function Page() {
             return (
               <div
                 key={s.set_num}
-                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950"
+                className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300"
               >
                 <div className="flex gap-3">
-                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
+                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                     {imgSrc ? (
                       <div className="relative h-20 w-24">
                         <Image
@@ -143,7 +143,7 @@ export default async function Page() {
                         />
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-500">
+                      <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-9000">
                         No image
                       </div>
                     )}
@@ -157,7 +157,7 @@ export default async function Page() {
                       {s.name}
                     </Link>
 
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="mt-1 text-xs text-zinc-9000">
                       <span className="font-semibold">{s.set_num}</span>
                       {typeof s.pieces === "number" ? (
                         <>
@@ -174,7 +174,7 @@ export default async function Page() {
                     </div>
 
                     {s.theme ? (
-                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Theme: {s.theme}</div>
+                      <div className="mt-1 text-xs text-zinc-9000">Theme: {s.theme}</div>
                     ) : null}
                   </div>
                 </div>
@@ -187,7 +187,7 @@ export default async function Page() {
       <div className="mt-10">
         <Link
           href="/"
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
         >
           ← Home
         </Link>

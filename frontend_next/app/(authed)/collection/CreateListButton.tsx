@@ -72,7 +72,7 @@ export default function CreateListButton({
           setErr(null);
           setOpen(true);
         }}
-        className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+        className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
       >
         Create list
       </button>
@@ -83,29 +83,29 @@ export default function CreateListButton({
           onMouseDown={() => !saving && setOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-2xl border border-black/[.10] bg-white p-5 shadow-xl dark:border-white/[.14] dark:bg-zinc-950"
+            className="w-full max-w-md rounded-2xl border border-zinc-200 bg-zinc-50 p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-base font-semibold">New list</div>
 
-            <label className="mt-4 block text-xs font-semibold text-zinc-600 dark:text-zinc-400">Title</label>
+            <label className="mt-4 block text-xs font-semibold text-zinc-500">Title</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={saving}
-              className="mt-1 w-full rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-60 dark:border-white/[.14] dark:bg-transparent"
+              className="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/20 disabled:opacity-60"
               placeholder="e.g. Castle builds"
               autoFocus
             />
 
-            <label className="mt-4 block text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+            <label className="mt-4 block text-xs font-semibold text-zinc-500">
               Description (optional)
             </label>
             <textarea
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               disabled={saving}
-              className="mt-1 w-full rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-60 dark:border-white/[.14] dark:bg-transparent"
+              className="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/20 disabled:opacity-60"
               placeholder="Short note…"
               rows={3}
             />
@@ -117,7 +117,7 @@ export default function CreateListButton({
                 type="button"
                 disabled={saving}
                 onClick={() => setOpen(false)}
-                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -125,7 +125,7 @@ export default function CreateListButton({
                 type="button"
                 disabled={saving}
                 onClick={create}
-                className="rounded-full border border-black/[.10] bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-black/90 disabled:opacity-60 dark:border-white/[.16]"
+                className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-60"
               >
                 {saving ? "Creating…" : "Create"}
               </button>

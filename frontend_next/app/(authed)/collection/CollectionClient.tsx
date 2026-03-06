@@ -295,14 +295,14 @@ export default function CollectionClient() {
           ) : null}
         </div>
 
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Owned, Wishlist, and your custom lists.</p>
+        <p className="mt-2 text-sm text-zinc-500">Owned, Wishlist, and your custom lists.</p>
 
         <div className="mt-5 max-w-xl">
           <QuickCollectionsAdd onCollectionsChanged={refreshAll} />
         </div>
       </div>
 
-      {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
+      {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
       {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
       <Row

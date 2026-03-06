@@ -2,10 +2,16 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 import Pagination from "@/app/components/Pagination";
+import { SetGridSkeleton } from "@/app/components/Skeletons";
+import ErrorState from "@/app/components/ErrorState";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/app/providers";
+import AdSlot from "@/app/components/AdSlot";
 import SearchFilters, { type FilterValues, EMPTY_FILTERS, activeFilterCount } from "./SearchFilters";
 
 const RECENT_KEY = "recent_searches_v1";
@@ -176,9 +182,9 @@ function buildCleanSearchUrl(params: URLSearchParams) {
 
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-600">
       {label}
-      <button type="button" onClick={onRemove} className="ml-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" title="Remove filter">
+      <button type="button" onClick={onRemove} className="ml-0.5 text-zinc-500 hover:text-zinc-700" title="Remove filter">
         ✕
       </button>
     </span>
@@ -199,6 +205,7 @@ type Props = {
 export default function SearchClient({ initialQ, initialSort, initialOrder, initialPage, heading, description }: Props) {
   const router = useRouter();
   const sp = useSearchParams();
+  const { token } = useAuth();
 
   // Avoid `as any` for SetCard props
   type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
@@ -500,6 +507,10 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
   const computedDescription =
     description ?? (q && total != null ? `${total.toLocaleString()} result${total === 1 ? "" : "s"}` : "");
 
+  const retrySearch = useCallback(() => {
+    if (q) pushUrl({ q, page });
+  }, [q, page, pushUrl]);
+
   const showEmptyPrompt = !loading && !err && !q;
   const showNoResults = !loading && !err && !!q && results.length === 0;
 
@@ -520,11 +531,11 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Search sets (e.g. castle, space, technic)…"
-            className="h-12 w-full flex-1 rounded-2xl border border-black/[.10] bg-white px-4 text-sm outline-none dark:border-white/[.14] dark:bg-zinc-950"
+            className="h-12 w-full flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none"
           />
           <button
             type="submit"
-            className="h-12 rounded-2xl bg-black px-5 text-sm font-extrabold text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+            className="h-12 rounded-2xl bg-amber-500 px-5 text-sm font-extrabold text-black hover:bg-amber-400"
           >
             Search
           </button>
@@ -537,7 +548,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
               value={sortValue}
               onChange={(e) => changeSort(e.target.value as SortValue)}
               disabled={!q || loading}
-              className="h-10 rounded-2xl border border-black/[.10] bg-white px-3 text-sm font-semibold dark:border-white/[.14] dark:bg-zinc-950"
+              className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold"
             >
               <option value="relevance">Relevance</option>
 
@@ -588,7 +599,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
             <SearchFilters values={filters} onChange={changeFilters} disabled={loading} />
           )}
 
-          <div className={`${q ? "mt-3" : ""} rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950`}>
+          <div className={`${q ? "mt-3" : ""} rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm`}>
             <div className="text-sm font-extrabold">Popular right now</div>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -597,7 +608,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
                   key={t}
                   type="button"
                   onClick={() => submitSearch(t)}
-                  className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-xs font-extrabold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                  className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-extrabold hover:bg-zinc-100"
                   title={`Search "${t}"`}
                 >
                   {t}
@@ -609,7 +620,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
               <div className="text-sm font-extrabold">Recent</div>
 
               {recents === null ? (
-                <div className="mt-2 text-sm text-zinc-500">Loading…</div>
+                <div className="mt-2 animate-pulse space-y-2"><div className="h-3 w-28 rounded bg-zinc-200" /><div className="h-3 w-20 rounded bg-zinc-100" /></div>
               ) : recents.length === 0 ? (
                 <div className="mt-2 text-sm text-zinc-500">No recent searches yet.</div>
               ) : (
@@ -619,7 +630,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
                       key={t}
                       type="button"
                       onClick={() => submitSearch(t)}
-                      className="w-full rounded-2xl border border-black/[.06] bg-zinc-50 px-3 py-2 text-left text-sm font-extrabold text-zinc-900 hover:bg-zinc-100 dark:border-white/[.10] dark:bg-black dark:text-zinc-50 dark:hover:bg-white/[.06]"
+                      className="w-full rounded-2xl border border-zinc-100 bg-white px-3 py-2 text-left text-sm font-extrabold text-zinc-900 hover:bg-zinc-100"
                       title={`Search "${t}"`}
                     >
                       {t}
@@ -632,22 +643,38 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         </aside>
 
         <main>
-          {loading ? <p className="m-0 text-sm">Loading…</p> : null}
-          {err && !loading ? <p className="m-0 text-sm text-red-600">Error: {err}</p> : null}
+          {loading ? <SetGridSkeleton count={12} /> : null}
+          {err && !loading ? <ErrorState message={err} onRetry={retrySearch} /> : null}
 
           {showEmptyPrompt ? (
             <div className="text-sm text-zinc-500">Type a search above or click a Popular chip to explore sets.</div>
           ) : null}
 
-          {showNoResults ? <div className="text-sm text-zinc-500">No results found. Try a different search.</div> : null}
+          {showNoResults ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <svg className="h-12 w-12 text-zinc-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <div className="text-lg font-semibold text-zinc-600">No sets found</div>
+              <p className="mt-1 text-sm text-zinc-500">Try adjusting your search or filters</p>
+              <Link href="/discover" className="mt-4 inline-flex items-center rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors">
+                Browse themes &rarr;
+              </Link>
+            </div>
+          ) : null}
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((set) => (
               <div key={set.set_num} className="h-full">
-                <SetCard set={set as unknown as SetCardSetProp} />
+                <SetCard set={set as unknown as SetCardSetProp} footer={token ? <SetCardActions token={token} setNum={set.set_num} /> : undefined} />
               </div>
             ))}
           </div>
+
+          {/* Ad slot after results */}
+          {!loading && results.length > 0 ? (
+            <AdSlot slot="search_after_results" format="horizontal" className="mt-6" />
+          ) : null}
 
           {q && totalPages > 1 ? (
             <div className="mt-6">

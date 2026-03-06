@@ -100,19 +100,19 @@ export function summarizeStock(offers: NormalizedOffer[]): StockSummary {
 
 function LoadingState() {
   return (
-    <div className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
-      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Loading offers…</div>
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+      <div className="text-sm font-semibold text-zinc-900">Loading offers…</div>
       <div className="mt-3 space-y-2">
         {[1, 2, 3].map((n) => (
           <div
             key={n}
-            className="flex items-center justify-between gap-3 rounded-2xl border border-black/[.06] bg-zinc-50 p-3 dark:border-white/[.10] dark:bg-zinc-900/30"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-100 p-3"
           >
             <div className="min-w-0 flex-1">
-              <div className="h-4 w-32 rounded-full bg-black/[.08] dark:bg-white/[.10]" />
-              <div className="mt-2 h-3 w-24 rounded-full bg-black/[.06] dark:bg-white/[.08]" />
+              <div className="h-4 w-32 rounded-full bg-zinc-200" />
+              <div className="mt-2 h-3 w-24 rounded-full bg-zinc-200" />
             </div>
-            <div className="h-9 w-28 rounded-full bg-black/[.08] dark:bg-white/[.10]" />
+            <div className="h-9 w-28 rounded-full bg-zinc-200" />
           </div>
         ))}
       </div>
@@ -122,7 +122,7 @@ function LoadingState() {
 
 function ErrorState({ error, onRetry }: { error: string; onRetry?: () => void }) {
   return (
-    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
       <div className="font-semibold">Couldn’t load offers.</div>
       <div className="mt-1 break-words opacity-90">{error}</div>
 
@@ -213,7 +213,7 @@ export default function OffersSection({
 
   if (sorted.length === 0) {
     return (
-      <div className="rounded-2xl border border-black/[.08] bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-400">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
         {emptyMessage}
       </div>
     );
@@ -240,28 +240,28 @@ export default function OffersSection({
         return (
           <li
             key={`${o.href}-${o.rank}`}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white p-3"
           >
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              <div className="text-sm font-semibold text-zinc-900">
                 {o.storeLabel}
 
                 {isBest ? (
-                  <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                  <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
                     Best price
                   </span>
                 ) : null}
 
                 {o.inStock === true ? (
-                  <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                  <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
                     In stock
                   </span>
                 ) : o.inStock === false ? (
-                  <span className="ml-2 rounded-full bg-zinc-500/10 px-2 py-0.5 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
+                  <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-600">
                     Out of stock
                   </span>
                 ) : (
-                  <span className="ml-2 rounded-full bg-zinc-500/10 px-2 py-0.5 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
+                  <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-600">
                     Unknown
                   </span>
                 )}
@@ -271,11 +271,11 @@ export default function OffersSection({
                 <div>{formatPrice(o.price, o.currency) ?? "Price unavailable"}</div>
 
                 {updatedLabel ? (
-                  <div className="mt-0.5 text-[11px] text-zinc-400">Updated: {updatedLabel}</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">Updated: {updatedLabel}</div>
                 ) : null}
 
                 {!isAffiliate ? (
-                  <div className="mt-0.5 text-[11px] text-zinc-400">(affiliate disabled for this domain)</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">(affiliate disabled for this domain)</div>
                 ) : null}
               </div>
             </div>
@@ -307,7 +307,7 @@ export default function OffersSection({
                   conversion: isAffiliate, // only flag conversion when affiliate URL was used
                 });
               }}
-              className="inline-flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+              className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
             >
               View offer →
             </a>

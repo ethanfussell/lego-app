@@ -51,26 +51,26 @@ export default function Pagination({
   const rangeEnd = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="mt-6 border-t border-black/[.08] pt-4 text-sm dark:border-white/[.12]">
-      <div className="text-center text-zinc-600 dark:text-zinc-400">
-        Showing <span className="font-semibold">{rangeStart}</span> –{" "}
-        <span className="font-semibold">{rangeEnd}</span> of{" "}
-        <span className="font-semibold">{totalItems}</span> results
+    <div className="mt-6 border-t border-zinc-200 pt-4 text-sm">
+      <div className="text-center text-zinc-500">
+        Showing <span className="font-semibold text-zinc-700">{rangeStart}</span> &ndash;{" "}
+        <span className="font-semibold text-zinc-700">{rangeEnd}</span> of{" "}
+        <span className="font-semibold text-zinc-700">{totalItems}</span> results
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         <button
           onClick={() => canGoPrev && onPageChange(currentPage - 1)}
           disabled={!canGoPrev}
-          className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-sm font-semibold disabled:opacity-50 dark:border-white/[.14] dark:bg-zinc-950"
+          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm font-semibold text-zinc-600 disabled:opacity-50 hover:bg-zinc-100 transition-colors"
         >
-          ← Prev
+          &larr; Prev
         </button>
 
         {pages.map((p, idx) =>
           p === "..." ? (
-            <span key={`ellipsis-${idx}`} className="px-2 text-zinc-400">
-              …
+            <span key={`ellipsis-${idx}`} className="px-2 text-zinc-600">
+              &hellip;
             </span>
           ) : (
             <button
@@ -78,10 +78,10 @@ export default function Pagination({
               onClick={() => !disabled && p !== currentPage && onPageChange(p)}
               disabled={!!disabled && p !== currentPage}
               className={[
-                "rounded-full border px-3 py-1 text-sm font-semibold",
+                "rounded-full border px-3 py-1 text-sm font-semibold transition-colors",
                 p === currentPage
-                  ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
-                  : "border-black/[.10] bg-white text-zinc-900 hover:bg-black/[.04] dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-white/[.06]",
+                  ? "border-amber-500 bg-amber-500 text-black"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100",
               ].join(" ")}
             >
               {p}
@@ -92,9 +92,9 @@ export default function Pagination({
         <button
           onClick={() => canGoNext && onPageChange(currentPage + 1)}
           disabled={!canGoNext}
-          className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-sm font-semibold disabled:opacity-50 dark:border-white/[.14] dark:bg-zinc-950"
+          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm font-semibold text-zinc-600 disabled:opacity-50 hover:bg-zinc-100 transition-colors"
         >
-          Next →
+          Next &rarr;
         </button>
       </div>
     </div>

@@ -68,7 +68,7 @@ function useThemeList() {
 function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-4 first:mt-0">
-      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
         {label}
       </div>
       <div className="mt-1.5">{children}</div>
@@ -101,16 +101,16 @@ function RangeInputs({
         onChange={(e) => onMinChange(e.target.value)}
         placeholder={minPlaceholder}
         disabled={disabled}
-        className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-500"
+        className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums outline-none focus:border-zinc-500"
       />
-      <span className="text-xs text-zinc-400">–</span>
+      <span className="text-xs text-zinc-500">–</span>
       <input
         type="number"
         value={maxVal}
         onChange={(e) => onMaxChange(e.target.value)}
         placeholder={maxPlaceholder}
         disabled={disabled}
-        className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-500"
+        className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums outline-none focus:border-zinc-500"
       />
     </div>
   );
@@ -135,8 +135,8 @@ function StarSelector({
           onClick={() => onChange(value === star ? 0 : star)}
           className={`text-lg transition-colors ${
             star <= value
-              ? "text-amber-400"
-              : "text-zinc-300 hover:text-amber-300 dark:text-zinc-600 dark:hover:text-amber-400"
+              ? "text-amber-600"
+              : "text-zinc-600 hover:text-amber-600"
           }`}
           title={value === star ? "Clear rating filter" : `${star}+ stars`}
         >
@@ -179,12 +179,12 @@ export default function SearchFilters({ values, onChange, disabled }: Props) {
   }, [themes, themeSearch]);
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">
           Filters
           {count > 0 && (
-            <span className="ml-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">
+            <span className="ml-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-black">
               {count}
             </span>
           )}
@@ -193,7 +193,7 @@ export default function SearchFilters({ values, onChange, disabled }: Props) {
           <button
             type="button"
             onClick={clearAll}
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+            className="text-xs font-medium text-zinc-500 hover:text-zinc-700"
           >
             Clear all
           </button>
@@ -215,20 +215,20 @@ export default function SearchFilters({ values, onChange, disabled }: Props) {
             onBlur={() => setTimeout(() => setThemeOpen(false), 150)}
             placeholder="Search themes…"
             disabled={disabled}
-            className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-500"
+            className="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-500"
           />
           {values.theme && (
             <button
               type="button"
               onClick={() => { update({ theme: "" }); setThemeSearch(""); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-700"
               title="Clear theme"
             >
               ✕
             </button>
           )}
           {themeOpen && !values.theme && filteredThemes.length > 0 && (
-            <div className="absolute left-0 top-full z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="absolute left-0 top-full z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
               {filteredThemes.map((t) => (
                 <button
                   key={t.theme}
@@ -239,10 +239,10 @@ export default function SearchFilters({ values, onChange, disabled }: Props) {
                     setThemeSearch("");
                     setThemeOpen(false);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-zinc-100"
                 >
                   <span>{t.theme}</span>
-                  <span className="text-xs text-zinc-400">{t.set_count}</span>
+                  <span className="text-xs text-zinc-500">{t.set_count}</span>
                 </button>
               ))}
             </div>

@@ -62,9 +62,9 @@ export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
   }
 
   return (
-    <section className="rounded-2xl border border-black/[.08] bg-zinc-50 p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       <h2 className="m-0 text-lg font-semibold">Quick add to your collections</h2>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-zinc-500">
         Type a LEGO set number (like 10305-1) and add it to your Owned or Wishlist collections.
       </p>
 
@@ -72,7 +72,7 @@ export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
         value={setNum}
         onChange={(e) => setSetNum(e.target.value)}
         placeholder="Set number (e.g. 10305-1)"
-        className="mt-3 w-full rounded-xl border border-black/[.10] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.16] dark:bg-transparent"
+        className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/20"
       />
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -80,7 +80,7 @@ export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
           type="button"
           onClick={() => handleAdd("owned")}
           disabled={loading}
-          className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-zinc-900"
+          className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
         >
           Owned
         </button>
@@ -88,14 +88,14 @@ export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
           type="button"
           onClick={() => handleAdd("wishlist")}
           disabled={loading}
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-60"
         >
           Wishlist
         </button>
       </div>
 
       {loading ? <p className="mt-3 text-sm">Working…</p> : null}
-      {message ? <p className="mt-3 text-sm text-green-700 dark:text-green-300">{message}</p> : null}
+      {message ? <p className="mt-3 text-sm text-green-700">{message}</p> : null}
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
     </section>
   );

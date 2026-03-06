@@ -83,14 +83,14 @@ export default function ListsClient() {
 
         <Link
           href="/account"
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+          className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
         >
           ← Back to Account
         </Link>
       </div>
 
       {!token ? (
-        <div className="mt-6 rounded-2xl border border-black/[.08] bg-white p-4 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-400">
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500 shadow-sm">
           You’re not logged in. Go to{" "}
           <Link href="/login" className="font-semibold hover:underline">
             /login
@@ -99,7 +99,7 @@ export default function ListsClient() {
         </div>
       ) : (
         <>
-          {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
+          {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
           {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
           {!loading && !err && lists.length === 0 ? (
@@ -118,9 +118,9 @@ export default function ListsClient() {
                 <Link
                   key={String(id)}
                   href={`/lists/${encodeURIComponent(String(id))}`}
-                  className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+                  className="block rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300 hover:shadow-md"
                 >
-                  <div className="font-extrabold text-zinc-900 dark:text-zinc-50">{title}</div>
+                  <div className="font-extrabold text-zinc-900">{title}</div>
                   <div className="mt-1 text-sm text-zinc-500">
                     {count} sets · {isPublic ? "Public" : "Private"}
                   </div>

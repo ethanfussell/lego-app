@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_admin_user
 from app.core.limiter import limiter
 from app.db import get_db
-from app.models import User as UserModel, Set as SetModel, EmailSignup
+from app.models import User as UserModel, Set as SetModel, EmailSignup, Review as ReviewModel, AffiliateClick
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -24,10 +24,14 @@ def admin_stats(
     set_count = db.execute(select(func.count()).select_from(SetModel)).scalar_one()
     user_count = db.execute(select(func.count()).select_from(UserModel)).scalar_one()
     signup_count = db.execute(select(func.count()).select_from(EmailSignup)).scalar_one()
+    review_count = db.execute(select(func.count()).select_from(ReviewModel)).scalar_one()
+    affiliate_click_count = db.execute(select(func.count()).select_from(AffiliateClick)).scalar_one()
     return {
         "set_count": set_count,
         "user_count": user_count,
         "email_signup_count": signup_count,
+        "review_count": review_count,
+        "affiliate_click_count": affiliate_click_count,
     }
 
 

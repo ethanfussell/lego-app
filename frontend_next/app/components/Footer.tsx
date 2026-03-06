@@ -6,26 +6,26 @@ const SITE_NAME = "BrickTrack";
 
 export default function Footer() {
   return (
-    <footer className="mt-16 border-t border-black/[.08] py-10 dark:border-white/[.12]">
+    <footer className="mt-16 border-t border-zinc-200 py-10">
       <div className="mx-auto w-full max-w-6xl px-6">
         {/* Email signup */}
         <div className="mb-8">
           <EmailCapture />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-500">
           <div>
-            © {new Date().getFullYear()} {SITE_NAME}
+            &copy; {new Date().getFullYear()} {SITE_NAME}
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            <Link href="/privacy" className="hover:underline">
+            <Link href="/privacy" className="hover:text-amber-600 transition-colors">
               Privacy
             </Link>
-            <Link href="/terms" className="hover:underline">
+            <Link href="/terms" className="hover:text-amber-600 transition-colors">
               Terms
             </Link>
-            <Link href="/affiliate-disclosure" className="hover:underline">
+            <Link href="/affiliate-disclosure" className="hover:text-amber-600 transition-colors">
               Affiliate disclosure
             </Link>
           </div>

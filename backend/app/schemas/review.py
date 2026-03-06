@@ -19,8 +19,9 @@ class Review(BaseModel):
     text: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    likes_count: int = 0
-    liked_by: List[str] = Field(default_factory=list)
+    upvotes: int = 0
+    downvotes: int = 0
+    user_vote: Optional[str] = None  # "up", "down", or None
 
 
 class ActorPayload(BaseModel):

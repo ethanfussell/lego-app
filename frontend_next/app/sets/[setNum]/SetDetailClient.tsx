@@ -9,6 +9,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 import AddToListMenu from "@/app/components/AddToListMenu";
 import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
 import EmailCapture from "@/app/components/EmailCapture";
@@ -16,9 +17,14 @@ import Breadcrumbs from "@/app/components/Breadcrumbs";
 import RatingHistogram from "@/app/components/RatingHistogram";
 import { themeToSlug } from "@/lib/slug";
 import { heroImageSizes, IMAGE_QUALITY } from "@/lib/image";
+import { useToast } from "@/app/ui-providers/ToastProvider";
+import { SetGridSkeleton, ReviewListSkeleton, DetailPageSkeleton } from "@/app/components/Skeletons";
+import ErrorState from "@/app/components/ErrorState";
+import AdSlot from "@/app/components/AdSlot";
 
 // CTA experiment (CTA #2 after offers)
 import { ctaClick, ctaComplete, ctaImpression } from "@/lib/events";
+import { gaEvent } from "@/lib/ga";
 import { variantFromKey, variantFromQuery, type Variant } from "@/lib/ab";
 
 function asTrimmedString(v: unknown): string | null {
@@ -37,8 +43,9 @@ type ReviewItem = {
   text: string | null;
   created_at: string;
   updated_at: string | null;
-  likes_count: number;
-  liked_by: string[];
+  upvotes: number;
+  downvotes: number;
+  user_vote: string | null; // "up", "down", or null
 };
 
 type RatingSummary = {
@@ -82,13 +89,13 @@ function computeShopPill(isRetired: boolean, summaryStatus: string | null, offer
 function shopPillClasses(pill: ShopPill): string {
   switch (pill) {
     case "Available":
-      return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30";
+      return "bg-emerald-50 text-emerald-700 border-emerald-500/20";
     case "Retiring":
-      return "bg-amber-500/10 text-amber-700 border-amber-500/20 dark:text-amber-300 dark:border-amber-500/30";
+      return "bg-amber-50 text-amber-700 border-amber-500/20";
     case "Retired":
-      return "bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-300 dark:border-red-500/30";
+      return "bg-red-50 text-red-700 border-red-500/20";
     default:
-      return "bg-zinc-500/10 text-zinc-600 border-zinc-500/20 dark:text-zinc-400 dark:border-zinc-500/30";
+      return "bg-zinc-100 text-zinc-500 border-zinc-500/20";
   }
 }
 
@@ -296,6 +303,7 @@ export default function SetDetailClient(props: Props) {
   const setNum = (asTrimmedString(props.setNum) ?? asTrimmedString(routeSetNum) ?? "").trim();
 
   const { token, hydrated } = useAuth();
+  const toast = useToast();
   const isLoggedIn = hydrated && typeof token === "string" && token.trim().length > 0;
 
   const PREVIEW_SIMILAR_LIMIT = 12;
@@ -347,6 +355,8 @@ export default function SetDetailClient(props: Props) {
   const [meUsername, setMeUsername] = useState<string | null>(null);
 
   // Reviews state
+  type ReviewSortKey = "newest" | "oldest" | "highest" | "lowest";
+  const [reviewSort, setReviewSort] = useState<ReviewSortKey>("newest");
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
@@ -369,6 +379,20 @@ export default function SetDetailClient(props: Props) {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState<string | null>(null);
 
+  // Share button
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Deal alerts
+  const [hasAlert, setHasAlert] = useState(false);
+  const [alertId, setAlertId] = useState<number | null>(null);
+  const [alertLoading, setAlertLoading] = useState(false);
+
+  // Report review
+  const [reportingReviewId, setReportingReviewId] = useState<number | null>(null);
+  const [reportReason, setReportReason] = useState<string>("spam");
+  const [reportNotes, setReportNotes] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
   // Similar sets
   const [similarSets, setSimilarSets] = useState<SetLite[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
@@ -380,7 +404,23 @@ export default function SetDetailClient(props: Props) {
     return reviews.find((r) => r.user === meUsername) || null;
   }, [reviews, isLoggedIn, meUsername]);
 
-  const visibleReviews = useMemo(() => reviews.filter((r) => asTrimmedString(r.text)), [reviews]);
+  const visibleReviews = useMemo(() => {
+    const filtered = reviews.filter((r) => asTrimmedString(r.text));
+    return [...filtered].sort((a, b) => {
+      switch (reviewSort) {
+        case "newest":
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "oldest":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "highest":
+          return (b.rating ?? 0) - (a.rating ?? 0);
+        case "lowest":
+          return (a.rating ?? 0) - (b.rating ?? 0);
+        default:
+          return 0;
+      }
+    });
+  }, [reviews, reviewSort]);
 
   const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
 
@@ -696,6 +736,57 @@ export default function SetDetailClient(props: Props) {
     };
   }, [setDetail?.theme, setNum]);
 
+  // Check if user has a deal alert for this set
+  useEffect(() => {
+    if (!token || !setNum) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch<{ has_alert: boolean; id?: number }>(
+          `/alerts/me/${encodeURIComponent(setNum)}`,
+          { token }
+        );
+        if (!cancelled) {
+          setHasAlert(data.has_alert);
+          setAlertId(data.id ?? null);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token, setNum]);
+
+  async function toggleAlert() {
+    if (!token || alertLoading) return;
+    setAlertLoading(true);
+    try {
+      if (hasAlert && alertId) {
+        await apiFetch(`/alerts/${alertId}`, { method: "DELETE", token });
+        setHasAlert(false);
+        setAlertId(null);
+        toast.push("Alert removed", { type: "default" });
+      } else {
+        const data = await apiFetch<{ id: number }>("/alerts", {
+          method: "POST",
+          token,
+          body: { set_num: setNum, alert_type: "price_drop" },
+        });
+        setHasAlert(true);
+        setAlertId(data.id);
+        toast.push("You'll be notified of price drops!", { type: "success" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("alert_already_exists")) {
+        setHasAlert(true);
+        toast.push("Alert already set", { type: "default" });
+      } else {
+        toast.push(msg || "Failed to update alert", { type: "error" });
+      }
+    } finally {
+      setAlertLoading(false);
+    }
+  }
+
   // Reviews: create/update
   async function upsertMyReview(payload: { rating: number | null; text: string | null }) {
     if (!token) {
@@ -756,6 +847,7 @@ export default function SetDetailClient(props: Props) {
       setReviews((prev) => (meUsername ? prev.filter((r) => r.user !== meUsername) : prev));
 
       await Promise.all([fetchReviewsForSet(setNum), fetchRatingSummary(setNum)]);
+      toast.push("Review deleted", { type: "success" });
     } catch (e: unknown) {
       setRatingError(errorMessage(e));
     } finally {
@@ -773,6 +865,7 @@ export default function SetDetailClient(props: Props) {
       setSavingRating(true);
       setRatingError(null);
       await upsertMyReview({ rating: Number(newRating), text: null });
+      toast.push("Rating saved", { type: "success" });
     } catch (e: unknown) {
       setRatingError(errorMessage(e));
     } finally {
@@ -819,8 +912,14 @@ export default function SetDetailClient(props: Props) {
 
       setReviewText("");
       setShowReviewForm(false);
+      toast.push("Review saved", { type: "success" });
     } catch (e: unknown) {
-      setReviewSubmitError(errorMessage(e));
+      const msg = errorMessage(e);
+      if (msg.includes("inappropriate_language")) {
+        setReviewSubmitError("Your review contains inappropriate language. Please revise and try again.");
+      } else {
+        setReviewSubmitError(msg);
+      }
     } finally {
       setReviewSubmitting(false);
     }
@@ -832,6 +931,77 @@ export default function SetDetailClient(props: Props) {
     node.scrollBy({ left: direction * 240, behavior: "smooth" });
   }
 
+  async function handleVote(reviewId: number, voteType: "up" | "down") {
+    if (!token) return;
+
+    // Optimistic update
+    setReviews((prev) =>
+      prev.map((r) => {
+        if (r.id !== reviewId) return r;
+        const wasVoted = r.user_vote === voteType;
+        return {
+          ...r,
+          upvotes: voteType === "up"
+            ? (wasVoted ? r.upvotes - 1 : r.upvotes + 1)
+            : (r.user_vote === "up" ? r.upvotes - 1 : r.upvotes),
+          downvotes: voteType === "down"
+            ? (wasVoted ? r.downvotes - 1 : r.downvotes + 1)
+            : (r.user_vote === "down" ? r.downvotes - 1 : r.downvotes),
+          user_vote: wasVoted ? null : voteType,
+        };
+      })
+    );
+
+    try {
+      await apiFetch(`/sets/${encodeURIComponent(setNum)}/reviews/${reviewId}/vote`, {
+        method: "POST",
+        token,
+        body: { vote_type: voteType },
+      });
+    } catch (e: unknown) {
+      toast.push(e instanceof Error ? e.message : "Vote failed", { type: "error" });
+      // Re-fetch reviews to restore correct state
+      try {
+        const fresh = await apiFetch<ReviewItem[]>(`/sets/${encodeURIComponent(setNum)}/reviews`, { token });
+        if (Array.isArray(fresh)) setReviews(fresh);
+      } catch { /* ignore */ }
+    }
+  }
+
+  async function handleReportSubmit(reviewId: number) {
+    if (!token || reportSubmitting) return;
+    setReportSubmitting(true);
+    try {
+      await apiFetch("/reports", {
+        method: "POST",
+        token,
+        body: {
+          target_type: "review",
+          target_id: reviewId,
+          reason: reportReason,
+          notes: reportNotes.trim() || null,
+        },
+      });
+      toast.push("Report submitted", { type: "success" });
+      setReportingReviewId(null);
+      setReportReason("spam");
+      setReportNotes("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("409") || msg.includes("already_reported")) {
+        toast.push("You've already reported this review", { type: "error" });
+        setReportingReviewId(null);
+      } else if (msg.includes("cannot_report_own")) {
+        toast.push("You can't report your own review", { type: "error" });
+        setReportingReviewId(null);
+      } else {
+        toast.push(msg || "Failed to submit report", { type: "error" });
+      }
+    } finally {
+      setReportSubmitting(false);
+    }
+  }
+
   // ---- Render guards ----
 
   if (!setNum) {
@@ -840,7 +1010,7 @@ export default function SetDetailClient(props: Props) {
         <p className="text-sm text-red-600">Missing set number in the URL.</p>
         <button
           onClick={() => router.push("/")}
-          className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
+          className="mt-4 rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
         >
           Go home
         </button>
@@ -848,7 +1018,7 @@ export default function SetDetailClient(props: Props) {
     );
   }
 
-  if (loading) return <p className="mx-auto max-w-5xl px-6 py-10 text-sm">Loading set…</p>;
+  if (loading) return <div className="mx-auto max-w-5xl px-6 py-10"><DetailPageSkeleton /></div>;
 
   if (error) {
     return (
@@ -862,14 +1032,16 @@ export default function SetDetailClient(props: Props) {
           ]}
         />
 
-        <p className="mt-4 text-sm text-red-600">Error: {error}</p>
+        <ErrorState message={error} onRetry={() => window.location.reload()} />
 
-        <button
-          onClick={() => router.back()}
-          className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
-        >
-          ← Back
-        </button>
+        <div className="mt-2 text-center">
+          <button
+            onClick={() => router.back()}
+            className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
+          >
+            ← Back
+          </button>
+        </div>
       </div>
     );
   }
@@ -887,7 +1059,7 @@ export default function SetDetailClient(props: Props) {
         <p className="mt-4 text-sm">Set not found.</p>
         <button
           onClick={() => router.back()}
-          className="mt-4 rounded-full border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:hover:bg-white/[.06]"
+          className="mt-4 rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
         >
           ← Back
         </button>
@@ -916,11 +1088,11 @@ export default function SetDetailClient(props: Props) {
       {/* HERO */}
       <section className="mt-8 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
-          <div className="grid min-h-[260px] place-items-center rounded-2xl border border-black/[.08] bg-white p-5 dark:border-white/[.14] dark:bg-zinc-950">
+          <div className="grid min-h-[260px] place-items-center rounded-2xl border border-zinc-100 bg-zinc-100 p-5 bg-gradient-to-b from-amber-500/[.03] to-transparent">
             {heroImgSrc ? (
               <HeroImage src={heroImgSrc} alt={name || setNum} sizes={heroImageSizes()} quality={IMAGE_QUALITY} />
             ) : (
-              <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500 dark:bg-zinc-900">
+              <div className="grid w-full place-items-center rounded-xl bg-zinc-200 py-24 text-sm text-zinc-500">
                 No image available
               </div>
             )}
@@ -931,13 +1103,13 @@ export default function SetDetailClient(props: Props) {
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
 
           {bestPrice ? (
-            <a href="#shop" className="mt-1 inline-block text-lg font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+            <a href="#shop" className="mt-1 inline-block text-xl font-bold text-amber-600 hover:underline">
               From {formatPrice(bestPrice.price, bestPrice.currency)}
             </a>
           ) : null}
 
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{setNum}</span>
+          <p className="mt-2 text-sm text-zinc-500">
+            <span className="font-semibold text-zinc-800">{setNum}</span>
             {typeof year === "number" ? (
               <>
                 {" "}
@@ -950,7 +1122,7 @@ export default function SetDetailClient(props: Props) {
           </p>
 
           {theme ? (
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="mt-1 text-sm text-zinc-500">
               <span className="font-semibold text-zinc-500">Theme:</span>{" "}
               <Link href={`/themes/${themeToSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
                 {theme}
@@ -958,20 +1130,20 @@ export default function SetDetailClient(props: Props) {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{parts.toLocaleString()} pieces</p> : null}
+          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-500">{parts.toLocaleString()} pieces</p> : null}
 
           {description ? (
-            <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{description}</p>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-500">{description}</p>
           ) : null}
 
           <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold ${shopPillClasses(shopPill)}`}>
             {shopPill}
           </span>
 
-          <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
+          <p className="mt-3 text-sm text-zinc-600">
             ⭐{" "}
             {ratingSummaryLoading ? (
-              <span className="font-semibold">Loading…</span>
+              <span className="inline-block h-4 w-10 animate-pulse rounded bg-zinc-200 align-middle" />
             ) : ratingSummaryError ? (
               <>
                 <span className="font-semibold">—</span> <span className="text-red-600">(error loading ratings)</span>
@@ -988,7 +1160,7 @@ export default function SetDetailClient(props: Props) {
             )}
           </p>
 
-          <section className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
+          <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-[220px]">
                 <AddToListMenu token={token || ""} setNum={setNum} />
@@ -996,7 +1168,7 @@ export default function SetDetailClient(props: Props) {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">Your rating:</span>
+              <span className="text-sm text-zinc-500">Your rating:</span>
 
               <div
                 className="relative inline-block cursor-pointer select-none text-3xl leading-none"
@@ -1015,7 +1187,7 @@ export default function SetDetailClient(props: Props) {
                   await handleStarClick(value);
                 }}
               >
-                <div className="text-zinc-300 dark:text-zinc-700">★★★★★</div>
+                <div className="text-zinc-300">★★★★★</div>
                 <div
                   className="pointer-events-none absolute left-0 top-0 overflow-hidden whitespace-nowrap text-amber-500"
                   style={{ width: `${(((hoverRating ?? userRating) || 0) / 5) * 100}%` }}
@@ -1024,7 +1196,7 @@ export default function SetDetailClient(props: Props) {
                 </div>
               </div>
 
-              {userRating != null ? <span className="text-sm text-zinc-600 dark:text-zinc-400">{Number(userRating).toFixed(1)}</span> : null}
+              {userRating != null ? <span className="text-sm text-zinc-500">{Number(userRating).toFixed(1)}</span> : null}
               {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
             </div>
 
@@ -1039,11 +1211,55 @@ export default function SetDetailClient(props: Props) {
                   if (!showReviewForm && myReview) startEditMyReview();
                   else setShowReviewForm((v) => !v);
                 }}
-                className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+                className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
               >
                 {showReviewForm ? "Cancel review" : myReview ? "✏️ Edit your review" : "✍️ Leave a review"}
               </button>
 
+              <button
+                type="button"
+                onClick={async () => {
+                  const url = window.location.href;
+                  const title = name || setNum;
+                  if (typeof navigator !== "undefined" && navigator.share) {
+                    try {
+                      await navigator.share({ title, url });
+                      gaEvent("share", { method: "native_share", content_type: "set", item_id: setNum });
+                    } catch { /* user cancelled */ }
+                  } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(url);
+                    setShareCopied(true);
+                    toast.push("Link copied!", { type: "success" });
+                    gaEvent("share", { method: "copy_link", content_type: "set", item_id: setNum });
+                    setTimeout(() => setShareCopied(false), 2000);
+                  }
+                }}
+                className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+              >
+                {shareCopied ? "Copied!" : "Share"}
+              </button>
+
+              {/* Deal alert bell */}
+              {isLoggedIn ? (
+                <button
+                  type="button"
+                  onClick={toggleAlert}
+                  disabled={alertLoading}
+                  className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                    hasAlert
+                      ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      : "border-zinc-200 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                  title={hasAlert ? "Remove price drop alert" : "Get notified of price drops"}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <svg className="h-4 w-4" fill={hasAlert ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={hasAlert ? 0 : 2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                    </svg>
+                    {alertLoading ? "…" : hasAlert ? "Alerts on" : "Notify me"}
+                  </span>
+                </button>
+              ) : null}
               {!isLoggedIn ? <span className="text-sm text-zinc-500">Log in to rate or review this set.</span> : null}
             </div>
 
@@ -1065,7 +1281,7 @@ export default function SetDetailClient(props: Props) {
           </span>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950">
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-zinc-500">Affiliate links may be used.</span>
           </div>
@@ -1090,10 +1306,10 @@ export default function SetDetailClient(props: Props) {
           </div>
 
           {/* CTA #2 (After offers) */}
-          <div className="mt-4 rounded-xl border border-black/[.06] bg-white p-3 dark:border-white/[.10] dark:bg-zinc-950">
+          <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                <div className="text-sm font-semibold text-zinc-900">
                   {ctaVariant === "A" ? "Get deal alerts for this set" : "Want a price drop notification?"}
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
@@ -1146,13 +1362,42 @@ export default function SetDetailClient(props: Props) {
         </div>
       </section>
 
+      {/* PRICE HISTORY (Coming Soon) */}
+      <section className="mt-12">
+        <h2 className="text-lg font-semibold">Price History</h2>
+        <div className="mt-4 flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 py-12 text-center">
+          <svg className="h-10 w-10 text-zinc-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+          <div className="text-base font-semibold text-zinc-600">Coming soon</div>
+          <p className="mt-1 text-sm text-zinc-500">We&apos;re working on price tracking. Stay tuned.</p>
+        </div>
+      </section>
+
+      {/* Ad slot between offers/price and reviews */}
+      <AdSlot slot="set_detail_mid" format="horizontal" className="mt-10" />
+
       {/* REVIEWS */}
       <section className="mt-12">
-        <h2 className="text-lg font-semibold">Reviews</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Reviews</h2>
+          {visibleReviews.length > 1 ? (
+            <select
+              value={reviewSort}
+              onChange={(e) => setReviewSort(e.target.value as ReviewSortKey)}
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="highest">Highest rated</option>
+              <option value="lowest">Lowest rated</option>
+            </select>
+          ) : null}
+        </div>
 
         {ratingHistogram && ratingCount > 0 ? (
-          <div className="mt-4 rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
-            <div className="mb-2 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="mb-2 text-center text-sm font-semibold text-zinc-900">
               {avgRating != null ? avgRating.toFixed(1) : "—"} average from {ratingCount} rating{ratingCount === 1 ? "" : "s"}
             </div>
             <RatingHistogram histogram={ratingHistogram} height={100} barWidth={36} gap={8} />
@@ -1162,13 +1407,13 @@ export default function SetDetailClient(props: Props) {
         {showReviewForm ? (
           <form
             onSubmit={handleReviewSubmit}
-            className="mt-3 rounded-2xl border border-black/[.08] bg-zinc-50 p-4 dark:border-white/[.14] dark:bg-zinc-950"
+            className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4"
           >
             <textarea
               value={reviewText}
               onChange={(e) => setReviewText(e.target.value)}
               placeholder="What did you think of this set?"
-              className="w-full rounded-xl border border-black/[.10] bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-zinc-950 dark:focus:ring-white/10"
+              className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
               rows={4}
               disabled={reviewSubmitting}
             />
@@ -1189,7 +1434,7 @@ export default function SetDetailClient(props: Props) {
                   type="button"
                   onClick={deleteMyReview}
                   disabled={reviewSubmitting || savingRating}
-                  className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300"
+                  className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
                 >
                   Delete review
                 </button>
@@ -1198,11 +1443,17 @@ export default function SetDetailClient(props: Props) {
           </form>
         ) : null}
 
-        {reviewsLoading ? <p className="mt-3 text-sm">Loading reviews…</p> : null}
-        {reviewsError ? <p className="mt-3 text-sm text-red-600">Error loading reviews: {reviewsError}</p> : null}
+        {reviewsLoading ? <div className="mt-3"><ReviewListSkeleton count={2} /></div> : null}
+        {reviewsError ? <ErrorState message={reviewsError} /> : null}
 
         {!reviewsLoading && !reviewsError && visibleReviews.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">No reviews yet. Be the first!</p>
+          <div className="mt-6 flex flex-col items-center justify-center py-10 text-center">
+            <svg className="h-10 w-10 text-zinc-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+            </svg>
+            <div className="text-base font-semibold text-zinc-600">No reviews yet</div>
+            <p className="mt-1 text-sm text-zinc-500">Be the first to share your thoughts on this set</p>
+          </div>
         ) : null}
 
         {!reviewsLoading && !reviewsError && visibleReviews.length > 0 ? (
@@ -1215,26 +1466,26 @@ export default function SetDetailClient(props: Props) {
               return (
                 <li
                   key={String(r.id)}
-                  className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
+                  className="rounded-2xl border border-zinc-200 bg-white p-4"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                    <div className="text-sm text-zinc-500">
                       {u ? (
                         <Link
                           href={`/users/${encodeURIComponent(u)}`}
-                          className="font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
+                          className="font-semibold text-zinc-800 hover:underline"
                         >
                           {u}
                         </Link>
                       ) : (
-                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">Unknown</span>
+                        <span className="font-semibold text-zinc-800">Unknown</span>
                       )}
                       {when ? <span className="ml-2 font-semibold text-zinc-500">• {when}</span> : null}
                     </div>
 
                     <div className="flex items-center gap-2">
                       {typeof r.rating === "number" ? (
-                        <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">{r.rating.toFixed(1)} ★</div>
+                        <div className="text-sm font-semibold text-amber-600">{r.rating.toFixed(1)} ★</div>
                       ) : null}
 
                       {isMine ? (
@@ -1242,14 +1493,14 @@ export default function SetDetailClient(props: Props) {
                           <button
                             type="button"
                             onClick={startEditMyReview}
-                            className="rounded-full border border-black/[.10] bg-white px-3 py-1 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                            className="rounded-full border border-zinc-200 bg-transparent px-3 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
                           >
                             Edit
                           </button>
                           <button
                             type="button"
                             onClick={deleteMyReview}
-                            className="rounded-full border border-red-200 bg-white px-3 py-1 text-sm font-semibold text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                            className="rounded-full border border-red-200 bg-transparent px-3 py-1 text-sm font-semibold text-red-700 hover:bg-red-50 transition-colors"
                           >
                             Delete
                           </button>
@@ -1258,7 +1509,114 @@ export default function SetDetailClient(props: Props) {
                     </div>
                   </div>
 
-                  {asTrimmedString(r.text) ? <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{r.text}</p> : null}
+                  {asTrimmedString(r.text) ? <p className="mt-2 text-sm text-zinc-600">{r.text}</p> : null}
+
+                  <div className="mt-3 flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => handleVote(r.id, "up")}
+                      disabled={!token}
+                      className={`flex items-center gap-1 text-xs transition-colors ${
+                        r.user_vote === "up"
+                          ? "font-semibold text-amber-600"
+                          : "text-zinc-400 hover:text-zinc-600"
+                      } disabled:opacity-40`}
+                      title="Helpful"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 4.5c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 01-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 00-1.302 4.665c0 1.194.232 2.333.654 3.375z" />
+                      </svg>
+                      {r.upvotes > 0 ? r.upvotes : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVote(r.id, "down")}
+                      disabled={!token}
+                      className={`flex items-center gap-1 text-xs transition-colors ${
+                        r.user_vote === "down"
+                          ? "font-semibold text-red-500"
+                          : "text-zinc-400 hover:text-zinc-600"
+                      } disabled:opacity-40`}
+                      title="Not helpful"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 15h2.25m8.024-9.75c.011.05.028.1.048.15.62 1.555.903 3.3.903 5.1a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 01-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 00-1.302 4.665c0 1.194.232 2.333.654 3.375z" />
+                      </svg>
+                      {r.downvotes > 0 ? r.downvotes : null}
+                    </button>
+
+                    {/* Report button — only for other users' reviews */}
+                    {token && r.user !== meUsername ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (reportingReviewId === r.id) {
+                            setReportingReviewId(null);
+                          } else {
+                            setReportingReviewId(r.id);
+                            setReportReason("spam");
+                            setReportNotes("");
+                          }
+                        }}
+                        className="ml-auto flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
+                        title="Report this review"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {/* Inline report form */}
+                  {reportingReviewId === r.id ? (
+                    <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                      <p className="text-xs font-semibold text-zinc-700 mb-2">Report this review</p>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="flex-1 min-w-[120px]">
+                          <label className="block text-xs text-zinc-500 mb-1">Reason</label>
+                          <select
+                            value={reportReason}
+                            onChange={(e) => setReportReason(e.target.value)}
+                            className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700"
+                          >
+                            <option value="spam">Spam</option>
+                            <option value="offensive">Offensive</option>
+                            <option value="inappropriate">Inappropriate</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+                        <div className="flex-[2] min-w-[160px]">
+                          <label className="block text-xs text-zinc-500 mb-1">Notes (optional)</label>
+                          <input
+                            type="text"
+                            maxLength={200}
+                            value={reportNotes}
+                            onChange={(e) => setReportNotes(e.target.value)}
+                            placeholder="Any additional details…"
+                            className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 placeholder:text-zinc-400"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleReportSubmit(r.id)}
+                            disabled={reportSubmitting}
+                            className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50 transition-colors"
+                          >
+                            {reportSubmitting ? "Sending…" : "Submit"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReportingReviewId(null)}
+                            className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
@@ -1276,15 +1634,15 @@ export default function SetDetailClient(props: Props) {
               <Link
                 href={`/themes/${themeToSlug(String(setDetail.theme))}`}
                 prefetch={false}
-                className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50"
+                className="text-sm font-semibold text-amber-600 hover:text-amber-500 transition-colors"
               >
-                Browse all →
+                Browse all &rarr;
               </Link>
             ) : null}
           </div>
 
-          {similarLoading ? <p className="mt-3 text-sm">Loading sets…</p> : null}
-          {similarError ? <p className="mt-3 text-sm text-red-600">Error loading sets: {similarError}</p> : null}
+          {similarLoading ? <div className="mt-4"><SetGridSkeleton count={4} /></div> : null}
+          {similarError ? <ErrorState message={similarError} /> : null}
 
           {!similarLoading && !similarError && similarSets.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">No other sets found for this theme yet.</p>
@@ -1296,7 +1654,7 @@ export default function SetDetailClient(props: Props) {
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
-                      <SetCard set={s} />
+                      <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : undefined} />
                     </li>
                   ))}
                 </ul>
@@ -1306,7 +1664,7 @@ export default function SetDetailClient(props: Props) {
                 type="button"
                 onClick={() => scrollSimilar(-1)}
                 aria-label="Scroll left"
-                className="absolute -left-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-600 shadow-sm backdrop-blur hover:bg-white sm:block dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="absolute -left-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-zinc-50/90 p-1.5 text-zinc-500 shadow-sm backdrop-blur hover:bg-zinc-100 hover:text-zinc-700 sm:block transition-colors"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -1317,7 +1675,7 @@ export default function SetDetailClient(props: Props) {
                 type="button"
                 onClick={() => scrollSimilar(1)}
                 aria-label="Scroll right"
-                className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-600 shadow-sm backdrop-blur hover:bg-white sm:block dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-zinc-50/90 p-1.5 text-zinc-500 shadow-sm backdrop-blur hover:bg-zinc-100 hover:text-zinc-700 sm:block transition-colors"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />

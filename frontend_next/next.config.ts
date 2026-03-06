@@ -30,16 +30,21 @@ const nextConfig: NextConfig = {
         hostname: "cdn.rebrickable.com",
         pathname: "/media/**",
       },
-      {
-        protocol: "http",
-        hostname: "localhost",
-        pathname: "/**",
-      },
-      {
-        protocol: "http",
-        hostname: "127.0.0.1",
-        pathname: "/**",
-      },
+      // Dev-only: allow local backend images
+      ...(process.env.NODE_ENV !== "production"
+        ? [
+            {
+              protocol: "http" as const,
+              hostname: "localhost",
+              pathname: "/**",
+            },
+            {
+              protocol: "http" as const,
+              hostname: "127.0.0.1",
+              pathname: "/**",
+            },
+          ]
+        : []),
     ],
   },
 };

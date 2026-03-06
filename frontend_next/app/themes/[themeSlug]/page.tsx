@@ -174,19 +174,19 @@ export default async function ThemeSetsPage({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <Link href="/themes" className="inline-block text-sm font-semibold hover:underline">
+            <Link href="/themes" className="inline-block text-sm font-semibold hover:text-amber-600 hover:underline">
               ← Back to themes
             </Link>
-            <Link href={`/themes/${canonicalSlug}/top`} className="inline-block text-sm font-semibold hover:underline">
+            <Link href={`/themes/${canonicalSlug}/top`} className="inline-block text-sm font-semibold hover:text-amber-600 hover:underline">
               Top sets in {themeName} →
             </Link>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/themes/top" className="inline-block text-sm font-semibold hover:underline">
+            <Link href="/themes/top" className="inline-block text-sm font-semibold hover:text-amber-600 hover:underline">
               Top themes →
             </Link>
-            <Link href="/years" className="inline-block text-sm font-semibold hover:underline">
+            <Link href="/years" className="inline-block text-sm font-semibold hover:text-amber-600 hover:underline">
               Browse by year →
             </Link>
           </div>

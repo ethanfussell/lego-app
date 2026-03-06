@@ -175,7 +175,7 @@ function toHistogramProp(x: unknown): HistogramProp | null {
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       {children}
     </div>
   );
@@ -199,7 +199,7 @@ function StatCard({
   const base = (
     <div
       className={[
-        "rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950",
+        "rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:border-zinc-300 hover:shadow-md",
         className || "",
       ].join(" ")}
     >
@@ -208,7 +208,7 @@ function StatCard({
       {children ? (
         <div className="mt-2">{children}</div>
       ) : (
-        <div className="mt-2 text-3xl font-extrabold leading-none text-zinc-900 dark:text-zinc-50">{value}</div>
+        <div className="mt-2 text-3xl font-extrabold leading-none text-zinc-900">{value}</div>
       )}
 
       {sub ? <div className="mt-1 text-sm text-zinc-500">{sub}</div> : null}
@@ -228,9 +228,9 @@ function ActionTile({ title, desc, href }: { title: string; desc: string; href: 
   return (
     <Link
       href={href}
-      className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+      className="block rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:border-zinc-300 hover:shadow-md"
     >
-      <div className="text-lg font-bold text-zinc-900 dark:text-zinc-50">{title}</div>
+      <div className="text-lg font-bold text-zinc-900">{title}</div>
       <div className="mt-1 text-sm text-zinc-500">{desc}</div>
     </Link>
   );
@@ -240,9 +240,9 @@ function ThemeRow({ theme, count, href }: { theme: string; count: number; href: 
   return (
     <Link
       href={href}
-      className="flex items-center justify-between gap-3 rounded-2xl border border-black/[.08] bg-white px-4 py-3 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+      className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-[1px] hover:border-zinc-300 hover:shadow-md"
     >
-      <div className="font-semibold text-zinc-900 dark:text-zinc-50">{theme}</div>
+      <div className="font-semibold text-zinc-900">{theme}</div>
       <div className="font-semibold text-zinc-500">{count}</div>
     </Link>
   );
@@ -260,10 +260,10 @@ function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
   return (
     <Link
       href={`/sets/${encodeURIComponent(setNum)}`}
-      className="block rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md dark:border-white/[.14] dark:bg-zinc-950"
+      className="block rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-[1px] hover:border-zinc-300 hover:shadow-md"
     >
       <div className="grid grid-cols-[80px_1fr] gap-3">
-      <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-xl border border-black/[.08] bg-white dark:border-white/[.14] dark:bg-zinc-950">
+      <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-xl border border-zinc-200 bg-white">
       {imageUrl ? (
         <div className="relative h-20 w-20">
           <Image
@@ -276,26 +276,26 @@ function RecentMiniReviewCard({ r }: { r: ReviewRecent }) {
           />
         </div>
       ) : (
-        <div className="text-xs font-bold text-zinc-400">—</div>
+        <div className="text-xs font-bold text-zinc-500">—</div>
       )}
     </div>
 
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="line-clamp-2 font-extrabold leading-tight text-zinc-900 dark:text-zinc-50">{setName}</div>
+              <div className="line-clamp-2 font-extrabold leading-tight text-zinc-900">{setName}</div>
               <div className="mt-1 text-sm text-zinc-500">{setNum}</div>
             </div>
 
-            <div className="shrink-0 whitespace-nowrap font-extrabold text-zinc-900 dark:text-zinc-50">
+            <div className="shrink-0 whitespace-nowrap font-extrabold text-zinc-900">
               {rating} <span className="text-sm">★</span>
             </div>
           </div>
 
           {text ? (
-            <div className="mt-2 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300">{text}</div>
+            <div className="mt-2 line-clamp-2 text-sm text-zinc-600">{text}</div>
           ) : (
-            <div className="mt-2 text-sm text-zinc-400">No review text</div>
+            <div className="mt-2 text-sm text-zinc-500">No review text</div>
           )}
         </div>
       </div>
@@ -556,16 +556,16 @@ export default function AccountClient() {
       <div className="mt-10 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="m-0 text-2xl font-semibold">Account</h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 text-sm text-zinc-500">
             {isLoggedIn ? (
               <>
                 Signed in as{" "}
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100">{username}</span>
+                <span className="font-semibold text-zinc-800">{username}</span>
               </>
             ) : hydrated ? (
               "Log in to see your stats."
             ) : (
-              "Loading…"
+              <span className="inline-block h-3 w-28 animate-pulse rounded bg-zinc-200" />
             )}
           </p>
         </div>
@@ -574,7 +574,7 @@ export default function AccountClient() {
           <button
             type="button"
             onClick={() => router.push("/collection")}
-            className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
           >
             My Collection
           </button>
@@ -586,7 +586,7 @@ export default function AccountClient() {
                 logout();
                 router.push("/");
               }}
-              className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+              className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
             >
               Logout
             </button>
@@ -597,13 +597,13 @@ export default function AccountClient() {
       {!hydrated ? (
         <div className="mt-6">
           <CardShell>
-            <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">Loading account…</p>
+            <p className="m-0 text-sm text-zinc-500">Loading account…</p>
           </CardShell>
         </div>
       ) : !isLoggedIn ? (
         <div className="mt-6">
           <CardShell>
-            <p className="m-0 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="m-0 text-sm text-zinc-500">
               You’re not logged in. Go to{" "}
               <Link href="/login" className="font-semibold hover:underline">
                 /login
@@ -640,7 +640,7 @@ export default function AccountClient() {
               <button
                 type="button"
                 onClick={() => router.push("/account/reviews")}
-                className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+                className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
               >
                 View all reviews
               </button>
@@ -669,7 +669,7 @@ export default function AccountClient() {
                   <div
                     className={[
                       REVIEW_TILE_H,
-                      "rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm dark:border-white/[.14] dark:bg-zinc-950",
+                      "rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm",
                       "flex flex-col",
                     ].join(" ")}
                   >
@@ -677,7 +677,7 @@ export default function AccountClient() {
                       <div className="text-xs font-extrabold uppercase tracking-wide text-zinc-500">
                         Ratings breakdown
                       </div>
-                      <div className="text-sm font-extrabold text-zinc-900 dark:text-zinc-50">
+                      <div className="text-sm font-extrabold text-zinc-900">
                         Avg {avgRating == null ? "—" : Number(avgRating).toFixed(2)}
                       </div>
                     </div>

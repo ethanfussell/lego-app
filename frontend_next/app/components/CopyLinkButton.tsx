@@ -39,7 +39,7 @@ export default function CopyLinkButton({
       <button
         type="button"
         onClick={onCopy}
-        className="rounded-full border border-black/[.10] bg-white px-3 py-1.5 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:text-zinc-50 dark:hover:bg-white/[.06]"
+        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
       >
         {copied ? "Copied!" : "Copy link"}
       </button>
@@ -49,7 +49,7 @@ export default function CopyLinkButton({
           readOnly
           value={url}
           onFocus={(e) => e.currentTarget.select()}
-          className="h-9 w-[260px] rounded-xl border border-black/[.10] bg-white px-3 text-xs text-zinc-700 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-200"
+          className="h-9 w-[260px] rounded-xl border border-zinc-200 bg-white px-3 text-xs text-zinc-700"
         />
       ) : null}
     </div>

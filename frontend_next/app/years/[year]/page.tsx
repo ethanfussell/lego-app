@@ -238,7 +238,7 @@ export default async function YearPage({
       <div className="mx-auto max-w-5xl px-6 py-12">
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: "Invalid year" }]} />
         <h1 className="mt-4 text-2xl font-semibold tracking-tight">Invalid year</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm text-zinc-9000">
           Please choose a year between {min} and {max}.
         </p>
         <Link href="/years" className="mt-4 inline-block text-sm font-semibold hover:underline">
@@ -270,7 +270,7 @@ export default async function YearPage({
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: String(y) }]} />
 
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
-          <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link href="/themes" className="text-zinc-900 hover:text-amber-600 hover:underline">
             Browse themes →
           </Link>
         </div>
@@ -278,15 +278,15 @@ export default async function YearPage({
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{y}</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">We couldn’t load sets right now. Try refreshing in a bit.</p>
+            <p className="mt-2 text-sm text-zinc-9000">We couldn’t load sets right now. Try refreshing in a bit.</p>
           </div>
 
-          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
             ← All years
           </Link>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-black/[.08] bg-white p-5 text-sm text-zinc-600 shadow-sm dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-300">
+        <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600 shadow-sm">
           If this keeps happening, it usually means the backend is temporarily unavailable.
         </div>
       </div>
@@ -321,7 +321,7 @@ export default async function YearPage({
         <div className="mt-4 flex items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{y}</h1>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">No sets found for this year.</p>
+            <p className="mt-2 text-sm text-zinc-9000">No sets found for this year.</p>
           </div>
 
           <Link href="/years" className="text-sm font-semibold hover:underline">
@@ -330,7 +330,7 @@ export default async function YearPage({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm font-semibold">
-          <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link href="/themes" className="text-zinc-900 hover:text-amber-600 hover:underline">
             Browse themes →
           </Link>
         </div>
@@ -352,12 +352,12 @@ export default async function YearPage({
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Years", href: "/years" }, { label: String(y) }]} />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
-        <Link href="/themes" className="text-zinc-900 hover:underline dark:text-zinc-50">
+        <Link href="/themes" className="text-zinc-900 hover:text-amber-600 hover:underline">
           Browse themes →
         </Link>
 
         {topThemes.map((t) => (
-          <Link key={t} href={`/themes/${themeToSlug(t)}`} className="text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link key={t} href={`/themes/${themeToSlug(t)}`} className="text-zinc-900 hover:text-amber-600 hover:underline">
             {t} →
           </Link>
         ))}
@@ -366,14 +366,14 @@ export default async function YearPage({
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{y}</h1>
-          <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="mt-2 text-sm text-zinc-9000">
             Page {page}
             {totalPages ? <span className="ml-1">of {totalPages}</span> : null}
             {typeof totalCount === "number" ? <span className="ml-2">• {totalCount} sets</span> : null}
           </div>
         </div>
 
-        <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+        <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
           ← All years
         </Link>
       </div>
@@ -385,8 +385,8 @@ export default async function YearPage({
           <Link
             href={firstHref}
             aria-disabled={page <= 1}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
-              page <= 1 ? "pointer-events-none opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
+              page <= 1 ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
             }`}
           >
             « First
@@ -395,8 +395,8 @@ export default async function YearPage({
           <Link
             href={qsBase(y, Math.max(1, page - 1))}
             aria-disabled={!hasPrev}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
-              !hasPrev ? "pointer-events-none opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
+              !hasPrev ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
             }`}
           >
             ← Prev
@@ -405,8 +405,8 @@ export default async function YearPage({
           <Link
             href={qsBase(y, page + 1)}
             aria-disabled={!hasNext}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
-              !hasNext ? "pointer-events-none opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
+              !hasNext ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
             }`}
           >
             Next →
@@ -415,14 +415,14 @@ export default async function YearPage({
           <Link
             href={lastHref}
             aria-disabled={totalPages != null ? page >= totalPages : !hasNext}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
               totalPages != null
                 ? page >= totalPages
                   ? "pointer-events-none opacity-50"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  : "hover:bg-zinc-100"
                 : !hasNext
                   ? "pointer-events-none opacity-50"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  : "hover:bg-zinc-100"
             }`}
           >
             Last »
@@ -433,7 +433,7 @@ export default async function YearPage({
           <div className="flex flex-wrap items-center gap-1">
             {pageList.map((p, idx) =>
               p === "..." ? (
-                <span key={`dots-${idx}`} className="px-2 text-sm text-zinc-500">
+                <span key={`dots-${idx}`} className="px-2 text-sm text-zinc-9000">
                   …
                 </span>
               ) : (
@@ -441,10 +441,10 @@ export default async function YearPage({
                   key={p}
                   href={qsBase(y, p)}
                   aria-current={p === page ? "page" : undefined}
-                  className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold dark:border-white/[.2] ${
+                  className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold ${
                     p === page
-                      ? "border-black/40 bg-black text-white dark:border-white/40 dark:bg-white dark:text-black"
-                      : "border-black/[.12] hover:bg-zinc-50 dark:border-white/[.2] dark:hover:bg-zinc-900"
+                      ? "border-amber-500/40 bg-amber-500 text-black"
+                      : "border-zinc-200 text-zinc-900 hover:bg-zinc-100"
                   }`}
                 >
                   {p}
@@ -453,7 +453,7 @@ export default async function YearPage({
             )}
           </div>
         ) : (
-          <div className="text-sm text-zinc-500">{hasNext ? "More pages available" : "No more pages"}</div>
+          <div className="text-sm text-zinc-9000">{hasNext ? "More pages available" : "No more pages"}</div>
         )}
       </div>
     </div>

@@ -1,5 +1,7 @@
 // frontend_next/lib/events.ts
 
+import { gaEvent } from "./ga";
+
 export type AffiliateClickEvent = {
   event: "affiliate_click";
   url: string;
@@ -34,9 +36,9 @@ function shouldDebugEvents(): boolean {
 }
 
 export function logEvent(e: AnyEvent) {
-  // v1: console only (later: POST /events)
-  if (!shouldDebugEvents()) return;
-  console.info("[event]", e);
+  if (shouldDebugEvents()) console.info("[event]", e);
+  // Always send to GA4
+  gaEvent(e.event, e as unknown as Record<string, unknown>);
 }
 
 export function ctaImpression(e: Omit<CtaEvent, "event" | "ts">) {

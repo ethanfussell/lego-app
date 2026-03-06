@@ -437,7 +437,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold">{title}</h1>
 
-            <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <div className="mt-2 text-sm text-zinc-500">
               {count} set{count === 1 ? "" : "s"}
               {ownerName ? (
                 <span className="ml-2">
@@ -449,19 +449,19 @@ export default async function Page({ params }: { params: Params | Promise<Params
               ) : null}
             </div>
 
-            {desc ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{desc}</p> : null}
+            {desc ? <p className="mt-3 max-w-2xl text-sm text-zinc-500">{desc}</p> : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/lists/public"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               ← Public lists
             </Link>
             <Link
               href="/discover"
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Browse sets →
             </Link>
@@ -478,10 +478,10 @@ export default async function Page({ params }: { params: Params | Promise<Params
             return (
               <div
                 key={s.set_num}
-                className="rounded-2xl border border-black/[.08] bg-white p-4 shadow-sm hover:bg-zinc-50 dark:border-white/[.14] dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300 hover:bg-zinc-100"
               >
                 <div className="flex gap-3">
-                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-50 dark:bg-white/5">
+                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                     {imgSrc ? (
                       <div className="relative h-20 w-24">
                         <Image
@@ -504,7 +504,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                       {s.name || s.set_num}
                     </Link>
 
-                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="mt-1 text-xs text-zinc-500">
                       <span className="font-semibold">{s.set_num}</span>
 
                       {typeof s.year === "number" ? (
@@ -518,7 +518,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
                     </div>
 
                     {s.theme ? (
-                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      <div className="mt-1 text-xs text-zinc-500">
                         Theme:{" "}
                         <Link href={`/themes/${themeToSlug(String(s.theme))}`} className="font-semibold hover:underline">
                           {s.theme}
@@ -532,7 +532,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
           })}
         </div>
       ) : (
-        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No sets found in this list yet.</p>
+        <p className="mt-8 text-sm text-zinc-500">No sets found in this list yet.</p>
       )}
     </div>
   );

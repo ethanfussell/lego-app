@@ -133,11 +133,11 @@ export default function ListsClient() {
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
         <h1 className="text-2xl font-semibold tracking-tight">My Lists</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm text-zinc-500">
           Create custom lists, toggle public/private, and open a list to add sets.
         </p>
 
-        <div className="mt-6 rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950">
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
           <div className="font-semibold">Create a list</div>
 
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -145,10 +145,10 @@ export default function ListsClient() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. ‘Space sets I want’, ‘City MOCs’, …"
-              className="w-full flex-1 rounded-xl border border-black/[.10] bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/[.14] dark:bg-zinc-950 dark:focus:ring-white/10"
+              className="w-full flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/20"
             />
 
-            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-zinc-600">
               <input
                 type="checkbox"
                 checked={isPublic}
@@ -161,14 +161,14 @@ export default function ListsClient() {
               type="button"
               onClick={createList}
               disabled={!title.trim() || creating}
-              className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-black"
+              className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
             >
               {creating ? "Creating…" : "Create"}
             </button>
           </div>
         </div>
 
-        {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
+        {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
         {err ? <p className="mt-4 text-sm text-red-600">Error: {err}</p> : null}
       </div>
 
@@ -179,7 +179,7 @@ export default function ListsClient() {
         </div>
 
         {customLists.length === 0 ? (
-          <div className="rounded-2xl border border-black/[.08] bg-white p-6 text-sm text-zinc-600 dark:border-white/[.14] dark:bg-zinc-950 dark:text-zinc-400">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
             No custom lists yet. Create one above.
           </div>
         ) : (
@@ -190,12 +190,12 @@ export default function ListsClient() {
               return (
                 <div
                   key={id}
-                  className="rounded-2xl border border-black/[.08] bg-white p-4 dark:border-white/[.14] dark:bg-zinc-950"
+                  className="rounded-2xl border border-zinc-200 bg-white p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-semibold">{l.title ?? `List ${id}`}</div>
-                      <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      <div className="mt-1 text-sm text-zinc-500">
                         {l.items_count ?? 0} sets • {l.is_public ? "Public" : "Private"}
                       </div>
                     </div>
@@ -203,7 +203,7 @@ export default function ListsClient() {
                     <button
                       type="button"
                       onClick={() => void togglePublic(l)}
-                      className="rounded-full border border-black/[.10] px-3 py-1 text-xs font-semibold hover:bg-black/[.04] dark:border-white/[.14] dark:hover:bg-white/[.06]"
+                      className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold hover:bg-zinc-100"
                       title="Toggle public/private"
                     >
                       {l.is_public ? "Make private" : "Make public"}
@@ -213,14 +213,14 @@ export default function ListsClient() {
                   <div className="mt-4 flex gap-2">
                     <Link
                       href={`/lists/${encodeURIComponent(id)}`}
-                      className="rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 dark:bg-white dark:text-black"
+                      className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
                     >
                       Open
                     </Link>
                     <button
                       type="button"
                       onClick={() => void refresh()}
-                      className="rounded-xl border border-black/[.10] px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.14] dark:hover:bg-white/[.06]"
+                      className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
                     >
                       Refresh
                     </button>

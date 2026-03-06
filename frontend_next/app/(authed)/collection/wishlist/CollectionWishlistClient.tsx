@@ -8,6 +8,10 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as SetCardSetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
+import { useToast } from "@/app/ui-providers/ToastProvider";
+import { SetGridSkeleton } from "@/app/components/Skeletons";
+import EmptyState from "@/app/components/EmptyState";
+import ErrorState from "@/app/components/ErrorState";
 
 type WishlistDetail = {
   items_count: number;
@@ -78,9 +82,33 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
   };
 }
 
+function exportCsv(sets: SetCardSetLite[], filename: string) {
+  const header = "Set Number,Name,Year,Pieces,Theme\n";
+  const rows = sets
+    .map((s) =>
+      [
+        s.set_num,
+        `"${(s.name || "").replace(/"/g, '""')}"`,
+        s.year ?? "",
+        s.num_parts ?? s.pieces ?? "",
+        `"${(s.theme || "").replace(/"/g, '""')}"`,
+      ].join(",")
+    )
+    .join("\n");
+
+  const blob = new Blob([header + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CollectionWishlistClient() {
   const { token } = useAuth();
   const router = useRouter();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -88,6 +116,7 @@ export default function CollectionWishlistClient() {
   const [wishlistDetail, setWishlistDetail] = useState<WishlistDetail | null>(null);
   const [sets, setSets] = useState<SetCardSetLite[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   // Selection should be based on what we actually loaded
   const wishlistSetNums = useMemo(() => new Set(sets.map((s) => String(s.set_num).trim())), [sets]);
@@ -124,6 +153,7 @@ export default function CollectionWishlistClient() {
         });
 
         await refresh();
+        toast.push("Set removed from wishlist", { type: "success" });
       } catch (e: unknown) {
         setErr(errorMessage(e, "Failed to remove from wishlist"));
         await refresh();
@@ -165,27 +195,99 @@ export default function CollectionWishlistClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="flex items-baseline justify-between gap-4 pt-10">
+      <div className="flex flex-wrap items-baseline justify-between gap-4 pt-10">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Wishlist</h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 text-sm text-zinc-500">
             {wishlistDetail?.items_count ? `${wishlistDetail.items_count} sets` : "Sets you want to get."}
           </p>
         </div>
 
-        <Link
-          href="/collection"
-          className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-        >
-          Back
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setViewMode("grid")}
+            className={`rounded-lg p-1.5 transition-colors ${viewMode === "grid" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
+            aria-label="Grid view"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("list")}
+            className={`rounded-lg p-1.5 transition-colors ${viewMode === "list" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
+            aria-label="List view"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          </button>
+
+          {sets.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => exportCsv(sets, `bricktrack-wishlist-${new Date().toISOString().slice(0, 10)}.csv`)}
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+            >
+              Export CSV
+            </button>
+          ) : null}
+
+          <Link
+            href="/collection"
+            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
+          >
+            Back
+          </Link>
+        </div>
       </div>
 
-      {loading ? <p className="mt-6 text-sm">Loading…</p> : null}
-      {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
+      {loading ? <SetGridSkeleton count={8} /> : null}
+      {err ? <ErrorState message={err} onRetry={() => void refresh()} /> : null}
 
       {sets.length === 0 && !loading ? (
-        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">No sets yet.</p>
+        <EmptyState
+          title="No sets on your wishlist"
+          description="Save sets you want to buy"
+          action={{ href: "/search", label: "Browse sets" }}
+        />
+      ) : viewMode === "list" ? (
+        <div className="mt-6 space-y-2">
+          {sets.map((s) => {
+            const plain = toPlain(s.set_num);
+            const pcs = s.num_parts ?? s.pieces;
+            return (
+              <div key={s.set_num} className="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="h-16 w-16 shrink-0 rounded-lg bg-zinc-100 overflow-hidden">
+                  {s.image_url ? (
+                    <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-1" loading="lazy" />
+                  ) : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="text-sm font-semibold text-zinc-900 hover:text-amber-600 truncate block">
+                    {s.name || s.set_num}
+                  </Link>
+                  <div className="text-xs text-zinc-500">
+                    {s.set_num}
+                    {s.year ? ` · ${s.year}` : ""}
+                    {pcs ? ` · ${pcs} pcs` : ""}
+                    {s.theme ? ` · ${s.theme}` : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void removeWishlist(s.set_num)}
+                  disabled={!!removing[plain]}
+                  className="shrink-0 rounded-full border border-red-200 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  {removing[plain] ? "Removing…" : "Remove"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <ul className="mt-6 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
           {sets.map((s) => {
@@ -210,7 +312,7 @@ export default function CollectionWishlistClient() {
                   type="button"
                   onClick={() => void removeWishlist(s.set_num)}
                   disabled={!!removing[plain]}
-                  className="w-full rounded-full border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                  className="w-full rounded-full border border-red-200 bg-transparent px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
                 >
                   {removing[plain] ? "Removing…" : "Remove from wishlist"}
                 </button>

@@ -156,6 +156,15 @@ def _get_or_create_user(db: Session, clerk_id: str) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Send welcome email (non-blocking, best-effort)
+    if user.email:
+        try:
+            from app.core.email import send_welcome_email
+            send_welcome_email(user.email, user.username)
+        except Exception:
+            pass  # never fail user creation over email
+
     return user
 
 

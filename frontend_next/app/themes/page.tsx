@@ -173,15 +173,15 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold">Themes</h1>
-          <p className="mt-2 text-zinc-600 dark:text-zinc-400">Pick a theme to browse sets.</p>
+          <p className="mt-2 text-zinc-500">Pick a theme to browse sets.</p>
         </div>
 
         <div className="flex items-center gap-4">
-          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link href="/years" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
             Browse by year →
           </Link>
 
-          <Link href="/" className="text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-50">
+          <Link href="/" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
             ← Home
           </Link>
         </div>
@@ -192,15 +192,15 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
           name="q"
           defaultValue={q}
           placeholder="Search themes…"
-          className="w-full rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
         />
-        <button className="rounded-xl border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 dark:border-white/[.145] dark:bg-black dark:hover:bg-zinc-900">
+        <button className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100">
           Search
         </button>
       </form>
 
       {rows.length === 0 ? (
-        <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No themes found.</p>
+        <p className="mt-8 text-sm text-zinc-500">No themes found.</p>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((r) => {
@@ -209,13 +209,13 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
               <Link
                 key={r.theme}
                 href={href}
-                className="rounded-xl border border-black/[.08] bg-white p-4 hover:bg-zinc-50 dark:border-white/[.145] dark:bg-black dark:hover:bg-zinc-900"
+                className="rounded-xl border border-zinc-200 bg-white p-4 hover:border-zinc-300 hover:bg-zinc-100"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold">{r.theme}</div>
-                  <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">{r.set_count} sets</div>
+                  <div className="text-xs font-semibold text-zinc-500">{r.set_count} sets</div>
                 </div>
-                <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">View sets →</div>
+                <div className="mt-1 text-sm text-zinc-500">View sets →</div>
               </Link>
             );
           })}
@@ -228,8 +228,8 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
           <Link
             href={qsBase(Math.max(1, page - 1))}
             aria-disabled={!hasPrev}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
-              !hasPrev ? "pointer-events-none opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
+              !hasPrev ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
             }`}
           >
             ← Prev
@@ -238,15 +238,15 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
           <Link
             href={qsBase(page + 1)}
             aria-disabled={!hasNext}
-            className={`rounded-full border border-black/[.08] bg-white px-4 py-2 text-sm font-semibold dark:border-white/[.145] dark:bg-black ${
-              !hasNext ? "pointer-events-none opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
+              !hasNext ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
             }`}
           >
             Next →
           </Link>
         </div>
 
-        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="text-sm text-zinc-500">
           Page {page}
           {totalPages ? <span className="ml-1">of {totalPages}</span> : null}
           {typeof totalCount === "number" ? <span className="ml-2">• {totalCount} themes</span> : null}
@@ -264,10 +264,10 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
                   key={p}
                   href={qsBase(p)}
                   aria-current={p === page ? "page" : undefined}
-                  className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold dark:border-white/[.2] ${
+                  className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold ${
                     p === page
-                      ? "border-black/40 bg-black text-white dark:border-white/40 dark:bg-white dark:text-black"
-                      : "border-black/[.12] hover:bg-zinc-50 dark:border-white/[.2] dark:hover:bg-zinc-900"
+                      ? "border-amber-500/40 bg-amber-500 text-black"
+                      : "border-zinc-200 text-zinc-900 hover:bg-zinc-100"
                   }`}
                 >
                   {p}

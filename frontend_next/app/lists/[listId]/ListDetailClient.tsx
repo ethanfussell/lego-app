@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, APIError } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import { useToast } from "@/app/ui-providers/ToastProvider";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 
@@ -73,12 +74,12 @@ async function fetchSetsBulk(setNums: string[], token?: string): Promise<SetLite
 
 function chipClass(variant: "neutral" | "good" | "warn") {
   if (variant === "good") {
-    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700";
   }
   if (variant === "warn") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    return "border-amber-500/20 bg-amber-50 text-amber-600";
   }
-  return "border-black/[.10] bg-black/[.04] text-zinc-700 dark:border-white/[.14] dark:bg-white/[.06] dark:text-zinc-200";
+  return "border-zinc-300 bg-zinc-200 text-zinc-700";
 }
 
 export default function ListDetailClient(props: {
@@ -90,6 +91,7 @@ export default function ListDetailClient(props: {
 
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
+  const toast = useToast();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
 
@@ -105,6 +107,12 @@ export default function ListDetailClient(props: {
 
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [copyErr, setCopyErr] = useState<string | null>(null);
+
+  // Report list
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportReason, setReportReason] = useState("spam");
+  const [reportNotes, setReportNotes] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   const ownerName = useMemo(() => {
     if (!detail) return "";
@@ -235,6 +243,40 @@ export default function ListDetailClient(props: {
     }
   }
 
+  async function handleReportList() {
+    if (!token || !detail || reportSubmitting) return;
+    setReportSubmitting(true);
+    try {
+      await apiFetch("/reports", {
+        method: "POST",
+        token,
+        body: {
+          target_type: "list",
+          target_id: Number(detail.id),
+          reason: reportReason,
+          notes: reportNotes.trim() || null,
+        },
+      });
+      toast.push("Report submitted", { type: "success" });
+      setShowReportForm(false);
+      setReportReason("spam");
+      setReportNotes("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("409") || msg.includes("already_reported")) {
+        toast.push("You've already reported this list", { type: "error" });
+        setShowReportForm(false);
+      } else if (msg.includes("cannot_report_own")) {
+        toast.push("You can't report your own list", { type: "error" });
+        setShowReportForm(false);
+      } else {
+        toast.push(msg || "Failed to submit report", { type: "error" });
+      }
+    } finally {
+      setReportSubmitting(false);
+    }
+  }
+
   async function copyLink() {
     setCopyErr(null);
     if (typeof window === "undefined") return;
@@ -279,7 +321,7 @@ export default function ListDetailClient(props: {
           It’s just controls + enhancements. */}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="text-sm text-zinc-500">
           {headerSubtitle}
           {visibility ? (
             <span
@@ -302,7 +344,7 @@ export default function ListDetailClient(props: {
             <button
               type="button"
               onClick={copyLink}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
               title="Copy shareable link"
             >
               {copyState === "copied" ? "Copied!" : "Copy link"}
@@ -313,7 +355,7 @@ export default function ListDetailClient(props: {
             <button
               type="button"
               onClick={() => router.push("/login")}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Log in to edit
             </button>
@@ -324,16 +366,81 @@ export default function ListDetailClient(props: {
               type="button"
               onClick={togglePublic}
               disabled={savingPrivacy}
-              className="rounded-full border border-black/[.10] bg-white px-4 py-2 text-sm font-semibold hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
               title="Toggle visibility"
             >
               {detail?.is_public ? "Make Private" : "Make Public"}
             </button>
           ) : null}
+
+          {/* Report list — only for logged-in non-owners */}
+          {token && !canEdit && isPublic ? (
+            <button
+              type="button"
+              onClick={() => setShowReportForm((v) => !v)}
+              className="flex items-center gap-1 rounded-full border border-zinc-200 bg-transparent px-3 py-2 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+              title="Report this list"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />
+              </svg>
+              Report
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {description ? <p className="mt-3 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{description}</p> : null}
+      {/* Inline report form */}
+      {showReportForm ? (
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+          <p className="text-xs font-semibold text-zinc-700 mb-2">Report this list</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex-1 min-w-[120px]">
+              <label className="block text-xs text-zinc-500 mb-1">Reason</label>
+              <select
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700"
+              >
+                <option value="spam">Spam</option>
+                <option value="offensive">Offensive</option>
+                <option value="inappropriate">Inappropriate</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="flex-[2] min-w-[160px]">
+              <label className="block text-xs text-zinc-500 mb-1">Notes (optional)</label>
+              <input
+                type="text"
+                maxLength={200}
+                value={reportNotes}
+                onChange={(e) => setReportNotes(e.target.value)}
+                placeholder="Any additional details…"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 placeholder:text-zinc-400"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleReportList}
+                disabled={reportSubmitting}
+                className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50 transition-colors"
+              >
+                {reportSubmitting ? "Sending…" : "Submit"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReportForm(false)}
+                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {description ? <p className="mt-3 max-w-2xl text-sm text-zinc-500">{description}</p> : null}
 
       {copyErr ? <p className="mt-4 text-sm text-red-600">Error: {copyErr}</p> : null}
       {loading ? <p className="mt-4 text-sm text-zinc-500">Refreshing…</p> : null}
@@ -342,7 +449,7 @@ export default function ListDetailClient(props: {
       {/* Optional: editor-only “remove” actions on the SSR sets */}
       {canEdit && sets.length > 0 ? (
         <div className="mt-8">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Manage items</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Manage items</h2>
           <ul className="mt-4 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
             {sets.map((s) => {
               const sn = String(s.set_num);
@@ -360,7 +467,7 @@ export default function ListDetailClient(props: {
                           type="button"
                           onClick={() => removeFromThisList(sn)}
                           disabled={isRemoving}
-                          className="inline-flex w-full items-center justify-center rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950/20"
+                          className="inline-flex w-full items-center justify-center rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
                         >
                           {isRemoving ? "Removing…" : "Remove"}
                         </button>
