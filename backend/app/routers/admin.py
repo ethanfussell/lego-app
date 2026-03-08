@@ -56,6 +56,7 @@ ALLOWED_SETTINGS = {
     "featured_themes",
     "retiring_hidden_sets",
     "retiring_excluded_themes",
+    "discover_hidden_sections",
 }
 
 

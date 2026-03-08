@@ -575,7 +575,8 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
   const { token } = useAuth();
   const { isOwned, isWishlist } = useCollectionStatus();
 
-  const { newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight } = data;
+  const { newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections } = data;
+  const hidden = new Set(hiddenSections);
 
   // Filter sale sets — ones where sale_price < retail_price
   const saleSets = popular.filter(
@@ -597,13 +598,15 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       </section>
 
       {/* ─── Quick Filters ──────────────────────────────────── */}
-      <section className="mt-8">
-        <SectionHeader title="Quick explore" />
-        <DiscoveryCards />
-      </section>
+      {!hidden.has("quick_explore") && (
+        <section className="mt-8">
+          <SectionHeader title="Quick explore" />
+          <DiscoveryCards />
+        </section>
+      )}
 
       {/* ─── 2. New Releases ────────────────────────────────── */}
-      {newReleases.length > 0 && (
+      {!hidden.has("new_releases") && newReleases.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="New Releases"
@@ -615,7 +618,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 3. Retiring Soon ───────────────────────────────── */}
-      {retiringSoon.length > 0 && (
+      {!hidden.has("retiring_soon") && retiringSoon.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Retiring Soon"
@@ -633,7 +636,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 4. Best Deals ──────────────────────────────────── */}
-      {saleSets.length > 0 && (
+      {!hidden.has("best_deals") && saleSets.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Best Deals"
@@ -645,7 +648,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 5. Coming Soon ─────────────────────────────────── */}
-      {comingSoon.length > 0 && (
+      {!hidden.has("coming_soon") && comingSoon.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Coming Soon"
@@ -662,7 +665,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 6. Browse by Theme ─────────────────────────────── */}
-      {themes.length > 0 && (
+      {!hidden.has("browse_by_theme") && themes.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Browse by Theme"
@@ -674,7 +677,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 7. Top Rated ───────────────────────────────────── */}
-      {topRated.length > 0 && (
+      {!hidden.has("top_rated") && topRated.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Top Rated by Community"
@@ -687,7 +690,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 8. Featured Lists ──────────────────────────────── */}
-      {lists.length > 0 && (
+      {!hidden.has("featured_lists") && lists.length > 0 && (
         <section className="mt-10">
           <SectionHeader
             title="Featured Lists"
@@ -700,16 +703,20 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       )}
 
       {/* ─── 9. Friends & Activity ──────────────────────────── */}
-      <section className="mt-10">
-        <SectionHeader title="Social" />
-        <FriendsActivityPlaceholder />
-      </section>
+      {!hidden.has("social") && (
+        <section className="mt-10">
+          <SectionHeader title="Social" />
+          <FriendsActivityPlaceholder />
+        </section>
+      )}
 
       {/* ─── 10. Articles & Guides ──────────────────────────── */}
-      <section className="mt-10">
-        <SectionHeader title="Guides &amp; Articles" />
-        <ArticlesPlaceholder />
-      </section>
+      {!hidden.has("guides") && (
+        <section className="mt-10">
+          <SectionHeader title="Guides &amp; Articles" />
+          <ArticlesPlaceholder />
+        </section>
+      )}
     </div>
   );
 }

@@ -168,6 +168,17 @@ async function fetchSpotlight(): Promise<SetLite | null> {
 
 /* ── page ───────────────────────────────────────────────────── */
 
+async function fetchDiscoverConfig(): Promise<string[]> {
+  const raw = await fetchJSON("/sets/discover-page-config");
+  if (isRecord(raw) && typeof raw.discover_hidden_sections === "string") {
+    try {
+      const parsed = JSON.parse(raw.discover_hidden_sections);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* ignore */ }
+  }
+  return [];
+}
+
 export type DiscoverData = {
   newReleases: SetLite[];
   retiringSoon: SetLite[];
@@ -177,10 +188,11 @@ export type DiscoverData = {
   themes: ThemeItem[];
   lists: PublicList[];
   spotlight: SetLite | null;
+  hiddenSections: string[];
 };
 
 export default async function Page() {
-  const [newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight] =
+  const [newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections] =
     await Promise.all([
       fetchNewReleases(),
       fetchRetiringSoon(),
@@ -190,6 +202,7 @@ export default async function Page() {
       fetchThemes(),
       fetchPublicLists(),
       fetchSpotlight(),
+      fetchDiscoverConfig(),
     ]);
 
   const data: DiscoverData = {
@@ -201,6 +214,7 @@ export default async function Page() {
     themes,
     lists,
     spotlight,
+    hiddenSections,
   };
 
   return <DiscoverHub data={data} />;

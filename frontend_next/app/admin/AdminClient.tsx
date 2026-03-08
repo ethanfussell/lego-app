@@ -1267,20 +1267,154 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Discover Controls Section
+// ---------------------------------------------------------------------------
+
+const DISCOVER_SECTIONS = [
+  { id: "quick_explore", label: "Quick Explore" },
+  { id: "new_releases", label: "New Releases" },
+  { id: "retiring_soon", label: "Retiring Soon" },
+  { id: "best_deals", label: "Best Deals" },
+  { id: "coming_soon", label: "Coming Soon" },
+  { id: "browse_by_theme", label: "Browse by Theme" },
+  { id: "top_rated", label: "Top Rated" },
+  { id: "featured_lists", label: "Featured Lists" },
+  { id: "social", label: "Social" },
+  { id: "guides", label: "Guides & Articles" },
+] as const;
+
+function DiscoverControlsSection({ token }: { token: string }) {
+  const toast = useToast();
+
+  const [hiddenSections, setHiddenSections] = useState<string[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Load current settings
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await apiFetch<Record<string, { value: string | null }>>(
+          "/admin/settings",
+          { token },
+        );
+        if (cancelled) return;
+
+        const hiddenVal = data?.discover_hidden_sections?.value;
+        if (hiddenVal) {
+          try {
+            const parsed = JSON.parse(hiddenVal);
+            if (!cancelled && Array.isArray(parsed)) setHiddenSections(parsed);
+          } catch { /* ignore */ }
+        }
+
+        if (!cancelled) setSettingsLoaded(true);
+      } catch {
+        if (!cancelled) setSettingsLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  function toggleSection(sectionId: string) {
+    setHiddenSections((prev) =>
+      prev.includes(sectionId)
+        ? prev.filter((s) => s !== sectionId)
+        : [...prev, sectionId],
+    );
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/settings/discover_hidden_sections`, {
+        method: "PUT",
+        token,
+        body: { value: JSON.stringify(hiddenSections) },
+      });
+      await revalidatePage("/discover");
+      toast.push("Discover settings saved", { type: "success" });
+    } catch (e: unknown) {
+      toast.push(e instanceof Error ? e.message : "Failed to save", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading discover controls...</p>;
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold">Discover</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Control which sections appear on the /discover page.
+      </p>
+
+      {/* Section toggles */}
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Section Visibility</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Toggle sections on or off. Hidden sections won&apos;t appear on the discover page.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {DISCOVER_SECTIONS.map((section) => {
+            const isVisible = !hiddenSections.includes(section.id);
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => toggleSection(section.id)}
+                className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                  isVisible
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-zinc-200 bg-zinc-50 text-zinc-400"
+                }`}
+              >
+                <span className={`font-medium ${isVisible ? "" : "line-through"}`}>
+                  {section.label}
+                </span>
+                <span className={`text-xs font-semibold ${isVisible ? "text-emerald-600" : "text-zinc-400"}`}>
+                  {isVisible ? "Visible" : "Hidden"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Save */}
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Visibility"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Admin Component
 // ---------------------------------------------------------------------------
 
-const ADMIN_TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "new", label: "New Releases" },
-  { id: "retiring", label: "Retiring Soon" },
-  { id: "editor", label: "Set Editor" },
+const ADMIN_PAGES = [
+  { id: "discover", label: "Discover", description: "Section visibility & layout" },
+  { id: "new", label: "New Releases", description: "Spotlight & featured themes" },
+  { id: "retiring", label: "Retiring Soon", description: "Hidden sets & excluded themes" },
+  { id: "editor", label: "Set Editor", description: "Edit individual set data" },
 ] as const;
 
 export default function AdminClient() {
   const { token, hydrated } = useAuth();
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [activePage, setActivePage] = useState<string | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1414,24 +1548,6 @@ export default function AdminClient() {
           Manage your BrickTrack data and view platform stats.
         </p>
 
-        {/* Tab navigation */}
-        <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
-          {ADMIN_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                activeTab === tab.id
-                  ? "bg-amber-500 text-black"
-                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
         {loading ? (
           <p className="mt-6 text-sm text-zinc-500">Loading stats...</p>
         ) : error ? (
@@ -1440,8 +1556,8 @@ export default function AdminClient() {
           </div>
         ) : stats ? (
           <div className="mt-6">
-            {/* Overview tab */}
-            {activeTab === "overview" && (
+            {/* ─── Home view (no page selected) ─── */}
+            {!activePage && (
               <>
                 {/* Stats cards */}
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -1452,8 +1568,27 @@ export default function AdminClient() {
                   <StatCard label="Affiliate Clicks" value={stats.affiliate_click_count} />
                 </div>
 
+                {/* Page cards */}
+                <h2 className="mt-10 text-lg font-semibold">Page Settings</h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Click a page to customize its content and behavior.
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {ADMIN_PAGES.map((page) => (
+                    <button
+                      key={page.id}
+                      type="button"
+                      onClick={() => setActivePage(page.id)}
+                      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm text-left transition-all hover:border-amber-300 hover:shadow-md"
+                    >
+                      <div className="text-sm font-bold text-zinc-900">{page.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{page.description}</div>
+                    </button>
+                  ))}
+                </div>
+
                 {/* Content Moderation */}
-                <div className="mt-8">
+                <div className="mt-10">
                   <h2 className="text-lg font-semibold">Content Moderation</h2>
                   <p className="mt-1 text-sm text-zinc-500">
                     Review and manage user-submitted reports.
@@ -1530,7 +1665,7 @@ export default function AdminClient() {
                 </div>
 
                 {/* Data Management */}
-                <div className="mt-8">
+                <div className="mt-10">
                   <h2 className="text-lg font-semibold">Data Management</h2>
                   <p className="mt-1 text-sm text-zinc-500">
                     Refresh sets from Rebrickable or sync the local cache to the database.
@@ -1569,14 +1704,28 @@ export default function AdminClient() {
               </>
             )}
 
-            {/* New Releases tab */}
-            {activeTab === "new" && token && <PageControlsSection token={token} />}
+            {/* ─── Subpage views ─── */}
+            {activePage && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActivePage(null)}
+                  className="flex items-center gap-1 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-800"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back
+                </button>
 
-            {/* Retiring Soon tab */}
-            {activeTab === "retiring" && token && <RetiringSoonControlsSection token={token} />}
-
-            {/* Set Editor tab */}
-            {activeTab === "editor" && token && <SetEditorSection token={token} />}
+                <div className="mt-4">
+                  {activePage === "discover" && token && <DiscoverControlsSection token={token} />}
+                  {activePage === "new" && token && <PageControlsSection token={token} />}
+                  {activePage === "retiring" && token && <RetiringSoonControlsSection token={token} />}
+                  {activePage === "editor" && token && <SetEditorSection token={token} />}
+                </div>
+              </>
+            )}
           </div>
         ) : null}
       </div>

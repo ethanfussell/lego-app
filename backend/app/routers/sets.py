@@ -927,6 +927,22 @@ def retiring_page_config(db: Session = Depends(get_db)):
     return settings
 
 
+@router.get("/discover-page-config")
+def discover_page_config(db: Session = Depends(get_db)):
+    """Return admin settings for the /discover page."""
+    settings: Dict[str, Any] = {}
+    rows = db.execute(
+        select(AdminSetting).where(
+            AdminSetting.key.in_(["discover_hidden_sections"])
+        )
+    ).scalars().all()
+
+    for row in rows:
+        settings[row.key] = row.value
+
+    return settings
+
+
 @router.get("/{set_num}")
 def get_set(
     set_num: str,
