@@ -22,21 +22,19 @@ type SetSummary = {
   rating_count?: number | null;
   rating_avg?: number | null;
   average_rating?: number | null;
+  retail_price?: number | null;
+  sale_price?: number | null;
+  sale_price_from?: number | null;
+  original_price?: number | null;
+  price?: number | null;
+  price_from?: number | null;
+  set_tag?: string | null;
 };
 
 type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
 
 function toSetCardSet(s: SetSummary): SetCardSetProp {
-  return {
-    set_num: s.set_num,
-    name: s.name,
-    year: s.year,
-    pieces: typeof s.pieces === "number" ? s.pieces : null,
-    image_url: typeof s.image_url === "string" ? s.image_url : null,
-    rating_count: typeof s.rating_count === "number" ? s.rating_count : null,
-    rating_avg: typeof s.rating_avg === "number" ? s.rating_avg : null,
-    average_rating: typeof s.average_rating === "number" ? s.average_rating : null,
-  } as unknown as SetCardSetProp;
+  return s as unknown as SetCardSetProp;
 }
 
 const PAGE_SIZE = 36;
