@@ -141,7 +141,8 @@ async function fetchPopular(): Promise<SetLite[]> {
 }
 
 async function fetchThemes(): Promise<ThemeItem[]> {
-  const raw = await fetchJSON("/themes?limit=30");
+  const minYear = new Date().getFullYear() - 2;
+  const raw = await fetchJSON(`/themes?limit=30&min_year=${minYear}`);
   return extractThemes(raw);
 }
 
