@@ -1,7 +1,7 @@
 // frontend_next/app/components/SetCard.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
@@ -248,6 +248,12 @@ export default function SetCard({ set, variant = "default", footer, token, isOwn
     typeof rawUserRating === "number" && Number.isFinite(rawUserRating) ? clamp(rawUserRating, 0, 5) : null;
 
   const [userRating, setUserRating] = useState<number | null>(initialUser);
+
+  // Sync when the override prop arrives asynchronously (e.g. useCollectionStatus finishes loading)
+  useEffect(() => {
+    if (initialUser !== null) setUserRating(initialUser);
+  }, [initialUser]);
+
   const [savingRate, setSavingRate] = useState(false);
   const [rateErr, setRateErr] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
