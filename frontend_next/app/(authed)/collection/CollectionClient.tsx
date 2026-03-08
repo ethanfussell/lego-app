@@ -7,7 +7,6 @@ import { apiFetch, type ApiFetchOptions } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as CardSetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
-import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
 import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
@@ -94,6 +93,8 @@ function Row({
   href,
   emptyText = "No sets yet.",
   renderFooter,
+  variant,
+  token,
 }: {
   title: string;
   subtitle?: string;
@@ -101,6 +102,8 @@ function Row({
   href?: string;
   emptyText?: string;
   renderFooter?: (set: CardSetLite) => React.ReactNode;
+  variant?: "default" | "owned" | "wishlist" | "feed";
+  token?: string;
 }) {
   const hasItems = sets.length > 0;
 
@@ -114,7 +117,7 @@ function Row({
 
               return (
                 <div key={setNum} className="w-[220px] shrink-0">
-                  <SetCard set={set} footer={renderFooter ? renderFooter(set) : null} />
+                  <SetCard set={set} variant={variant} token={token} footer={renderFooter ? renderFooter(set) : null} />
                 </div>
               );
             })
@@ -302,6 +305,7 @@ export default function CollectionClient() {
   const [ownedPreview, setOwnedPreview] = useState<CardSetLite[]>([]);
   const [wishlistPreview, setWishlistPreview] = useState<CardSetLite[]>([]);
   const [customPreviewById, setCustomPreviewById] = useState<Record<string, CardSetLite[]>>({});
+  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
 
   const customLists = useMemo(() => lists.filter((l) => !isSystemList(l)), [lists]);
 
@@ -326,10 +330,22 @@ export default function CollectionClient() {
       setLists(mineArr);
 
       // System collections
-      const [ownedRowsU, wishRowsU] = await Promise.all([
+      const [ownedRowsU, wishRowsU, reviewsU] = await Promise.all([
         apiFetch<unknown>("/collections/me/owned", withToken(token, { cache: "no-store" })),
         apiFetch<unknown>("/collections/me/wishlist", withToken(token, { cache: "no-store" })),
+        apiFetch<unknown>("/sets/reviews/me?limit=500", withToken(token, { cache: "no-store" })).catch(() => []),
       ]);
+
+      // Build user ratings map from reviews
+      const ratingsMap: Record<string, number> = {};
+      if (Array.isArray(reviewsU)) {
+        for (const r of reviewsU) {
+          if (isRecord(r) && typeof r.set_num === "string" && typeof r.rating === "number") {
+            ratingsMap[r.set_num] = r.rating;
+          }
+        }
+      }
+      setUserRatings(ratingsMap);
 
       const ownedRows = Array.isArray(ownedRowsU) ? ownedRowsU : [];
       const wishRows = Array.isArray(wishRowsU) ? wishRowsU : [];
@@ -399,6 +415,7 @@ export default function CollectionClient() {
       setOwnedPreview([]);
       setWishlistPreview([]);
       setCustomPreviewById({});
+      setUserRatings({});
       setErr(null);
       setLoading(false);
       return;
@@ -407,17 +424,14 @@ export default function CollectionClient() {
     void refreshAll();
   }, [token, refreshAll]);
 
-  // Feature 3: Recently Added — merge owned + wishlist, sort by collection_created_at
-  const recentlyAdded = useMemo(() => {
-    const all: CollectionSet[] = [
-      ...ownedAll.map((s) => ({ ...s, _source: "owned" as const })),
-      ...wishlistAll.map((s) => ({ ...s, _source: "wishlist" as const })),
-    ];
-    return all
-      .filter((s) => s.collection_created_at)
-      .sort((a, b) => (b.collection_created_at ?? "").localeCompare(a.collection_created_at ?? ""))
-      .slice(0, 8);
-  }, [ownedAll, wishlistAll]);
+  // Owned sets enriched with user ratings
+  const ownedWithRatings = useMemo(() => {
+    if (ownedPreview.length === 0) return ownedPreview;
+    return ownedPreview.map((s) => ({
+      ...s,
+      user_rating: userRatings[s.set_num] ?? undefined,
+    }));
+  }, [ownedPreview, userRatings]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -438,10 +452,6 @@ export default function CollectionClient() {
         </div>
 
         <p className="mt-2 text-sm text-zinc-500">Owned, Wishlist, and your custom lists.</p>
-
-        <div className="mt-5 max-w-xl">
-          <QuickCollectionsAdd onCollectionsChanged={refreshAll} />
-        </div>
       </div>
 
       {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
@@ -450,20 +460,12 @@ export default function CollectionClient() {
       {/* Feature 1: Stats Dashboard */}
       {!loading && <CollectionStatsDashboard sets={ownedAll} />}
 
-      {/* Feature 3: Recently Added */}
-      {recentlyAdded.length > 0 && (
-        <Row
-          title="Recently Added"
-          sets={recentlyAdded}
-          renderFooter={renderFooterForSet}
-        />
-      )}
-
       <Row
         title="Owned"
-        sets={ownedPreview}
+        sets={ownedWithRatings}
         href="/collection/owned"
-        renderFooter={renderFooterForSet}
+        variant="owned"
+        token={token ?? undefined}
         {...(ownedDetail?.items_count ? { subtitle: `${ownedDetail.items_count} sets` } : {})}
       />
 

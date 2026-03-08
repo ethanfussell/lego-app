@@ -270,7 +270,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-zinc-600">No image</div>
           )}
-          {set.retirement_status === "retiring_soon" && (
+          {!isOwned && set.retirement_status === "retiring_soon" && (
             <span className="absolute top-2 left-2 inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
               Retiring Soon
             </span>
