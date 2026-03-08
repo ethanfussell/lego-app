@@ -1,0 +1,478 @@
+// frontend_next/app/coming-soon/ComingSoonClient.tsx
+"use client";
+
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
+import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
+import { formatPrice } from "@/lib/format";
+import type { SetLite } from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type SetCardSet = React.ComponentProps<typeof SetCard>["set"];
+
+function isSafeNextImageSrc(src: unknown): src is string {
+  if (typeof src !== "string") return false;
+  const s = src.trim();
+  if (!s) return false;
+  return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/");
+}
+
+function toSetCardSet(s: SetLite): SetCardSet {
+  const safeImage = isSafeNextImageSrc(s.image_url) ? s.image_url!.trim() : null;
+  return { ...(s as unknown as SetCardSet), image_url: safeImage };
+}
+
+function getLaunchDate(s: SetLite): string | null {
+  return s.launch_date ?? null;
+}
+
+function parseLaunchDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  try {
+    const d = new Date(raw + "T00:00:00");
+    return Number.isFinite(d.getTime()) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatMonthYear(raw: string): string {
+  try {
+    const [y, m] = raw.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  } catch {
+    return raw;
+  }
+}
+
+function daysUntilLaunch(dateStr: string | null | undefined): number | null {
+  const d = parseLaunchDate(dateStr);
+  if (!d) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+type TimingLevel = "imminent" | "soon" | "later" | "unknown";
+
+function getTiming(dateStr: string | null | undefined): TimingLevel {
+  const days = daysUntilLaunch(dateStr);
+  if (days === null) return "unknown";
+  if (days <= 14) return "imminent";
+  if (days <= 60) return "soon";
+  return "later";
+}
+
+const timingConfig: Record<TimingLevel, { label: string; bg: string; text: string; dot: string }> = {
+  imminent: { label: "Launching very soon", bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
+  soon: { label: "Coming soon", bg: "bg-sky-50", text: "text-sky-700", dot: "bg-sky-500" },
+  later: { label: "Later this year", bg: "bg-zinc-50", text: "text-zinc-600", dot: "bg-zinc-400" },
+  unknown: { label: "Date TBD", bg: "bg-zinc-50", text: "text-zinc-500", dot: "bg-zinc-300" },
+};
+
+function getPieces(s: SetLite): number {
+  return typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Launch Badge
+// ---------------------------------------------------------------------------
+
+function LaunchBadge({ dateStr }: { dateStr: string | null | undefined }) {
+  const days = daysUntilLaunch(dateStr);
+  const timing = getTiming(dateStr);
+  const cfg = timingConfig[timing];
+
+  if (timing === "unknown" || timing === "later") return null;
+
+  const label =
+    days !== null && days <= 0
+      ? "Available now"
+      : days !== null && days === 1
+        ? "Tomorrow"
+        : days !== null && days <= 7
+          ? `${days} days away`
+          : days !== null && days <= 60
+            ? `${days} days away`
+            : null;
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${cfg.bg} ${cfg.text}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+      {label ?? cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stats Bar
+// ---------------------------------------------------------------------------
+
+function StatsBar({ sets }: { sets: SetLite[] }) {
+  // Find the next two upcoming months with sets
+  const monthCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sets) {
+      const ld = getLaunchDate(s);
+      if (ld) {
+        const mk = ld.slice(0, 7);
+        counts.set(mk, (counts.get(mk) || 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(0, 2);
+  }, [sets]);
+
+  const biggestSet = useMemo(() => {
+    let best: SetLite | null = null;
+    let bestPieces = -1;
+    for (const s of sets) {
+      const p = getPieces(s);
+      if (p > bestPieces) {
+        bestPieces = p;
+        best = s;
+      }
+    }
+    return best;
+  }, [sets]);
+
+  const biggestPieces = biggestSet ? getPieces(biggestSet) : 0;
+  const biggestImg = biggestSet && isSafeNextImageSrc(biggestSet.image_url) ? biggestSet.image_url!.trim() : null;
+  const biggestPrice = biggestSet && typeof biggestSet.retail_price === "number" ? biggestSet.retail_price : null;
+
+  return (
+    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {monthCounts.map(([mk, count]) => (
+        <div key={mk} className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{count}</span>
+          <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Launching {formatMonthYear(mk)}</div>
+        </div>
+      ))}
+
+      {monthCounts.length < 2 && (
+        <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{sets.length}</span>
+          <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Total upcoming</div>
+        </div>
+      )}
+
+      {/* Biggest upcoming set */}
+      {biggestSet ? (
+        <Link
+          href={`/sets/${biggestSet.set_num}`}
+          prefetch={false}
+          className="col-span-2 flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-zinc-300"
+        >
+          {biggestImg ? (
+            <div className="relative h-16 w-16 shrink-0">
+              <Image
+                src={biggestImg}
+                alt={biggestSet.name || "Set image"}
+                fill
+                sizes="64px"
+                className="object-contain"
+                quality={75}
+              />
+            </div>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-zinc-500">Biggest upcoming set</div>
+            <div className="mt-0.5 truncate text-sm font-bold text-zinc-900">{biggestSet.name}</div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+              <span>{biggestPieces.toLocaleString()} pieces</span>
+              {biggestPrice ? <span className="font-semibold text-zinc-700">{formatPrice(biggestPrice, "USD")}</span> : null}
+            </div>
+          </div>
+        </Link>
+      ) : (
+        <div className="col-span-2 flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-sm text-zinc-400">No set data</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Filter Pills
+// ---------------------------------------------------------------------------
+
+function FilterPills<T extends string | number>({
+  items,
+  active,
+  onChange,
+  allLabel = "All",
+}: {
+  items: T[];
+  active: T | null;
+  onChange: (v: T | null) => void;
+  allLabel?: string;
+}) {
+  return (
+    <div className="overflow-x-auto pb-1 scrollbar-thin">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className={`shrink-0 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+            active === null
+              ? "border-amber-500 bg-amber-500 text-black"
+              : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+          }`}
+        >
+          {allLabel}
+        </button>
+        {items.map((item) => (
+          <button
+            key={String(item)}
+            type="button"
+            onClick={() => onChange(item)}
+            className={`shrink-0 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+              active === item
+                ? "border-amber-500 bg-amber-500 text-black"
+                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+            }`}
+          >
+            {String(item)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sort
+// ---------------------------------------------------------------------------
+
+type SortKey = "default" | "pieces-desc" | "pieces-asc" | "price-desc" | "price-asc" | "name-asc";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "default", label: "Launch date" },
+  { value: "pieces-desc", label: "Most pieces" },
+  { value: "pieces-asc", label: "Fewest pieces" },
+  { value: "price-desc", label: "Price: high to low" },
+  { value: "price-asc", label: "Price: low to high" },
+  { value: "name-asc", label: "A–Z" },
+];
+
+function sortSets(sets: SetLite[], key: SortKey): SetLite[] {
+  if (key === "default") return sets;
+  const copy = [...sets];
+  switch (key) {
+    case "pieces-desc":
+      return copy.sort((a, b) => getPieces(b) - getPieces(a));
+    case "pieces-asc":
+      return copy.sort((a, b) => getPieces(a) - getPieces(b));
+    case "price-desc":
+      return copy.sort((a, b) => (b.retail_price ?? 0) - (a.retail_price ?? 0));
+    case "price-asc":
+      return copy.sort((a, b) => (a.retail_price ?? 0) - (b.retail_price ?? 0));
+    case "name-asc":
+      return copy.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    default:
+      return copy;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Launch Window Section (grouped by month, with its own sort)
+// ---------------------------------------------------------------------------
+
+function LaunchWindowSection({
+  monthKey,
+  sets,
+  owned,
+  wish,
+  token,
+}: {
+  monthKey: string;
+  sets: SetLite[];
+  owned: Set<string>;
+  wish: Set<string>;
+  token: string | null;
+}) {
+  const [sectionSort, setSectionSort] = useState<SortKey>("default");
+
+  const timing = useMemo(() => {
+    const timings = sets.map((s) => getTiming(getLaunchDate(s)));
+    if (timings.includes("imminent")) return "imminent";
+    if (timings.includes("soon")) return "soon";
+    return "later";
+  }, [sets]);
+
+  const cfg = timingConfig[timing];
+  const sorted = useMemo(() => sortSets(sets, sectionSort), [sets, sectionSort]);
+
+  return (
+    <div>
+      <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+            {sets.length} {sets.length === 1 ? "set" : "sets"}
+          </span>
+        </div>
+
+        <select
+          value={sectionSort}
+          onChange={(e) => setSectionSort(e.target.value as SortKey)}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm sm:w-auto"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+        {sorted.map((s) => {
+          const sn = String(s.set_num || "").trim();
+          if (!sn) return null;
+
+          const isOwn = owned.has(sn);
+          const isWish = !isOwn && wish.has(sn);
+          const launchDate = getLaunchDate(s);
+
+          const footer = (
+            <div className="space-y-2">
+              <LaunchBadge dateStr={launchDate} />
+              {token ? (
+                <SetCardActions token={token} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
+              ) : null}
+            </div>
+          );
+
+          return (
+            <div key={sn} className="w-[220px]">
+              <SetCard set={toSetCardSet(s)} footer={footer} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
+export default function ComingSoonClient({
+  initialSets,
+  initialError,
+}: {
+  initialSets: SetLite[];
+  initialError: string | null;
+}) {
+  const { token } = useAuth();
+  const { ownedSetNums, wishlistSetNums } = useCollectionStatus();
+  const [activeTheme, setActiveTheme] = useState<string | null>(null);
+
+  const allSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
+
+  // Filter by theme
+  const filteredSets = useMemo(() => {
+    if (!activeTheme) return allSets;
+    return allSets.filter((s) => s.theme === activeTheme);
+  }, [allSets, activeTheme]);
+
+  // Top themes for pills
+  const topThemes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of allSets) {
+      const t = typeof s.theme === "string" ? s.theme.trim() : "";
+      if (!t) continue;
+      counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name]) => name);
+  }, [allSets]);
+
+  // Group by launch month
+  const launchWindows = useMemo(() => {
+    const map = new Map<string, SetLite[]>();
+    for (const s of filteredSets) {
+      const ld = getLaunchDate(s);
+      const monthKey = ld ? ld.slice(0, 7) : "Unknown";
+      if (!map.has(monthKey)) map.set(monthKey, []);
+      map.get(monthKey)!.push(s);
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === "Unknown") return 1;
+      if (b[0] === "Unknown") return -1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filteredSets]);
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 pb-16">
+      {/* Header */}
+      <section className="mt-10">
+        <h1 className="m-0 text-2xl font-semibold">Coming soon</h1>
+        <p className="mt-2 max-w-[640px] text-sm text-zinc-500">
+          Upcoming LEGO sets with confirmed launch dates. Browse what&apos;s releasing next and add them to your
+          wishlist so you don&apos;t miss out.
+        </p>
+
+        {initialError ? <p className="mt-4 text-sm text-red-600">Error: {initialError}</p> : null}
+      </section>
+
+      {!initialError && allSets.length === 0 ? (
+        <p className="mt-6 text-sm text-zinc-500">No upcoming sets with confirmed launch dates right now.</p>
+      ) : null}
+
+      {!initialError && allSets.length > 0 ? (
+        <>
+          {/* Stats */}
+          <StatsBar sets={allSets} />
+
+          {/* Browse Section */}
+          <section className="mt-10">
+            <h2 className="m-0 text-lg font-semibold text-zinc-900">Browse by theme</h2>
+
+            <div className="mt-3">
+              <FilterPills items={topThemes} active={activeTheme} onChange={setActiveTheme} allLabel="All themes" />
+            </div>
+
+            {/* Result count */}
+            <div className="mt-4 text-sm text-zinc-500">
+              {filteredSets.length} {filteredSets.length === 1 ? "set" : "sets"}
+              {activeTheme ? ` in ${activeTheme}` : ""}
+            </div>
+
+            {/* Launch windows with per-section sort */}
+            <div className="mt-6 space-y-12">
+              {launchWindows.length === 0 ? (
+                <div className="py-10 text-center text-sm text-zinc-400">No sets match your filters.</div>
+              ) : (
+                launchWindows.map(([monthKey, windowSets]) => (
+                  <LaunchWindowSection
+                    key={monthKey}
+                    monthKey={monthKey}
+                    sets={windowSets}
+                    owned={ownedSetNums}
+                    wish={wishlistSetNums}
+                    token={token ?? null}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        </>
+      ) : null}
+    </div>
+  );
+}

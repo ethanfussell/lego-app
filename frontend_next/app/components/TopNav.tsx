@@ -57,6 +57,7 @@ export default function TopNav() {
       { href: "/discover", label: "Discover", active: pathname.startsWith("/discover") },
       { href: "/themes", label: "Themes", active: pathname.startsWith("/themes") },
       { href: "/new", label: "New", active: pathname.startsWith("/new") },
+      { href: "/coming-soon", label: "Coming soon", active: pathname.startsWith("/coming-soon") },
       { href: "/sale", label: "Sale", active: pathname.startsWith("/sale") },
       { href: "/retiring-soon", label: "Retiring soon", active: pathname.startsWith("/retiring-soon") },
       { href: "/collection", label: "My Collection", active: pathname.startsWith("/collection") },
