@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
 
@@ -841,17 +841,20 @@ def list_coming_soon_sets(
     db: Session = Depends(get_db),
 ):
     """
-    Sets with a launch_date in the future (not yet available).
+    Sets not yet available: either have a future launch_date, or are
+    marked as coming_soon by the Brickset sync (released=false).
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     base_q = (
         select(SetModel)
         .where(
-            SetModel.launch_date.isnot(None),
-            SetModel.launch_date > today,
+            or_(
+                SetModel.launch_date > today,
+                SetModel.retirement_status == "coming_soon",
+            ),
         )
-        .order_by(SetModel.launch_date.asc(), SetModel.name.asc())
+        .order_by(SetModel.launch_date.asc().nulls_last(), SetModel.name.asc())
     )
 
     total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()

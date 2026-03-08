@@ -317,7 +317,7 @@ function LaunchWindowSection({
     <div>
       <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
+          <h3 className="m-0 text-xl font-bold text-zinc-900">{monthKey === "Unknown" ? "Date TBD" : formatMonthYear(monthKey)}</h3>
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
             {sets.length} {sets.length === 1 ? "set" : "sets"}

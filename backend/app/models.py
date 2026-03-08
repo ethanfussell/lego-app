@@ -91,7 +91,7 @@ class Set(Base):
     exit_date = Column(String, nullable=True)    # e.g. "2026-12-31"
 
     # Retirement tracking (populated via Brickset)
-    retirement_status = Column(String, nullable=True)  # "available" | "retiring_soon" | "retired"
+    retirement_status = Column(String, nullable=True)  # "coming_soon" | "available" | "retiring_soon" | "retired"
     retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
 
     # Custom tag (e.g. "GWP", "Insider Reward") — displayed instead of price

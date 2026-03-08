@@ -113,6 +113,7 @@ _PIPELINES = {
     "price_scrape": "app.pipelines.price_scraper.run_price_scrape",
     "msrp_seed": "app.pipelines.msrp_seed.run_msrp_seed",
     "brickset_sync": "app.pipelines.brickset_sync.run_brickset_sync",
+    "coming_soon_scrape": "app.pipelines.coming_soon_scraper.run_coming_soon_scrape",
 }
 
 
