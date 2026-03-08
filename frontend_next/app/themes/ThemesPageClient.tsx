@@ -2,10 +2,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { themeToSlug } from "@/lib/slug";
 
-type ThemeRow = { theme: string; set_count: number };
+type ThemeRow = { theme: string; set_count: number; image_url?: string | null };
 type SortKey = "sets-desc" | "sets-asc" | "name-asc" | "name-desc";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -119,13 +120,30 @@ export default function ThemesPageClient({
               <Link
                 key={r.theme}
                 href={href}
-                className="rounded-xl border border-zinc-200 bg-white p-4 hover:border-zinc-300 hover:bg-zinc-100"
+                className="group overflow-hidden rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold">{r.theme}</div>
-                  <div className="text-xs font-semibold text-zinc-500">{r.set_count} sets</div>
+                {r.image_url ? (
+                  <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-100">
+                    <Image
+                      src={r.image_url}
+                      alt={r.theme}
+                      fill
+                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                      className="object-contain p-2 transition-transform duration-200 group-hover:scale-105"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex aspect-[4/3] w-full items-center justify-center bg-zinc-100 text-3xl text-zinc-300">
+                    🧱
+                  </div>
+                )}
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold">{r.theme}</div>
+                    <div className="text-xs font-semibold text-zinc-500">{r.set_count} sets</div>
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-500">View sets &rarr;</div>
                 </div>
-                <div className="mt-1 text-sm text-zinc-500">View sets &rarr;</div>
               </Link>
             );
           })}

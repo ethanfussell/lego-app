@@ -5,7 +5,7 @@ import ThemesPageClient from "./ThemesPageClient";
 
 export const revalidate = 3600;
 
-type ThemeRow = { theme: string; set_count: number };
+type ThemeRow = { theme: string; set_count: number; image_url?: string | null };
 
 export async function generateMetadata(): Promise<Metadata> {
   const title = "Browse LEGO themes";

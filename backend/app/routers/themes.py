@@ -42,10 +42,13 @@ def _set_count_by_theme(
     all_sets: List[Dict[str, Any]],
     q: str,
     min_year: Optional[int] = None,
-) -> List[Tuple[str, int]]:
+) -> List[Tuple[str, int, Optional[str]]]:
+    """Returns list of (display_theme, set_count, image_url)."""
     ql = _norm_lower(q)
     counts: Dict[str, int] = {}
     display: Dict[str, str] = {}
+    # Track the best image per theme: pick the set with the most pieces
+    best_image: Dict[str, Tuple[int, Optional[str]]] = {}  # key -> (pieces, url)
 
     for s in all_sets:
         theme = _norm(str(s.get("theme") or ""))
@@ -64,10 +67,19 @@ def _set_count_by_theme(
             continue
 
         counts[k] = counts.get(k, 0) + 1
-        # keep a nice display form (first seen)
         display.setdefault(k, theme)
 
-    rows = [(display[k], counts[k]) for k in counts.keys()]
+        img = s.get("image_url") or None
+        if img:
+            pieces = int(s.get("pieces") or 0)
+            prev = best_image.get(k)
+            if prev is None or pieces > prev[0]:
+                best_image[k] = (pieces, img)
+
+    rows = [
+        (display[k], counts[k], (best_image.get(k) or (0, None))[1])
+        for k in counts.keys()
+    ]
     rows.sort(key=lambda t: t[0].lower())
     return rows
 
@@ -128,7 +140,10 @@ def list_themes(
     offset = (page - 1) * limit
     page_rows = rows[offset : offset + limit]
 
-    return [{"theme": theme, "set_count": int(cnt)} for (theme, cnt) in page_rows]
+    return [
+        {"theme": theme, "set_count": int(cnt), "image_url": img}
+        for (theme, cnt, img) in page_rows
+    ]
 
 
 @router.get("/{theme}/sets")
