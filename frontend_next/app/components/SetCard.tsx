@@ -133,20 +133,39 @@ function Stars({ value, className = "" }: { value: number; className?: string })
   );
 }
 
-function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: number) => void }) {
+function InteractiveStars({
+  value,
+  disabled,
+  onPick,
+}: {
+  value: number | null;
+  disabled?: boolean;
+  onPick: (n: number) => void;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const display = hover ?? value ?? 0;
+
   return (
-    <div className="flex items-center justify-center gap-1">
+    <div
+      className="flex items-center justify-center gap-0.5"
+      onMouseLeave={() => setHover(null)}
+    >
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           type="button"
           disabled={disabled}
-          onClick={() => onPick(n)}
-          className="rounded p-0.5 disabled:opacity-60 hover:scale-110 transition-transform"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPick(n); }}
+          onMouseEnter={() => setHover(n)}
+          className="rounded p-0.5 disabled:opacity-60 transition-transform hover:scale-110"
           aria-label={`Rate ${n} stars`}
           title={`Rate ${n}`}
         >
-          <StarIcon className="h-5 w-5 text-amber-500" />
+          <StarIcon
+            className={`h-5 w-5 transition-colors ${
+              n <= display ? "text-amber-500" : "text-zinc-300"
+            }`}
+          />
         </button>
       ))}
     </div>
@@ -200,9 +219,9 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     typeof set.user_rating === "number" && Number.isFinite(set.user_rating) ? clamp(set.user_rating, 0, 5) : null;
 
   const [userRating, setUserRating] = useState<number | null>(initialUser);
-  const [showRate, setShowRate] = useState(false);
   const [savingRate, setSavingRate] = useState(false);
   const [rateErr, setRateErr] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   const price = useMemo(() => {
     const sale =
@@ -246,7 +265,8 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       });
 
       setUserRating(n);
-      setShowRate(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1500);
       notifyCollectionChanged();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -328,26 +348,15 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       </Link>
 
       {isOwned ? (
-        <div className="border-t border-zinc-200 px-4 py-3">
-          <div className="flex flex-col items-center gap-2">
-            {userRating != null ? (
-              <Stars value={userRating} className="justify-center" />
-            ) : showRate ? (
-              <StarPicker disabled={savingRate} onPick={submitRating} />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setRateErr(null);
-                  setShowRate(true);
-                }}
-                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
-              >
-                Add a rating
-              </button>
-            )}
-
-            {rateErr ? <div className="text-xs text-red-400">{rateErr}</div> : null}
+        <div className="border-t border-zinc-200 px-4 py-2.5">
+          <div className="flex flex-col items-center gap-1">
+            <InteractiveStars value={userRating} disabled={savingRate} onPick={submitRating} />
+            {justSaved ? (
+              <span className="text-[10px] font-medium text-emerald-600 animate-in fade-in duration-200">Saved!</span>
+            ) : userRating == null ? (
+              <span className="text-[10px] text-zinc-400">Tap to rate</span>
+            ) : null}
+            {rateErr ? <div className="text-[10px] text-red-400">{rateErr}</div> : null}
           </div>
         </div>
       ) : footer ? (
