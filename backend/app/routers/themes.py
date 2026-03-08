@@ -38,7 +38,11 @@ def _theme_key(theme: str) -> str:
     return _norm_lower(theme)
 
 
-def _set_count_by_theme(all_sets: List[Dict[str, Any]], q: str) -> List[Tuple[str, int]]:
+def _set_count_by_theme(
+    all_sets: List[Dict[str, Any]],
+    q: str,
+    min_year: Optional[int] = None,
+) -> List[Tuple[str, int]]:
     ql = _norm_lower(q)
     counts: Dict[str, int] = {}
     display: Dict[str, str] = {}
@@ -47,6 +51,13 @@ def _set_count_by_theme(all_sets: List[Dict[str, Any]], q: str) -> List[Tuple[st
         theme = _norm(str(s.get("theme") or ""))
         if not theme:
             continue
+
+        if min_year is not None:
+            try:
+                if int(s.get("year") or 0) < min_year:
+                    continue
+            except (ValueError, TypeError):
+                continue
 
         k = _theme_key(theme)
         if ql and ql not in k:
@@ -101,14 +112,16 @@ def list_themes(
     q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(60, ge=1, le=200),
+    min_year: Optional[int] = Query(None),
 ) -> List[Dict[str, Any]]:
     """
     Returns: [{"theme": "Castle", "set_count": 123}, ...]
     Header: X-Total-Count = total number of distinct themes matching filters
+    Pass min_year to filter to themes with sets from that year onward.
     """
     all_sets = load_cached_sets()
 
-    rows = _set_count_by_theme(all_sets, q or "")
+    rows = _set_count_by_theme(all_sets, q or "", min_year=min_year)
     total = len(rows)
     response.headers["X-Total-Count"] = str(total)
 
