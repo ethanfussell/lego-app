@@ -89,8 +89,40 @@ async function fetchNewReleases(): Promise<SetLite[]> {
 }
 
 async function fetchRetiringSoon(): Promise<SetLite[]> {
-  const raw = await fetchJSON("/sets/retiring?limit=14");
-  return extractSets(raw);
+  const [raw, config] = await Promise.all([
+    fetchJSON("/sets/retiring?limit=50"),
+    fetchJSON("/sets/retiring-page-config"),
+  ]);
+  const items = extractSets(raw);
+
+  // Apply the same admin filters as the retiring-soon page
+  const DEFAULT_EXCLUDED = ["SPIKE", "LEGO Exclusive", "Seasonal"];
+  let excludedThemes: string[] = DEFAULT_EXCLUDED;
+  if (isRecord(config) && typeof config.retiring_excluded_themes === "string") {
+    try {
+      const parsed = JSON.parse(config.retiring_excluded_themes);
+      if (Array.isArray(parsed)) excludedThemes = parsed;
+    } catch { /* use defaults */ }
+  }
+  const excludedThemeSet = new Set(excludedThemes);
+
+  const hiddenSetNums = new Set<string>();
+  if (isRecord(config) && typeof config.retiring_hidden_sets === "string") {
+    try {
+      const parsed = JSON.parse(config.retiring_hidden_sets);
+      if (Array.isArray(parsed)) parsed.forEach((n) => hiddenSetNums.add(String(n)));
+    } catch { /* ignore */ }
+  }
+
+  return items
+    .filter((s) => {
+      if (hiddenSetNums.has(s.set_num)) return false;
+      const theme = typeof s.theme === "string" ? s.theme.trim() : "";
+      if (excludedThemeSet.has(theme)) return false;
+      if (/minifigure/i.test(theme)) return false;
+      return true;
+    })
+    .slice(0, 14);
 }
 
 async function fetchComingSoon(): Promise<SetLite[]> {
