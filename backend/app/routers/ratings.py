@@ -24,7 +24,15 @@ router = APIRouter(prefix="/ratings", tags=["ratings"])
 
 
 class RatingIn(BaseModel):
-  rating: int = Field(..., ge=1, le=5)
+  rating: float = Field(..., ge=0.5, le=5.0)
+
+  @classmethod
+  def __get_validators__(cls):
+    yield from super().__get_validators__()
+
+  def model_post_init(self, __context: object) -> None:
+    # Snap to nearest 0.5
+    self.rating = round(self.rating * 2) / 2
 
 
 def _assign_review_user(review: ReviewModel, user: UserModel) -> None:

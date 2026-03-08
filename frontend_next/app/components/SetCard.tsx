@@ -145,29 +145,53 @@ function InteractiveStars({
   const [hover, setHover] = useState<number | null>(null);
   const display = hover ?? value ?? 0;
 
+  function handleClick(e: React.MouseEvent<HTMLButtonElement>, starN: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isLeftHalf = e.clientX - rect.left < rect.width / 2;
+    onPick(isLeftHalf ? starN - 0.5 : starN);
+  }
+
+  function handleHover(e: React.MouseEvent<HTMLButtonElement>, starN: number) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isLeftHalf = e.clientX - rect.left < rect.width / 2;
+    setHover(isLeftHalf ? starN - 0.5 : starN);
+  }
+
   return (
     <div
       className="flex items-center justify-center gap-0.5"
       onMouseLeave={() => setHover(null)}
     >
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          type="button"
-          disabled={disabled}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPick(n); }}
-          onMouseEnter={() => setHover(n)}
-          className="rounded p-0.5 disabled:opacity-60 transition-transform hover:scale-110"
-          aria-label={`Rate ${n} stars`}
-          title={`Rate ${n}`}
-        >
-          <StarIcon
-            className={`h-5 w-5 transition-colors ${
-              n <= display ? "text-amber-500" : "text-zinc-300"
-            }`}
-          />
-        </button>
-      ))}
+      {[1, 2, 3, 4, 5].map((n) => {
+        const full = display >= n;
+        const half = !full && display >= n - 0.5;
+
+        return (
+          <button
+            key={n}
+            type="button"
+            disabled={disabled}
+            onClick={(e) => handleClick(e, n)}
+            onMouseMove={(e) => handleHover(e, n)}
+            className="relative rounded p-0.5 disabled:opacity-60 transition-transform hover:scale-110"
+            aria-label={`Rate ${n} stars`}
+            title={hover != null ? `${hover}` : `${n}`}
+          >
+            <span className="relative inline-block h-5 w-5">
+              <StarIcon className="absolute inset-0 h-5 w-5 text-zinc-300" />
+              {full ? (
+                <StarIcon className="absolute inset-0 h-5 w-5 text-amber-500 transition-colors" />
+              ) : half ? (
+                <span className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
+                  <StarIcon className="h-5 w-5 text-amber-500 transition-colors" />
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
