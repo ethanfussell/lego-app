@@ -106,7 +106,9 @@ export default function ThemesPageClient({
       {/* Count */}
       <div className="mt-4 text-sm text-zinc-500">
         {sorted.length} {sorted.length === 1 ? "theme" : "themes"}
-        {!showAll && " (recent sets only)"}
+        {showAll
+          ? ` (${activeThemes.length} active)`
+          : ` (${allThemes.length} total)`}
       </div>
 
       {/* Grid */}
@@ -123,7 +125,7 @@ export default function ThemesPageClient({
                 className="group overflow-hidden rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
               >
                 {r.image_url ? (
-                  <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-100">
+                  <div className="relative aspect-[4/3] w-full overflow-hidden bg-white">
                     <Image
                       src={r.image_url}
                       alt={r.theme}
@@ -133,7 +135,7 @@ export default function ThemesPageClient({
                     />
                   </div>
                 ) : (
-                  <div className="flex aspect-[4/3] w-full items-center justify-center bg-zinc-100 text-3xl text-zinc-300">
+                  <div className="flex aspect-[4/3] w-full items-center justify-center bg-white text-3xl text-zinc-300">
                     🧱
                   </div>
                 )}
