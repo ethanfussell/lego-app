@@ -67,8 +67,7 @@ function asFeedResponse(x: unknown): FeedResponse {
 }
 
 async function fetchRetiringSoonSets(): Promise<SetLite[]> {
-  // Use the dedicated retiring endpoint (populated via BrickEconomy or manual curation)
-  const raw = await apiFetch<unknown>(`/sets/retiring?limit=60`, { cache: "no-store" });
+  const raw = await apiFetch<unknown>(`/sets/retiring?limit=200`, { cache: "no-store" });
   const data = asFeedResponse(raw);
 
   const items: SetLite[] = Array.isArray(data)
@@ -77,7 +76,16 @@ async function fetchRetiringSoonSets(): Promise<SetLite[]> {
       ? toSetLiteArray((data as { results?: unknown }).results)
       : [];
 
-  return items.filter((s) => s.set_num.trim() !== "");
+  // Filter out non-standard sets (GWP, minifigures, education, seasonal promos)
+  const EXCLUDED_THEMES = new Set(["SPIKE", "LEGO Exclusive", "Seasonal"]);
+
+  return items.filter((s) => {
+    if (!s.set_num.trim()) return false;
+    const theme = typeof s.theme === "string" ? s.theme.trim() : "";
+    if (EXCLUDED_THEMES.has(theme)) return false;
+    if (/minifigure/i.test(theme)) return false;
+    return true;
+  });
 }
 
 export default async function Page() {
