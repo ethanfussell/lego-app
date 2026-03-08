@@ -11,7 +11,7 @@ import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import { formatPrice } from "@/lib/format";
 import { safeImageSrc } from "@/lib/image";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
-import type { DiscoverData } from "./page";
+import type { DiscoverData, SectionConfig } from "./page";
 
 /* ═══════════════════════════════════════════════════════════════
    SHARED HELPERS
@@ -313,14 +313,13 @@ const THEME_COLORS = [
   { bg: "bg-indigo-50", border: "border-indigo-200", text: "text-indigo-800", hover: "hover:bg-indigo-100" },
 ];
 
-function ThemeGrid({ themes }: { themes: DiscoverData["themes"] }) {
+function ThemeGrid({ themes, limit = 12 }: { themes: DiscoverData["themes"]; limit?: number }) {
   if (themes.length === 0) return null;
 
-  // Show top themes by set count, capped at 12
   const sorted = [...themes]
     .filter((t) => (t.set_count ?? 0) > 0)
     .sort((a, b) => (b.set_count ?? 0) - (a.set_count ?? 0))
-    .slice(0, 12);
+    .slice(0, limit);
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -350,7 +349,7 @@ function ThemeGrid({ themes }: { themes: DiscoverData["themes"] }) {
    4. FEATURED LISTS
    ═══════════════════════════════════════════════════════════════ */
 
-function FeaturedListsSection({ lists }: { lists: PublicList[] }) {
+function FeaturedListsSection({ lists, limit = 6 }: { lists: PublicList[]; limit?: number }) {
   // Merge FEATURED_LISTS config with actual data
   const byId = new Map<string, PublicList>();
   for (const l of lists) byId.set(String(l.id), l);
@@ -368,7 +367,7 @@ function FeaturedListsSection({ lists }: { lists: PublicList[] }) {
     .sort((a, b) => listCount(b) - listCount(a))
     .slice(0, 3);
 
-  const allLists = [...featured, ...otherLists].slice(0, 6);
+  const allLists = [...featured, ...otherLists].slice(0, limit);
 
   if (allLists.length === 0) return null;
 
@@ -575,8 +574,9 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
   const { token } = useAuth();
   const { isOwned, isWishlist } = useCollectionStatus();
 
-  const { newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections } = data;
+  const { newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig } = data;
   const hidden = new Set(hiddenSections);
+  const cfg = (id: string) => sectionConfig[id] || {};
 
   // Filter sale sets — ones where sale_price < retail_price
   const saleSets = popular.filter(
@@ -585,6 +585,13 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       typeof s.retail_price === "number" &&
       s.sale_price < s.retail_price,
   );
+
+  // Apply min_rating filter for top rated
+  const minRating = cfg("top_rated").min_rating ?? 4.0;
+  const filteredTopRated = topRated.filter((s) => {
+    const r = s.rating_avg ?? s.average_rating;
+    return typeof r === "number" ? r >= minRating : true;
+  });
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
@@ -600,7 +607,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {/* ─── Quick Filters ──────────────────────────────────── */}
       {!hidden.has("quick_explore") && (
         <section className="mt-8">
-          <SectionHeader title="Quick explore" />
+          <SectionHeader title={cfg("quick_explore").title || "Quick explore"} />
           <DiscoveryCards />
         </section>
       )}
@@ -609,11 +616,11 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("new_releases") && newReleases.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="New Releases"
-            subtitle="Recently launched sets"
+            title={cfg("new_releases").title || "New Releases"}
+            subtitle={cfg("new_releases").subtitle || "Recently launched sets"}
             href="/new"
           />
-          <SetRow sets={newReleases} token={token} isOwned={isOwned} isWishlist={isWishlist} />
+          <SetRow sets={newReleases.slice(0, cfg("new_releases").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} />
         </section>
       )}
 
@@ -621,12 +628,12 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("retiring_soon") && retiringSoon.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Retiring Soon"
-            subtitle="Get them before they're gone"
+            title={cfg("retiring_soon").title || "Retiring Soon"}
+            subtitle={cfg("retiring_soon").subtitle || "Get them before they're gone"}
             href="/retiring-soon"
           />
           <SetRow
-            sets={retiringSoon}
+            sets={retiringSoon.slice(0, cfg("retiring_soon").limit ?? 14)}
             token={token}
             isOwned={isOwned}
             isWishlist={isWishlist}
@@ -639,8 +646,8 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("best_deals") && saleSets.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Best Deals"
-            subtitle="Sets with price drops"
+            title={cfg("best_deals").title || "Best Deals"}
+            subtitle={cfg("best_deals").subtitle || "Sets with price drops"}
             href="/sale"
           />
           <SetRow sets={saleSets} token={token} isOwned={isOwned} isWishlist={isWishlist} />
@@ -651,11 +658,11 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("coming_soon") && comingSoon.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Coming Soon"
-            subtitle="Upcoming releases"
+            title={cfg("coming_soon").title || "Coming Soon"}
+            subtitle={cfg("coming_soon").subtitle || "Upcoming releases"}
           />
           <SetRow
-            sets={comingSoon}
+            sets={comingSoon.slice(0, cfg("coming_soon").limit ?? 14)}
             token={token}
             isOwned={isOwned}
             isWishlist={isWishlist}
@@ -668,24 +675,24 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("browse_by_theme") && themes.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Browse by Theme"
-            subtitle="Explore your favorite worlds"
+            title={cfg("browse_by_theme").title || "Browse by Theme"}
+            subtitle={cfg("browse_by_theme").subtitle || "Explore your favorite worlds"}
             href="/themes"
           />
-          <ThemeGrid themes={themes} />
+          <ThemeGrid themes={themes} limit={cfg("browse_by_theme").limit ?? 12} />
         </section>
       )}
 
       {/* ─── 7. Top Rated ───────────────────────────────────── */}
-      {!hidden.has("top_rated") && topRated.length > 0 && (
+      {!hidden.has("top_rated") && filteredTopRated.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Top Rated by Community"
-            subtitle="Highest-rated sets"
+            title={cfg("top_rated").title || "Top Rated by Community"}
+            subtitle={cfg("top_rated").subtitle || "Highest-rated sets"}
             href="/search?sort=rating&order=desc"
             linkLabel="Browse top rated"
           />
-          <SetRow sets={topRated} token={token} isOwned={isOwned} isWishlist={isWishlist} />
+          <SetRow sets={filteredTopRated.slice(0, cfg("top_rated").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} />
         </section>
       )}
 
@@ -693,19 +700,19 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("featured_lists") && lists.length > 0 && (
         <section className="mt-10">
           <SectionHeader
-            title="Featured Lists"
-            subtitle="Curated by the community"
+            title={cfg("featured_lists").title || "Featured Lists"}
+            subtitle={cfg("featured_lists").subtitle || "Curated by the community"}
             href="/discover/lists"
             linkLabel="Browse all lists"
           />
-          <FeaturedListsSection lists={lists} />
+          <FeaturedListsSection lists={lists} limit={cfg("featured_lists").limit ?? 6} />
         </section>
       )}
 
       {/* ─── 9. Friends & Activity ──────────────────────────── */}
       {!hidden.has("social") && (
         <section className="mt-10">
-          <SectionHeader title="Social" />
+          <SectionHeader title={cfg("social").title || "Social"} />
           <FriendsActivityPlaceholder />
         </section>
       )}
@@ -713,7 +720,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {/* ─── 10. Articles & Guides ──────────────────────────── */}
       {!hidden.has("guides") && (
         <section className="mt-10">
-          <SectionHeader title="Guides &amp; Articles" />
+          <SectionHeader title={cfg("guides").title || "Guides & Articles"} />
           <ArticlesPlaceholder />
         </section>
       )}

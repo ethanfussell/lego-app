@@ -1271,22 +1271,27 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
 // ---------------------------------------------------------------------------
 
 const DISCOVER_SECTIONS = [
-  { id: "quick_explore", label: "Quick Explore" },
-  { id: "new_releases", label: "New Releases" },
-  { id: "retiring_soon", label: "Retiring Soon" },
-  { id: "best_deals", label: "Best Deals" },
-  { id: "coming_soon", label: "Coming Soon" },
-  { id: "browse_by_theme", label: "Browse by Theme" },
-  { id: "top_rated", label: "Top Rated" },
-  { id: "featured_lists", label: "Featured Lists" },
-  { id: "social", label: "Social" },
-  { id: "guides", label: "Guides & Articles" },
+  { id: "quick_explore", label: "Quick Explore", hasLimit: false, defaultTitle: "Quick explore" },
+  { id: "new_releases", label: "New Releases", hasLimit: true, defaultTitle: "New Releases", defaultSubtitle: "Recently launched sets", defaultLimit: 14 },
+  { id: "retiring_soon", label: "Retiring Soon", hasLimit: true, defaultTitle: "Retiring Soon", defaultSubtitle: "Get them before they're gone", defaultLimit: 14 },
+  { id: "best_deals", label: "Best Deals", hasLimit: false, defaultTitle: "Best Deals", defaultSubtitle: "Sets with price drops" },
+  { id: "coming_soon", label: "Coming Soon", hasLimit: true, defaultTitle: "Coming Soon", defaultSubtitle: "Upcoming releases", defaultLimit: 14 },
+  { id: "browse_by_theme", label: "Browse by Theme", hasLimit: true, defaultTitle: "Browse by Theme", defaultSubtitle: "Explore your favorite worlds", defaultLimit: 12 },
+  { id: "top_rated", label: "Top Rated", hasLimit: true, hasMinRating: true, defaultTitle: "Top Rated by Community", defaultSubtitle: "Highest-rated sets", defaultLimit: 14, defaultMinRating: 4.0 },
+  { id: "featured_lists", label: "Featured Lists", hasLimit: true, defaultTitle: "Featured Lists", defaultSubtitle: "Curated by the community", defaultLimit: 6 },
+  { id: "social", label: "Social", hasLimit: false, defaultTitle: "Social" },
+  { id: "guides", label: "Guides & Articles", hasLimit: false, defaultTitle: "Guides & Articles" },
 ] as const;
+
+type SectionConfigEntry = { title?: string; subtitle?: string; limit?: number; min_rating?: number };
+type SectionConfigMap = Record<string, SectionConfigEntry>;
 
 function DiscoverControlsSection({ token }: { token: string }) {
   const toast = useToast();
 
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
+  const [sectionConfig, setSectionConfig] = useState<SectionConfigMap>({});
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1309,6 +1314,14 @@ function DiscoverControlsSection({ token }: { token: string }) {
           } catch { /* ignore */ }
         }
 
+        const configVal = data?.discover_section_config?.value;
+        if (configVal) {
+          try {
+            const parsed = JSON.parse(configVal);
+            if (!cancelled && typeof parsed === "object" && parsed !== null) setSectionConfig(parsed);
+          } catch { /* ignore */ }
+        }
+
         if (!cancelled) setSettingsLoaded(true);
       } catch {
         if (!cancelled) setSettingsLoaded(true);
@@ -1326,14 +1339,39 @@ function DiscoverControlsSection({ token }: { token: string }) {
     );
   }
 
+  function updateSectionField(sectionId: string, field: keyof SectionConfigEntry, value: string | number | undefined) {
+    setSectionConfig((prev) => {
+      const entry = { ...prev[sectionId] };
+      if (value === undefined || value === "") {
+        delete entry[field];
+      } else {
+        (entry as Record<string, string | number>)[field] = value;
+      }
+      // Remove entry entirely if empty
+      if (Object.keys(entry).length === 0) {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      }
+      return { ...prev, [sectionId]: entry };
+    });
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
-      await apiFetch(`/admin/settings/discover_hidden_sections`, {
-        method: "PUT",
-        token,
-        body: { value: JSON.stringify(hiddenSections) },
-      });
+      await Promise.all([
+        apiFetch(`/admin/settings/discover_hidden_sections`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(hiddenSections) },
+        }),
+        apiFetch(`/admin/settings/discover_section_config`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(sectionConfig) },
+        }),
+      ]);
       await revalidatePage("/discover");
       toast.push("Discover settings saved", { type: "success" });
     } catch (e: unknown) {
@@ -1349,37 +1387,148 @@ function DiscoverControlsSection({ token }: { token: string }) {
     <div>
       <h2 className="text-lg font-semibold">Discover</h2>
       <p className="mt-1 text-sm text-zinc-500">
-        Control which sections appear on the /discover page.
+        Control which sections appear on the /discover page and customize their settings.
       </p>
 
-      {/* Section toggles */}
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-semibold text-zinc-900">Section Visibility</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Sections</h3>
         <p className="mt-1 text-xs text-zinc-500">
-          Toggle sections on or off. Hidden sections won&apos;t appear on the discover page.
+          Toggle visibility and click a section to customize its title, subtitle, and limits.
         </p>
 
         <div className="mt-4 space-y-2">
           {DISCOVER_SECTIONS.map((section) => {
             const isVisible = !hiddenSections.includes(section.id);
+            const isExpanded = expandedSection === section.id;
+            const cfg = sectionConfig[section.id] || {};
+
             return (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => toggleSection(section.id)}
-                className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
-                  isVisible
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-zinc-200 bg-zinc-50 text-zinc-400"
-                }`}
-              >
-                <span className={`font-medium ${isVisible ? "" : "line-through"}`}>
-                  {section.label}
-                </span>
-                <span className={`text-xs font-semibold ${isVisible ? "text-emerald-600" : "text-zinc-400"}`}>
-                  {isVisible ? "Visible" : "Hidden"}
-                </span>
-              </button>
+              <div key={section.id} className={`rounded-xl border transition-colors ${
+                isVisible ? "border-emerald-200 bg-emerald-50/50" : "border-zinc-200 bg-zinc-50"
+              }`}>
+                {/* Section header row */}
+                <div className="flex items-center gap-2 px-4 py-3">
+                  {/* Expand/collapse button */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSection(isExpanded ? null : section.id)}
+                    className="shrink-0 text-zinc-400 hover:text-zinc-600 transition-colors"
+                    aria-label={isExpanded ? "Collapse" : "Expand"}
+                  >
+                    <svg className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+
+                  {/* Section name */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSection(isExpanded ? null : section.id)}
+                    className="flex-1 text-left"
+                  >
+                    <span className={`text-sm font-medium ${isVisible ? "text-emerald-800" : "text-zinc-400 line-through"}`}>
+                      {section.label}
+                    </span>
+                    {cfg.title && cfg.title !== section.defaultTitle && (
+                      <span className="ml-2 text-xs text-zinc-400">
+                        &ldquo;{cfg.title}&rdquo;
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Visibility toggle */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleSection(section.id); }}
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                      isVisible
+                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                        : "bg-zinc-200 text-zinc-500 hover:bg-zinc-300"
+                    }`}
+                  >
+                    {isVisible ? "Visible" : "Hidden"}
+                  </button>
+                </div>
+
+                {/* Expanded config panel */}
+                {isExpanded && (
+                  <div className="border-t border-zinc-200/60 px-4 py-4 space-y-3">
+                    {/* Title */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 mb-1">Title</label>
+                      <input
+                        type="text"
+                        value={cfg.title ?? ""}
+                        onChange={(e) => updateSectionField(section.id, "title", e.target.value)}
+                        placeholder={section.defaultTitle}
+                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </div>
+
+                    {/* Subtitle */}
+                    {"defaultSubtitle" in section && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">Subtitle</label>
+                        <input
+                          type="text"
+                          value={cfg.subtitle ?? ""}
+                          onChange={(e) => updateSectionField(section.id, "subtitle", e.target.value)}
+                          placeholder={section.defaultSubtitle}
+                          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Limit */}
+                    {section.hasLimit && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">
+                          Items to show <span className="text-zinc-400">(default: {section.defaultLimit})</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={30}
+                          value={cfg.limit ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateSectionField(section.id, "limit", v === "" ? undefined : Math.max(2, Math.min(30, parseInt(v, 10) || 2)));
+                          }}
+                          placeholder={String(section.defaultLimit)}
+                          className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Min Rating (Top Rated only) */}
+                    {"hasMinRating" in section && section.hasMinRating && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">
+                          Minimum rating <span className="text-zinc-400">(default: {section.defaultMinRating})</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={0.1}
+                          value={cfg.min_rating ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateSectionField(section.id, "min_rating", v === "" ? undefined : Math.max(1, Math.min(5, parseFloat(v) || 1)));
+                          }}
+                          placeholder={String(section.defaultMinRating)}
+                          className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* No configurable fields hint */}
+                    {!section.hasLimit && !("defaultSubtitle" in section) && !("hasMinRating" in section) && (
+                      <p className="text-xs text-zinc-400 italic">Only title customization is available for this section.</p>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -1392,7 +1541,7 @@ function DiscoverControlsSection({ token }: { token: string }) {
             disabled={saving}
             className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save Visibility"}
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>

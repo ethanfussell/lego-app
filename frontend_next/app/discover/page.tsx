@@ -84,7 +84,7 @@ async function fetchJSON(path: string): Promise<unknown> {
 }
 
 async function fetchNewReleases(): Promise<SetLite[]> {
-  const raw = await fetchJSON("/sets/new?limit=14&days=90");
+  const raw = await fetchJSON("/sets/new?limit=30&days=90");
   return extractSets(raw);
 }
 
@@ -126,17 +126,17 @@ async function fetchRetiringSoon(): Promise<SetLite[]> {
 }
 
 async function fetchComingSoon(): Promise<SetLite[]> {
-  const raw = await fetchJSON("/sets/coming-soon?limit=14");
+  const raw = await fetchJSON("/sets/coming-soon?limit=30");
   return extractSets(raw);
 }
 
 async function fetchTopRated(): Promise<SetLite[]> {
-  const raw = await fetchJSON("/sets?sort=rating&order=desc&min_rating=4.0&limit=14");
+  const raw = await fetchJSON("/sets?sort=rating&order=desc&min_rating=1.0&limit=30");
   return extractSets(raw);
 }
 
 async function fetchPopular(): Promise<SetLite[]> {
-  const raw = await fetchJSON("/sets?sort=rating&order=desc&limit=14");
+  const raw = await fetchJSON("/sets?sort=rating&order=desc&limit=30");
   return extractSets(raw);
 }
 
@@ -168,15 +168,29 @@ async function fetchSpotlight(): Promise<SetLite | null> {
 
 /* ── page ───────────────────────────────────────────────────── */
 
-async function fetchDiscoverConfig(): Promise<string[]> {
+export type SectionConfig = Record<string, { title?: string; subtitle?: string; limit?: number; min_rating?: number }>;
+
+async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectionConfig: SectionConfig }> {
   const raw = await fetchJSON("/sets/discover-page-config");
-  if (isRecord(raw) && typeof raw.discover_hidden_sections === "string") {
-    try {
-      const parsed = JSON.parse(raw.discover_hidden_sections);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* ignore */ }
+  let hiddenSections: string[] = [];
+  let sectionConfig: SectionConfig = {};
+
+  if (isRecord(raw)) {
+    if (typeof raw.discover_hidden_sections === "string") {
+      try {
+        const parsed = JSON.parse(raw.discover_hidden_sections);
+        if (Array.isArray(parsed)) hiddenSections = parsed;
+      } catch { /* ignore */ }
+    }
+    if (typeof raw.discover_section_config === "string") {
+      try {
+        const parsed = JSON.parse(raw.discover_section_config);
+        if (typeof parsed === "object" && parsed !== null) sectionConfig = parsed;
+      } catch { /* ignore */ }
+    }
   }
-  return [];
+
+  return { hiddenSections, sectionConfig };
 }
 
 export type DiscoverData = {
@@ -189,10 +203,11 @@ export type DiscoverData = {
   lists: PublicList[];
   spotlight: SetLite | null;
   hiddenSections: string[];
+  sectionConfig: SectionConfig;
 };
 
 export default async function Page() {
-  const [newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections] =
+  const [newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, discoverConfig] =
     await Promise.all([
       fetchNewReleases(),
       fetchRetiringSoon(),
@@ -214,7 +229,8 @@ export default async function Page() {
     themes,
     lists,
     spotlight,
-    hiddenSections,
+    hiddenSections: discoverConfig.hiddenSections,
+    sectionConfig: discoverConfig.sectionConfig,
   };
 
   return <DiscoverHub data={data} />;
