@@ -47,7 +47,8 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
   const { user } = useClerkUser();
   const clerk = useClerk();
 
-  // Session token state — refreshed from Clerk on mount and sign-in changes
+  // Session token state — refreshed from Clerk on mount, sign-in, and periodically.
+  // Clerk JWTs are short-lived (~60s), so we refresh every 45s to stay ahead.
   const [token, setToken] = useState("");
 
   useEffect(() => {
@@ -58,17 +59,25 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    (async () => {
+
+    async function refresh() {
       try {
         const t = await getToken();
         if (!cancelled) setToken(t || "");
       } catch {
         if (!cancelled) setToken("");
       }
-    })();
+    }
+
+    // Fetch immediately
+    refresh();
+
+    // Refresh every 45 seconds to keep token fresh
+    const interval = setInterval(refresh, 45_000);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [isLoaded, isSignedIn, getToken]);
 

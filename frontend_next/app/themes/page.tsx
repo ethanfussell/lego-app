@@ -7,7 +7,6 @@ import { themeToSlug } from "@/lib/slug";
 import { siteBase, SITE_NAME } from "@/lib/url";
 import { first, type SP } from "@/lib/searchParams";
 
-export const dynamic = "force-static";
 export const revalidate = 3600;
 
 type JsonLdObject = Record<string, unknown>;
@@ -212,40 +211,25 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
       )}
 
       {/* Pagination */}
-      <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Link
-            href={qsBase(Math.max(1, page - 1))}
-            aria-disabled={!hasPrev}
-            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
-              !hasPrev ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
-            }`}
-          >
-            ← Prev
-          </Link>
-
-          <Link
-            href={qsBase(page + 1)}
-            aria-disabled={!hasNext}
-            className={`rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ${
-              !hasNext ? "pointer-events-none opacity-50" : "hover:bg-zinc-100"
-            }`}
-          >
-            Next →
-          </Link>
-        </div>
-
-        <div className="text-sm text-zinc-500">
-          Page {page}
-          {totalPages ? <span className="ml-1">of {totalPages}</span> : null}
-          {typeof totalCount === "number" ? <span className="ml-2">• {totalCount} themes</span> : null}
-        </div>
-
+      <div className="mt-10 flex flex-col items-center gap-3">
         {pageList.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={qsBase(Math.max(1, page - 1))}
+              aria-disabled={!hasPrev}
+              aria-label="Previous page"
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-sm transition-colors ${
+                !hasPrev
+                  ? "pointer-events-none border-zinc-100 text-zinc-300"
+                  : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              ‹
+            </Link>
+
             {pageList.map((p, idx) =>
               p === "..." ? (
-                <span key={`dots-${idx}`} className="px-2 text-sm text-zinc-500">
+                <span key={`dots-${idx}`} className="px-1 text-sm text-zinc-400 select-none">
                   …
                 </span>
               ) : (
@@ -253,18 +237,62 @@ export default async function ThemesIndexPage({ searchParams }: { searchParams?:
                   key={p}
                   href={qsBase(p)}
                   aria-current={p === page ? "page" : undefined}
-                  className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold ${
+                  className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-medium transition-colors ${
                     p === page
-                      ? "border-amber-500/40 bg-amber-500 text-black"
-                      : "border-zinc-200 text-zinc-900 hover:bg-zinc-100"
+                      ? "border-amber-500 bg-amber-500 text-white shadow-sm"
+                      : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
                   }`}
                 >
                   {p}
                 </Link>
               )
             )}
+
+            <Link
+              href={qsBase(page + 1)}
+              aria-disabled={!hasNext}
+              aria-label="Next page"
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-sm transition-colors ${
+                !hasNext
+                  ? "pointer-events-none border-zinc-100 text-zinc-300"
+                  : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              ›
+            </Link>
           </div>
-        ) : null}
+        ) : (
+          <div className="flex items-center gap-2">
+            <Link
+              href={qsBase(Math.max(1, page - 1))}
+              aria-disabled={!hasPrev}
+              className={`inline-flex h-9 items-center justify-center rounded-lg border px-4 text-sm font-medium transition-colors ${
+                !hasPrev
+                  ? "pointer-events-none border-zinc-100 text-zinc-300"
+                  : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              ← Prev
+            </Link>
+            <Link
+              href={qsBase(page + 1)}
+              aria-disabled={!hasNext}
+              className={`inline-flex h-9 items-center justify-center rounded-lg border px-4 text-sm font-medium transition-colors ${
+                !hasNext
+                  ? "pointer-events-none border-zinc-100 text-zinc-300"
+                  : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              Next →
+            </Link>
+          </div>
+        )}
+
+        <p className="text-xs text-zinc-400">
+          Page {page}
+          {totalPages ? <> of {totalPages}</> : null}
+          {typeof totalCount === "number" ? <> &middot; {totalCount} themes</> : null}
+        </p>
       </div>
     </div>
   );

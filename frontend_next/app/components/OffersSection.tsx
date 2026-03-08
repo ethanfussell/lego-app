@@ -206,7 +206,8 @@ export default function OffersSection({
 
       return { href, storeLabel, price, currency, inStock, updatedAt, rank: i + 1 };
     })
-    .filter((x): x is NormalizedOffer => x !== null);
+    .filter((x): x is NormalizedOffer => x !== null)
+    .filter((x) => typeof x.price === "number");
 
   const sorted = useMemo(() => {
     return normalized.slice().sort((a, b) => {
@@ -260,10 +261,11 @@ export default function OffersSection({
           const isAffiliate = Boolean(affiliateHref);
 
           const updatedLabel = formatUpdatedAt(o.updatedAt);
-          const priceLabel = formatPrice(o.price, o.currency) ?? "Price unavailable";
+          const hasPrice = typeof o.price === "number";
+          const priceLabel = hasPrice ? formatPrice(o.price, o.currency) ?? "Price unavailable" : null;
 
           const stockTone = o.inStock === true ? "in" : o.inStock === false ? "out" : "unknown";
-          const stockText = o.inStock === true ? "In stock" : o.inStock === false ? "Out of stock" : "Unknown";
+          const stockText = o.inStock === true ? "In stock" : o.inStock === false ? "Out of stock" : null;
 
           return (
             <li
@@ -276,13 +278,13 @@ export default function OffersSection({
                     {o.storeLabel}
                   </div>
 
-                  <Badge tone={stockTone}>{stockText}</Badge>
+                  {stockText ? <Badge tone={stockTone}>{stockText}</Badge> : null}
 
                   {isBest ? <Badge tone="best">Best price</Badge> : null}
                 </div>
 
                 <div className="mt-1 text-xs text-zinc-500">
-                  <div>{priceLabel}</div>
+                  {priceLabel ? <div>{priceLabel}</div> : <div className="text-zinc-400">Check retailer for price</div>}
 
                   {updatedLabel ? (
                     <div className="mt-0.5 text-[11px] text-zinc-400">Last updated: {updatedLabel}</div>
@@ -319,7 +321,7 @@ export default function OffersSection({
                 }}
                 className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors dark:bg-amber-400 dark:text-black"
               >
-                View offer →
+                {hasPrice ? "View offer" : `Search ${o.storeLabel}`} →
               </a>
             </li>
           );

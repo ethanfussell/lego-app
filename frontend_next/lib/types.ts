@@ -86,4 +86,14 @@ export type SetLite = {
   original_price?: number | null;
   sale_price?: number | null;
   sale_price_from?: number | null;
+  retail_price?: number | null;
+
+  // dates & availability
+  launch_date?: string | null;
+  exit_date?: string | null;
+  retirement_date?: string | null;
+  retirement_status?: string | null;
+
+  // custom tag (e.g. "GWP", "Insider Reward")
+  set_tag?: string | null;
 };

@@ -1,11 +1,15 @@
 # backend/app/routers/themes.py
 from __future__ import annotations
 
+import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.orm import Session
 
 from app.data.sets import load_cached_sets
+from app.data import offers as offers_data
+from app.db import get_db
 
 router = APIRouter(prefix="/themes", tags=["themes"])
 
@@ -13,16 +17,24 @@ ALLOWED_SORTS = {"relevance", "year", "pieces", "name", "rating"}
 ALLOWED_ORDERS = {"asc", "desc"}
 
 
+def _strip_diacritics(s: str) -> str:
+    """Remove diacritical marks: é → e, ü → u, etc."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 def _norm(s: str) -> str:
     return (s or "").strip()
 
 
 def _norm_lower(s: str) -> str:
-    return _norm(s).lower()
+    return _strip_diacritics(_norm(s)).lower()
 
 
 def _theme_key(theme: str) -> str:
-    # stable key for comparisons / grouping
+    # stable key for comparisons / grouping (accent-insensitive)
     return _norm_lower(theme)
 
 
@@ -115,6 +127,7 @@ def list_sets_for_theme(
     sort: str = Query("relevance"),
     order: str = Query("desc"),
     q: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
     Returns a paginated list of cached sets for a theme.
@@ -182,4 +195,6 @@ def list_sets_for_theme(
         filtered.sort(key=_sort_key(sort), reverse=reverse)
 
     offset = (page - 1) * limit
-    return filtered[offset : offset + limit]
+    page_result = filtered[offset : offset + limit]
+    offers_data.enrich_with_best_prices(db, page_result)
+    return page_result

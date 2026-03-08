@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.set_nums import base_set_num
 from app.data.sets import get_set_by_num
+from app.data import offers as offers_data
 from app.db import get_db
 from app.models import List as ListModel
 from app.models import ListItem as ListItemModel
@@ -290,7 +291,9 @@ def list_my_owned(
 ):
     owned_list = _get_or_create_system_list(db, int(current_user.id), "owned")
     rows = db.execute(_system_list_sets_query(int(owned_list.id))).all()
-    return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+    out = [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+    offers_data.enrich_with_best_prices(db, out)
+    return out
 
 
 @router.post("/wishlist", status_code=status.HTTP_200_OK)
@@ -329,7 +332,9 @@ def list_my_wishlist(
 ):
     wishlist_list = _get_or_create_system_list(db, int(current_user.id), "wishlist")
     rows = db.execute(_system_list_sets_query(int(wishlist_list.id))).all()
-    return [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+    out = [{**_set_to_dict(s), "collection_created_at": created_at} for (s, created_at) in rows]
+    offers_data.enrich_with_best_prices(db, out)
+    return out
 
 
 # ✅ FIX: add PUT endpoint expected by tests

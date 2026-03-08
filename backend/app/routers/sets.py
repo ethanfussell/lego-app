@@ -22,11 +22,28 @@ from ..db import get_db
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
+from ..models import AdminSetting
 
 router = APIRouter()
 
 
 # ---------------- helpers ----------------
+
+import html as _html_mod
+import re as _re
+
+def _short_description(raw: Optional[str], max_chars: int = 200) -> Optional[str]:
+    """Return first 1-2 sentences, cleaned of HTML entities, capped at max_chars."""
+    if not raw:
+        return None
+    text = _html_mod.unescape(raw).strip()
+    # Take first two sentences
+    parts = _re.split(r'(?<=[.!?])\s+', text, maxsplit=2)
+    short = " ".join(parts[:2]).strip()
+    if len(short) > max_chars:
+        short = short[:max_chars].rsplit(" ", 1)[0] + "…"
+    return short or None
+
 
 def _use_memory_reviews() -> bool:
     return os.getenv("PYTEST_CURRENT_TEST") is not None and hasattr(reviews_data, "REVIEWS")
@@ -155,6 +172,28 @@ def _review_count_for_set(db: Session, set_num: str) -> int:
     ).scalar_one()
 
     return int(cnt or 0)
+
+
+def _set_tags_map(db: Session) -> Dict[str, str]:
+    """Map set_num -> set_tag for all sets that have a tag."""
+    rows = db.execute(
+        select(SetModel.set_num, SetModel.set_tag).where(SetModel.set_tag.isnot(None))
+    ).all()
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
+def _enrich_with_tags(db: Session, items: List[Dict[str, Any]]) -> None:
+    """Add set_tag to a list of set dicts from DB tags."""
+    if not items:
+        return
+    tags = _set_tags_map(db)
+    if not tags:
+        return
+    for item in items:
+        sn = item.get("set_num", "")
+        tag = tags.get(sn)
+        if tag:
+            item["set_tag"] = tag
 
 
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
@@ -423,6 +462,8 @@ def list_sets(
         r["review_count"] = int(rev_cnt or 0)
 
     response.headers["X-Total-Count"] = str(total)
+    offers_data.enrich_with_best_prices(db, page_rows)
+    _enrich_with_tags(db, page_rows)
     return page_rows
 
 
@@ -515,7 +556,7 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
     canonical = s.get("set_num") or set_num
     plain = s.get("set_num_plain") or canonical.split("-")[0]
 
-    offers = offers_data.get_offers_for_set(plain)
+    offers = offers_data.get_offers_for_set(db, plain)
 
     # summary.updated_at = newest offer updated_at (ISO strings compare lexicographically)
     updated_at: Optional[str] = None
@@ -629,6 +670,8 @@ def bulk_get_sets(
         r["user_rating"] = user_rating
         out.append(r)
 
+    offers_data.enrich_with_best_prices(db, out)
+    _enrich_with_tags(db, out)
     return out
 
 
@@ -671,23 +714,28 @@ def list_my_reviews(
 @router.get("/new")
 def list_new_sets(
     response: Response,
-    days: int = Query(30, ge=1, le=365),
+    days: Optional[int] = Query(None, ge=1, le=730),
     page: int = Query(1, ge=1),
-    limit: int = Query(80, ge=1, le=200),
+    limit: int = Query(80, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
     """
-    DB-backed "new releases" list, based on sets.first_seen_at.
-    Use days=7 for "this week", days=30 for "this month".
-    """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
+    Recent LEGO releases based on official launch dates (from Brickset).
 
-    # Base query (newest first by first_seen_at)
-    base_q = (
-        select(SetModel)
-        .where(SetModel.first_seen_at >= cutoff)
-        .order_by(SetModel.first_seen_at.desc(), SetModel.set_num.asc())
+    - Without `days`: returns all sets with a known launch_date, newest first.
+    - With `days=N`: returns sets launched within the last N days.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    base_q = select(SetModel).where(
+        SetModel.launch_date.isnot(None),
+        SetModel.launch_date <= today,  # Only sets that have actually launched
     )
+
+    if days is not None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
+        base_q = base_q.where(SetModel.launch_date >= cutoff)
+
+    base_q = base_q.order_by(SetModel.launch_date.desc(), SetModel.set_num.asc())
 
     # Total count
     total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
@@ -697,7 +745,7 @@ def list_new_sets(
     offset = (page - 1) * limit
     rows = db.execute(base_q.offset(offset).limit(limit)).scalars().all()
 
-    # Ratings enrichment (matches your existing /sets output fields)
+    # Ratings enrichment
     ratings = _ratings_map(db)
     review_counts = _review_counts_map(db)
 
@@ -719,10 +767,13 @@ def list_new_sets(
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
-                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "retail_price": s.retail_price,
+                "launch_date": s.launch_date,
             }
         )
 
+    offers_data.enrich_with_best_prices(db, out)
+    _enrich_with_tags(db, out)
     return out
 
 
@@ -770,11 +821,110 @@ def list_retiring_sets(
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
+                "retail_price": s.retail_price,
                 "retirement_date": s.retirement_date,
+                "exit_date": s.exit_date,
+                "set_tag": s.set_tag,
             }
         )
 
+    offers_data.enrich_with_best_prices(db, out)
+    _enrich_with_tags(db, out)
     return out
+
+
+@router.get("/coming-soon")
+def list_coming_soon_sets(
+    response: Response,
+    page: int = Query(1, ge=1),
+    limit: int = Query(60, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """
+    Sets with a launch_date in the future (not yet available).
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    base_q = (
+        select(SetModel)
+        .where(
+            SetModel.launch_date.isnot(None),
+            SetModel.launch_date > today,
+        )
+        .order_by(SetModel.launch_date.asc(), SetModel.name.asc())
+    )
+
+    total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
+    response.headers["X-Total-Count"] = str(total)
+
+    offset = (page - 1) * limit
+    rows = db.execute(base_q.offset(offset).limit(limit)).scalars().all()
+
+    out: List[Dict[str, Any]] = []
+    for s in rows:
+        out.append(
+            {
+                "set_num": s.set_num,
+                "name": s.name,
+                "year": s.year,
+                "theme": s.theme,
+                "pieces": s.pieces,
+                "image_url": s.image_url,
+                "retail_price": s.retail_price,
+                "launch_date": s.launch_date,
+            }
+        )
+
+    offers_data.enrich_with_best_prices(db, out)
+    _enrich_with_tags(db, out)
+    return out
+
+
+# ===================================================================
+# Public /new page config (no auth — consumed by Next.js ISR)
+# ===================================================================
+
+@router.get("/new-page-config")
+def new_page_config(db: Session = Depends(get_db)):
+    """Return spotlight + featured themes settings for the /new page.
+
+    This is a public endpoint so the Next.js server component can fetch it at
+    build/ISR time without needing an auth token.
+    """
+    settings: Dict[str, Any] = {}
+    rows = db.execute(
+        select(AdminSetting).where(
+            AdminSetting.key.in_(["spotlight_set_num", "featured_themes"])
+        )
+    ).scalars().all()
+
+    for row in rows:
+        settings[row.key] = row.value
+
+    return settings
+
+
+# ===================================================================
+# Public /retiring page config (no auth — consumed by Next.js ISR)
+# ===================================================================
+
+@router.get("/retiring-page-config")
+def retiring_page_config(db: Session = Depends(get_db)):
+    """Return hidden sets + excluded themes for the retiring page."""
+    settings: Dict[str, Any] = {}
+    rows = db.execute(
+        select(AdminSetting).where(
+            AdminSetting.key.in_([
+                "retiring_hidden_sets",
+                "retiring_excluded_themes",
+            ])
+        )
+    ).scalars().all()
+
+    for row in rows:
+        settings[row.key] = row.value
+
+    return settings
 
 
 @router.get("/{set_num}")
@@ -803,5 +953,32 @@ def get_set(
     out["rating_count"] = cnt
     out["review_count"] = review_cnt
     out["user_rating"] = user_rating
+
+    # Enrich with Brickset data from DB
+    db_set = db.execute(
+        select(SetModel).where(SetModel.set_num == canonical)
+    ).scalar_one_or_none()
+    if db_set:
+        out["description"] = _short_description(db_set.description)
+        out["subtheme"] = db_set.subtheme
+        out["minifigs"] = db_set.minifigs
+        out["age_min"] = db_set.age_min
+        out["age_max"] = db_set.age_max
+        out["dimensions"] = {
+            "height": db_set.dimensions_height,
+            "width": db_set.dimensions_width,
+            "depth": db_set.dimensions_depth,
+        } if any([db_set.dimensions_height, db_set.dimensions_width, db_set.dimensions_depth]) else None
+        out["weight_kg"] = db_set.weight_kg
+        out["launch_date"] = db_set.launch_date
+        out["exit_date"] = db_set.exit_date
+        out["retirement_status"] = db_set.retirement_status
+        out["retirement_date"] = db_set.retirement_date
+        out["retail_price"] = db_set.retail_price
+        out["retail_currency"] = db_set.retail_currency
+        out["set_tag"] = db_set.set_tag
+
     return out
+
+
 

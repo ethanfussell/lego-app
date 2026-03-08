@@ -19,8 +19,11 @@ const nextConfig: NextConfig = {
   },
 
   images: {
+    // Skip image optimization in dev to avoid timeout errors with remote CDN images
+    unoptimized: process.env.NODE_ENV !== "production",
     formats: ["image/avif", "image/webp"],
     qualities: [70, 75, 80],
+    minimumCacheTTL: 86400, // cache optimized images for 24 hours
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 320, 360, 420],
     deviceSizes: [320, 360, 384, 420, 640, 750, 828, 1080, 1200],
 
@@ -29,6 +32,22 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "cdn.rebrickable.com",
         pathname: "/media/**",
+      },
+      // LEGO.com CDN domains (for admin-pasted image URLs)
+      {
+        protocol: "https",
+        hostname: "www.lego.com",
+        pathname: "/cdn/**",
+      },
+      {
+        protocol: "https",
+        hostname: "assets.lego.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "images.brickset.com",
+        pathname: "/**",
       },
       // Dev-only: allow local backend images
       ...(process.env.NODE_ENV !== "production"

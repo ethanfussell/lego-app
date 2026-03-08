@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
+import { notifyCollectionChanged } from "@/lib/useCollectionStatus";
 
 type Props = {
   onCollectionsChanged?: () => void;
@@ -53,6 +54,7 @@ export default function QuickCollectionsAdd({ onCollectionsChanged }: Props) {
       setMessage(`Added ${added} to ${type === "owned" ? "Owned" : "Wishlist"}`);
       setSetNum("");
 
+      notifyCollectionChanged();
       onCollectionsChanged?.();
     } catch (e: unknown) {
       setError(errorMessage(e));

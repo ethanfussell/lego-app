@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func as sa_func, select
 from sqlalchemy.orm import Session
 
 from app.models import Offer as OfferModel, Set as SetModel
@@ -66,6 +66,124 @@ def get_msrp_for_set(db: Session, plain_set_num: str) -> Optional[Dict[str, Any]
             return {"retail_price": row.retail_price, "retail_currency": row.retail_currency or "USD"}
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Batch best-price helpers (for enriching list endpoints)
+# ---------------------------------------------------------------------------
+
+
+def best_prices_for_sets(
+    db: Session,
+    set_nums: List[str],
+) -> Dict[str, float]:
+    """
+    Given canonical set_nums (e.g. "10305-1"), return a mapping of
+    canonical_set_num → cheapest in-stock offer price.
+
+    Uses a single GROUP BY query for efficiency.
+    """
+    if not set_nums:
+        return {}
+
+    # Build plain → canonical lookup (Offer.set_num stores "10305", not "10305-1")
+    plain_to_canonical: Dict[str, str] = {}
+    plain_nums: List[str] = []
+    for sn in set_nums:
+        plain = _normalize_plain_set_num(sn)
+        if plain:
+            plain_to_canonical.setdefault(plain, sn)
+            if plain not in plain_to_canonical or plain not in [p for p in plain_nums]:
+                pass
+            plain_nums.append(plain)
+
+    # Deduplicate plain_nums
+    plain_nums = list(dict.fromkeys(plain_nums))
+    if not plain_nums:
+        return {}
+
+    rows = db.execute(
+        select(OfferModel.set_num, sa_func.min(OfferModel.price))
+        .where(
+            OfferModel.set_num.in_(plain_nums),
+            OfferModel.price.isnot(None),
+            # Include in-stock (True) and unknown (None), exclude out-of-stock (False)
+            sa_func.coalesce(OfferModel.in_stock, True).is_(True),
+        )
+        .group_by(OfferModel.set_num)
+    ).all()
+
+    result: Dict[str, float] = {}
+    for plain_sn, min_price in rows:
+        canonical = plain_to_canonical.get(str(plain_sn))
+        if canonical and min_price is not None:
+            result[canonical] = float(min_price)
+
+    return result
+
+
+def enrich_with_best_prices(
+    db: Session,
+    rows: List[Dict[str, Any]],
+) -> None:
+    """
+    Mutate response dicts in-place: add original_price and sale_price fields.
+
+    - original_price = retail_price (MSRP) — always set when available
+    - sale_price = best offer price — only set when strictly less than retail
+    """
+    set_nums = [r["set_num"] for r in rows if r.get("set_num")]
+    if not set_nums:
+        return
+
+    best_prices = best_prices_for_sets(db, set_nums)
+
+    # Batch-fetch retail_price for rows that don't already have it
+    missing_retail = [
+        sn for sn in set_nums
+        if not isinstance(
+            next((r.get("retail_price") for r in rows if r.get("set_num") == sn), None),
+            (int, float),
+        )
+    ]
+    retail_map: Dict[str, float] = {}
+    if missing_retail:
+        # Deduplicate
+        missing_retail = list(dict.fromkeys(missing_retail))
+        retail_rows = db.execute(
+            select(SetModel.set_num, SetModel.retail_price)
+            .where(
+                SetModel.set_num.in_(missing_retail),
+                SetModel.retail_price.isnot(None),
+            )
+        ).all()
+        for sn, rp in retail_rows:
+            if rp is not None:
+                retail_map[str(sn)] = float(rp)
+
+    for r in rows:
+        canonical = r.get("set_num", "")
+
+        # Fill in retail_price if missing
+        if not isinstance(r.get("retail_price"), (int, float)):
+            if canonical in retail_map:
+                r["retail_price"] = retail_map[canonical]
+
+        retail = r.get("retail_price")
+        best = best_prices.get(canonical)
+
+        # Always expose MSRP as original_price for frontend
+        if isinstance(retail, (int, float)) and retail > 0:
+            r["original_price"] = retail
+
+        # Only set sale_price when best offer is strictly less than retail
+        if (
+            best is not None
+            and isinstance(retail, (int, float))
+            and retail > 0
+            and best < retail
+        ):
+            r["sale_price"] = best
 
 
 # ---- Seed data (for initial population) ----

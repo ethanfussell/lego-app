@@ -118,11 +118,12 @@ def _is_normal_lego_set(item: Dict[str, Any]) -> bool:
     """
     Filter out MOCs, books, gear, etc.
 
-    Rebrickable's /sets/ includes:
-      - set_type: "normal", "book", "gear", "moc", ...
-    We only keep 'normal' sets with a positive piece count.
+    Rebrickable's /sets/ endpoint may include set_type ("normal", "book",
+    "gear", "moc", ...) but newer API versions return None. If present,
+    we check it; otherwise we rely on num_parts > 0 as the filter.
     """
-    if item.get("set_type") != "normal":
+    set_type = item.get("set_type")
+    if set_type is not None and set_type != "normal":
         return False
     if (item.get("num_parts") or 0) <= 0:
         return False

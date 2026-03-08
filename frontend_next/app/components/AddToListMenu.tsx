@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/api";
+import { notifyCollectionChanged } from "@/lib/useCollectionStatus";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 
 type ListSummary = {
@@ -338,6 +339,7 @@ export default function AddToListMenu({
           try {
             const wasSelected = ownedSelected;
             await toggleOwned();
+            notifyCollectionChanged();
             toast.push(wasSelected ? "Removed from Owned" : "Added to Owned", { type: "success" });
             setOpen(false);
           } catch (e: unknown) {
@@ -357,6 +359,7 @@ export default function AddToListMenu({
           try {
             const wasSelected = wishlistSelected;
             await toggleWishlist();
+            notifyCollectionChanged();
             toast.push(wasSelected ? "Removed from Wishlist" : "Added to Wishlist", { type: "success" });
             setOpen(false);
           } catch (e: unknown) {

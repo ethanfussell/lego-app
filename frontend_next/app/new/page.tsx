@@ -26,9 +26,9 @@ function normalizeSets(x: unknown): SetLite[] {
 
 async function fetchNewSets(): Promise<SetLite[]> {
   const params = new URLSearchParams();
-  params.set("days", "30"); // month window
   params.set("page", "1");
-  params.set("limit", "80");
+  params.set("limit", "2000");
+  params.set("days", "365");
 
   const url = `${apiBase()}/sets/new?${params.toString()}`;
 
@@ -43,8 +43,23 @@ async function fetchNewSets(): Promise<SetLite[]> {
   return normalizeSets(data);
 }
 
-const TITLE = "New LEGO set releases this month";
-const DESCRIPTION = "Browse newly added LEGO sets from the last 30 days. Updated regularly.";
+async function fetchNewPageConfig(): Promise<{ spotlight_set_num?: string; featured_themes?: string }> {
+  const url = `${apiBase()}/sets/new-page-config`;
+  try {
+    const res = await fetch(url, {
+      headers: { accept: "application/json" },
+      cache: "no-store",            // always fresh — admin changes apply immediately
+    });
+    if (!res.ok) return {};
+    const data = await res.json().catch(() => null);
+    return data || {};
+  } catch {
+    return {};
+  }
+}
+
+const TITLE = "New LEGO releases";
+const DESCRIPTION = "Browse the latest LEGO set releases, sorted by official launch date.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -66,7 +81,22 @@ export default async function Page() {
   }
 
   const monthKey = monthKeyFromDate() as MonthKey;
-  const featuredThemes = featuredThemesForMonth(monthKey);
+
+  // Fetch admin settings for /new page (spotlight + featured themes)
+  const config = await fetchNewPageConfig();
+
+  // Featured themes: prefer admin setting, fall back to hardcoded config
+  let featuredThemes: string[];
+  if (config.featured_themes) {
+    try {
+      const parsed = JSON.parse(config.featured_themes) as Record<string, string[]>;
+      featuredThemes = parsed[monthKey] || parsed["default"] || featuredThemesForMonth(monthKey);
+    } catch {
+      featuredThemes = featuredThemesForMonth(monthKey);
+    }
+  } else {
+    featuredThemes = featuredThemesForMonth(monthKey);
+  }
 
   return (
     <NewSetsClient
@@ -74,6 +104,7 @@ export default async function Page() {
       initialError={error}
       monthKey={monthKey}
       featuredThemes={featuredThemes}
+      spotlightSetNum={config.spotlight_set_num || null}
     />
   );
 }

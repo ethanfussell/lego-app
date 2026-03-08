@@ -12,7 +12,7 @@ import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import AddToListMenu from "@/app/components/AddToListMenu";
-import { useCollectionStatus } from "@/lib/useCollectionStatus";
+import { useCollectionStatus, notifyCollectionChanged } from "@/lib/useCollectionStatus";
 import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
 import EmailCapture from "@/app/components/EmailCapture";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
@@ -825,6 +825,7 @@ export default function SetDetailClient(props: Props) {
       setSavingRating(true);
       setRatingError(null);
       await upsertMyReview({ rating: Number(newRating), text: null });
+      notifyCollectionChanged();
       toast.push("Rating saved", { type: "success" });
     } catch (e: unknown) {
       setRatingError(errorMessage(e));
@@ -870,6 +871,7 @@ export default function SetDetailClient(props: Props) {
         text: reviewText.trim() || null,
       });
 
+      notifyCollectionChanged();
       setReviewText("");
       setShowReviewForm(false);
       toast.push("Review saved", { type: "success" });

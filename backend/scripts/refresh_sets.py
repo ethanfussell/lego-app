@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import SessionLocal
-from app.models import Set as SetModel
+from app.models import Set as SetModel, get_locked_fields
 from app.data.sets import fetch_all_lego_sets, load_cached_sets
 
 
@@ -74,8 +74,9 @@ def sync_cache_to_db(skip_fetch: bool = False) -> dict:
                 db.add(row)
                 inserted += 1
             else:
-                # Existing set — update mutable fields
+                # Existing set — update mutable fields (skip admin-locked)
                 changed = False
+                locked = set(get_locked_fields(row))
                 for attr, key in [
                     ("name", "name"),
                     ("year", "year"),
@@ -84,6 +85,8 @@ def sync_cache_to_db(skip_fetch: bool = False) -> dict:
                     ("image_url", "image_url"),
                     ("ip", "ip"),
                 ]:
+                    if attr in locked:
+                        continue  # Skip admin-locked fields
                     new_val = s.get(key)
                     if getattr(row, attr) != new_val:
                         setattr(row, attr, new_val)

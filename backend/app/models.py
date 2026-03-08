@@ -1,6 +1,8 @@
 # backend/app/models.py
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import (
     Column,
     String,
@@ -73,9 +75,31 @@ class Set(Base):
     retail_price = Column(Float, nullable=True)  # MSRP/RRP
     retail_currency = Column(String(8), nullable=True, server_default="USD")
 
-    # Retirement tracking (populated via BrickEconomy or manual curation)
+    # Brickset enrichment data
+    description = Column(String, nullable=True)
+    subtheme = Column(String, nullable=True, index=True)
+    minifigs = Column(Integer, nullable=True)
+    age_min = Column(Integer, nullable=True)
+    age_max = Column(Integer, nullable=True)
+    dimensions_height = Column(Float, nullable=True)  # box height cm
+    dimensions_width = Column(Float, nullable=True)   # box width cm
+    dimensions_depth = Column(Float, nullable=True)   # box depth cm
+    weight_kg = Column(Float, nullable=True)
+    barcode_ean = Column(String, nullable=True)
+    barcode_upc = Column(String, nullable=True)
+    launch_date = Column(String, nullable=True)  # e.g. "2024-01-01"
+    exit_date = Column(String, nullable=True)    # e.g. "2026-12-31"
+
+    # Retirement tracking (populated via Brickset)
     retirement_status = Column(String, nullable=True)  # "available" | "retiring_soon" | "retired"
     retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
+
+    # Custom tag (e.g. "GWP", "Insider Reward") — displayed instead of price
+    set_tag = Column(String, nullable=True)
+
+    # Admin overrides — tracks which fields were manually set by an admin.
+    # JSON array of field names, e.g. '["image_url", "launch_date"]'
+    admin_locked_fields = Column(Text, nullable=True)
 
     reviews = relationship(
         "Review",
@@ -214,7 +238,7 @@ class Offer(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     set_num = Column(String, nullable=False, index=True)
     store = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
+    price = Column(Float, nullable=True)  # Null for affiliate-only links without price data
     currency = Column(String(8), nullable=False, server_default="USD")
     url = Column(String, nullable=False)
     in_stock = Column(Boolean, nullable=True)  # True / False / None (unknown)
@@ -246,6 +270,18 @@ class Report(Base):
     )
 
 
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_name = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False)  # "running", "success", "failed"
+    stats_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class DealAlert(Base):
     __tablename__ = "deal_alerts"
 
@@ -262,3 +298,43 @@ class DealAlert(Base):
         UniqueConstraint("user_id", "set_num", "alert_type", name="deal_alerts_user_set_type_unique"),
         CheckConstraint("alert_type IN ('price_drop', 'retiring')", name="deal_alerts_type_check"),
     )
+
+
+class AdminSetting(Base):
+    """Key-value store for admin site settings (spotlight, featured themes, etc.)."""
+    __tablename__ = "admin_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by = Column(String, nullable=True)  # admin username
+
+
+# ---------------------------------------------------------------------------
+# Helpers for admin_locked_fields on Set
+# ---------------------------------------------------------------------------
+
+def get_locked_fields(set_row: Set) -> list[str]:
+    """Parse the admin_locked_fields JSON array from a Set row."""
+    raw = set_row.admin_locked_fields
+    if not raw:
+        return []
+    try:
+        result = json.loads(raw)
+        return result if isinstance(result, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def add_locked_fields(set_row: Set, fields: list[str]) -> None:
+    """Add field names to the locked list (deduplicated)."""
+    current = set(get_locked_fields(set_row))
+    current.update(fields)
+    set_row.admin_locked_fields = json.dumps(sorted(current))
+
+
+def remove_locked_fields(set_row: Set, fields: list[str]) -> None:
+    """Remove field names from the locked list."""
+    current = set(get_locked_fields(set_row))
+    current -= set(fields)
+    set_row.admin_locked_fields = json.dumps(sorted(current)) if current else None

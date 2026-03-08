@@ -78,6 +78,10 @@ const urgencyConfig: Record<UrgencyLevel, { label: string; bg: string; text: str
   unknown: { label: "Date TBD", bg: "bg-zinc-50", text: "text-zinc-500", dot: "bg-zinc-300" },
 };
 
+function getPieces(s: SetLite): number {
+  return typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Urgency Badge
 // ---------------------------------------------------------------------------
@@ -87,7 +91,7 @@ function UrgencyBadge({ dateStr }: { dateStr: string | null | undefined }) {
   const urgency = getUrgency(dateStr);
   const cfg = urgencyConfig[urgency];
 
-  if (urgency === "unknown") return null;
+  if (urgency === "unknown" || urgency === "later") return null;
 
   const label = days !== null && days <= 0
     ? "Retired"
@@ -106,117 +110,105 @@ function UrgencyBadge({ dateStr }: { dateStr: string | null | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
-// Hero Spotlight — most valuable retiring set
-// ---------------------------------------------------------------------------
-
-function HeroSpotlight({ set }: { set: SetLite }) {
-  const sn = String(set.set_num || "").trim();
-  const imgSrc = isSafeNextImageSrc(set.image_url) ? set.image_url!.trim() : null;
-  const pieces = typeof set.pieces === "number" ? set.pieces : typeof set.num_parts === "number" ? set.num_parts : null;
-  const price = typeof set.retail_price === "number" ? set.retail_price : null;
-  const retireDate = getRetireDate(set);
-
-  return (
-    <Link
-      href={`/sets/${sn}`}
-      prefetch={false}
-      className="mt-6 flex flex-col overflow-hidden rounded-2xl border border-red-100 bg-gradient-to-br from-red-50/60 to-white shadow-sm transition-colors hover:border-red-200 sm:flex-row"
-    >
-      {/* Image */}
-      <div className="relative aspect-[4/3] w-full shrink-0 bg-white sm:aspect-square sm:w-[280px]">
-        {imgSrc ? (
-          <Image
-            src={imgSrc}
-            alt={set.name || "Set image"}
-            fill
-            sizes="(max-width: 640px) 100vw, 280px"
-            className="object-contain p-6"
-            quality={80}
-            loading="eager"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-zinc-300">No image</div>
-        )}
-      </div>
-
-      {/* Details */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-5 sm:py-8">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-red-600">Don&apos;t miss</span>
-          <UrgencyBadge dateStr={retireDate} />
-        </div>
-        <h2 className="mt-1.5 text-xl font-semibold text-zinc-900 sm:text-2xl">{set.name}</h2>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
-          {set.theme ? <span>{set.theme}</span> : null}
-          {pieces ? <span>{pieces.toLocaleString()} pieces</span> : null}
-          {price ? <span className="font-semibold text-zinc-900">{formatPrice(price, "USD")}</span> : null}
-        </div>
-
-        {retireDate ? (
-          <div className="mt-2 text-xs text-zinc-400">
-            Expected retirement: {parseRetireDate(retireDate)?.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </div>
-        ) : null}
-      </div>
-    </Link>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Stats Bar
 // ---------------------------------------------------------------------------
 
 function StatsBar({ sets }: { sets: SetLite[] }) {
-  const criticalCount = useMemo(() => sets.filter((s) => getUrgency(getRetireDate(s)) === "critical").length, [sets]);
+  const julyCount = useMemo(
+    () => sets.filter((s) => (getRetireDate(s) || "").startsWith("2026-07")).length,
+    [sets],
+  );
 
-  const themeCount = useMemo(() => {
-    const uniq = new Set(sets.map((s) => (typeof s.theme === "string" ? s.theme.trim() : "")).filter(Boolean));
-    return uniq.size;
+  const decCount = useMemo(
+    () => sets.filter((s) => (getRetireDate(s) || "").startsWith("2026-12")).length,
+    [sets],
+  );
+
+  const biggestSet = useMemo(() => {
+    let best: SetLite | null = null;
+    let bestPieces = -1;
+    for (const s of sets) {
+      const p = getPieces(s);
+      if (p > bestPieces) {
+        bestPieces = p;
+        best = s;
+      }
+    }
+    return best;
   }, [sets]);
 
-  const totalValue = useMemo(() => {
-    return sets.reduce((acc, s) => acc + (typeof s.retail_price === "number" ? s.retail_price : 0), 0);
-  }, [sets]);
-
-  const stats = [
-    { value: sets.length, label: "sets", sub: "Retiring" },
-    { value: criticalCount, label: "urgent", sub: "Within 30 days" },
-    { value: themeCount, label: "themes", sub: "Represented" },
-    { value: formatPrice(totalValue, "USD") ?? "$0", label: "total value", sub: "At retail", isString: true },
-  ];
+  const biggestPieces = biggestSet ? getPieces(biggestSet) : 0;
+  const biggestImg = biggestSet && isSafeNextImageSrc(biggestSet.image_url) ? biggestSet.image_url!.trim() : null;
+  const biggestPrice = biggestSet && typeof biggestSet.retail_price === "number" ? biggestSet.retail_price : null;
 
   return (
     <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {stats.map((s) => (
-        <div key={s.label} className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold tracking-tight text-zinc-900">
-              {s.isString ? s.value : typeof s.value === "number" ? s.value.toLocaleString() : s.value}
-            </span>
+      {/* July 2026 */}
+      <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{julyCount}</span>
+        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Retiring July 2026</div>
+      </div>
+
+      {/* December 2026 */}
+      <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{decCount}</span>
+        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Retiring Dec 2026</div>
+      </div>
+
+      {/* Biggest set — spans 2 columns */}
+      {biggestSet ? (
+        <Link
+          href={`/sets/${biggestSet.set_num}`}
+          prefetch={false}
+          className="col-span-2 flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-zinc-300"
+        >
+          {biggestImg ? (
+            <div className="relative h-16 w-16 shrink-0">
+              <Image
+                src={biggestImg}
+                alt={biggestSet.name || "Set image"}
+                fill
+                sizes="64px"
+                className="object-contain"
+                quality={75}
+              />
+            </div>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-zinc-500">Most pieces retiring</div>
+            <div className="mt-0.5 truncate text-sm font-bold text-zinc-900">{biggestSet.name}</div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+              <span>{biggestPieces.toLocaleString()} pieces</span>
+              {biggestPrice ? <span className="font-semibold text-zinc-700">{formatPrice(biggestPrice, "USD")}</span> : null}
+            </div>
           </div>
-          <div className="mt-0.5 text-[11px] font-medium text-zinc-500">{s.sub}</div>
+        </Link>
+      ) : (
+        <div className="col-span-2 flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-sm text-zinc-400">No set data</span>
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Theme Filter Pills
+// Filter Pills
 // ---------------------------------------------------------------------------
 
-function ThemePills({
-  themes,
+function FilterPills<T extends string | number>({
+  items,
   active,
   onChange,
+  allLabel = "All",
 }: {
-  themes: string[];
-  active: string | null;
-  onChange: (v: string | null) => void;
+  items: T[];
+  active: T | null;
+  onChange: (v: T | null) => void;
+  allLabel?: string;
 }) {
   return (
-    <div className="mt-4 overflow-x-auto pb-1">
+    <div className="overflow-x-auto pb-1">
       <div className="flex gap-2">
         <button
           type="button"
@@ -227,20 +219,20 @@ function ThemePills({
               : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
           }`}
         >
-          All
+          {allLabel}
         </button>
-        {themes.map((t) => (
+        {items.map((item) => (
           <button
-            key={t}
+            key={String(item)}
             type="button"
-            onClick={() => onChange(t)}
+            onClick={() => onChange(item)}
             className={`shrink-0 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
-              active === t
+              active === item
                 ? "border-amber-500 bg-amber-500 text-black"
                 : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
             }`}
           >
-            {t}
+            {String(item)}
           </button>
         ))}
       </div>
@@ -249,7 +241,44 @@ function ThemePills({
 }
 
 // ---------------------------------------------------------------------------
-// Retirement Window Section (grouped by month)
+// Sort
+// ---------------------------------------------------------------------------
+
+type SortKey = "default" | "pieces-desc" | "pieces-asc" | "price-desc" | "price-asc" | "name-asc" | "rating-desc";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "default", label: "Default" },
+  { value: "pieces-desc", label: "Most pieces" },
+  { value: "pieces-asc", label: "Fewest pieces" },
+  { value: "price-desc", label: "Price: high to low" },
+  { value: "price-asc", label: "Price: low to high" },
+  { value: "name-asc", label: "A–Z" },
+  { value: "rating-desc", label: "Highest rated" },
+];
+
+function sortSets(sets: SetLite[], key: SortKey): SetLite[] {
+  if (key === "default") return sets;
+  const copy = [...sets];
+  switch (key) {
+    case "pieces-desc":
+      return copy.sort((a, b) => getPieces(b) - getPieces(a));
+    case "pieces-asc":
+      return copy.sort((a, b) => getPieces(a) - getPieces(b));
+    case "price-desc":
+      return copy.sort((a, b) => (b.retail_price ?? 0) - (a.retail_price ?? 0));
+    case "price-asc":
+      return copy.sort((a, b) => (a.retail_price ?? 0) - (b.retail_price ?? 0));
+    case "name-asc":
+      return copy.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    case "rating-desc":
+      return copy.sort((a, b) => (b.rating_avg ?? 0) - (a.rating_avg ?? 0));
+    default:
+      return copy;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Retirement Window Section (grouped by month, with its own sort)
 // ---------------------------------------------------------------------------
 
 function RetirementWindowSection({
@@ -265,7 +294,8 @@ function RetirementWindowSection({
   wish: Set<string>;
   token: string | null;
 }) {
-  // Determine overall urgency for header styling
+  const [sectionSort, setSectionSort] = useState<SortKey>("default");
+
   const urgency = useMemo(() => {
     const urgencies = sets.map((s) => getUrgency(getRetireDate(s)));
     if (urgencies.includes("critical")) return "critical";
@@ -275,31 +305,42 @@ function RetirementWindowSection({
 
   const cfg = urgencyConfig[urgency];
 
+  const sorted = useMemo(() => sortSets(sets, sectionSort), [sets, sectionSort]);
+
   return (
     <div>
-      <div className="flex items-center gap-3 px-1 pb-5">
-        <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-          {sets.length} {sets.length === 1 ? "set" : "sets"}
-        </span>
+      <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+            {sets.length} {sets.length === 1 ? "set" : "sets"}
+          </span>
+        </div>
+
+        <select
+          value={sectionSort}
+          onChange={(e) => setSectionSort(e.target.value as SortKey)}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm sm:w-auto"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
-        {sets.map((s) => {
+        {sorted.map((s) => {
           const sn = String(s.set_num || "").trim();
           if (!sn) return null;
 
           const isOwn = owned.has(sn);
           const isWish = !isOwn && wish.has(sn);
-
           const retireDate = getRetireDate(s);
 
           const footer = (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <UrgencyBadge dateStr={retireDate} />
-              </div>
+              <UrgencyBadge dateStr={retireDate} />
               {token ? (
                 <SetCardActions token={token} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
               ) : null}
@@ -334,35 +375,6 @@ export default function RetiringSoonClient({
 
   const allSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
 
-  // Hero: highest-rated or most expensive set retiring soonest
-  const heroSet = useMemo(() => {
-    if (!allSets.length) return null;
-
-    // Pick from sets retiring within 60 days, prefer highest piece count (flagship)
-    const urgent = allSets.filter((s) => {
-      const days = daysUntil(getRetireDate(s));
-      return days !== null && days > 0 && days <= 90;
-    });
-
-    const pool = urgent.length > 0 ? urgent : allSets;
-
-    let best: SetLite | null = null;
-    let bestScore = -1;
-
-    for (const s of pool) {
-      const pieces = typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : 0;
-      const price = typeof s.retail_price === "number" ? s.retail_price : 0;
-      // Score: weighted combo of pieces and price to find flagship sets
-      const score = pieces * 0.5 + price * 2;
-      if (score > bestScore) {
-        bestScore = score;
-        best = s;
-      }
-    }
-
-    return best;
-  }, [allSets]);
-
   // Filter by theme
   const filteredSets = useMemo(() => {
     if (!activeTheme) return allSets;
@@ -392,7 +404,6 @@ export default function RetiringSoonClient({
       if (!map.has(monthKey)) map.set(monthKey, []);
       map.get(monthKey)!.push(s);
     }
-    // Sort chronologically (earliest retirement first)
     return [...map.entries()].sort((a, b) => {
       if (a[0] === "Unknown") return 1;
       if (b[0] === "Unknown") return -1;
@@ -418,31 +429,25 @@ export default function RetiringSoonClient({
 
       {!initialError && allSets.length > 0 ? (
         <>
-          {/* Hero Spotlight */}
-          {heroSet ? <HeroSpotlight set={heroSet} /> : null}
-
           {/* Stats */}
           <StatsBar sets={allSets} />
 
           {/* Browse Section */}
-          <section className="mt-14">
+          <section className="mt-10">
             <h2 className="m-0 text-lg font-semibold text-zinc-900">Browse by theme</h2>
 
-            <ThemePills themes={topThemes} active={activeTheme} onChange={setActiveTheme} />
+            <div className="mt-3">
+              <FilterPills items={topThemes} active={activeTheme} onChange={setActiveTheme} allLabel="All themes" />
+            </div>
 
             {/* Result count */}
-            {(() => {
-              const visibleCount = retirementWindows.reduce((sum, [, s]) => sum + s.length, 0);
-              return (
-                <div className="mt-4 text-sm text-zinc-500">
-                  {visibleCount} {visibleCount === 1 ? "set" : "sets"}
-                  {activeTheme ? ` in ${activeTheme}` : ""}
-                </div>
-              );
-            })()}
+            <div className="mt-4 text-sm text-zinc-500">
+              {filteredSets.length} {filteredSets.length === 1 ? "set" : "sets"}
+              {activeTheme ? ` in ${activeTheme}` : ""}
+            </div>
 
-            {/* Retirement window-grouped sets */}
-            <div className="mt-4 space-y-10">
+            {/* Retirement windows with per-section sort */}
+            <div className="mt-6 space-y-12">
               {retirementWindows.length === 0 ? (
                 <div className="py-10 text-center text-sm text-zinc-400">No sets match your filters.</div>
               ) : (

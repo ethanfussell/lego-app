@@ -8,8 +8,8 @@ export type MonthKey =
  * Keys are "YYYY-MM".
  */
 export const FEATURED_THEMES_BY_MONTH: Partial<Record<MonthKey, string[]>> = {
-  "2026-03": ["Star Wars", "Technic", "Icons"],
-  "2026-04": ["City", "Friends", "Ninjago"],
+  "2026-03": ["Friends", "City", "Technic"],
+  "2026-04": ["Star Wars", "Harry Potter", "Ninjago"],
 };
 
 /** Fallback if a month isn't listed. */

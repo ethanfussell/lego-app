@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
+import { notifyCollectionChanged } from "@/lib/useCollectionStatus";
 import { formatPrice } from "@/lib/format";
 import { safeImageSrc } from "@/lib/image";
 export type { SetLite } from "@/lib/types";
@@ -29,7 +30,7 @@ function CardImage({
       <img
         src={src}
         alt={alt}
-        className="h-full w-full object-contain p-4"
+        className="h-full w-full object-contain p-2"
         loading="lazy"
         decoding="async"
       />
@@ -42,7 +43,7 @@ function CardImage({
       alt={alt}
       fill
       sizes={sizes}
-      className="object-contain p-4"
+      className="object-contain p-2"
       quality={quality}
       loading="lazy"
       placeholder="empty"
@@ -177,7 +178,7 @@ function imageSizesForVariant(variant: Props["variant"]) {
 export function SetCardSkeleton() {
   return (
     <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white animate-pulse">
-      <div className="aspect-[4/3] w-full bg-zinc-100 rounded-t-2xl" />
+      <div className="aspect-square w-full bg-zinc-200/50 rounded-t-2xl" />
       <div className="px-4 pb-4 pt-3 space-y-2">
         <div className="h-4 w-3/4 rounded bg-zinc-200" />
         <div className="h-3 w-1/2 rounded bg-zinc-100" />
@@ -214,11 +215,13 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     const original =
       typeof set.original_price === "number"
         ? set.original_price
-        : typeof set.price === "number"
-          ? set.price
-          : typeof set.price_from === "number"
-            ? set.price_from
-            : null;
+        : typeof set.retail_price === "number"
+          ? set.retail_price
+          : typeof set.price === "number"
+            ? set.price
+            : typeof set.price_from === "number"
+              ? set.price_from
+              : null;
 
     return { original, sale };
   }, [set]);
@@ -246,6 +249,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
 
       setUserRating(n);
       setShowRate(false);
+      notifyCollectionChanged();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setRateErr(msg);
@@ -260,7 +264,7 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300 transition-colors">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
-        <div className="aspect-[4/3] w-full overflow-hidden rounded-t-2xl bg-zinc-100">
+        <div className="aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
           {imgSrc ? (
             <div className="relative h-full w-full">
               <CardImage src={imgSrc} alt={title} sizes={imageSizesForVariant(variant)} quality={70} />
@@ -271,49 +275,52 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
         </div>
 
         {/* Body */}
-        <div className="px-4 pb-4 pt-3">
+        <div className="px-3 pb-3 pt-2.5">
           <TitleTwoLines title={title} />
 
-          <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-            <span className="truncate">{set.set_num}</span>
-            <span aria-hidden="true">&bull;</span>
-            <span className="shrink-0">{year}</span>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-500">
-            <div className="truncate">{pieces != null ? `${pieces.toLocaleString()} pcs` : "\u2014"}</div>
+          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="truncate">{set.set_num}</span>
+              <span aria-hidden="true">&middot;</span>
+              <span className="shrink-0">{year}</span>
+            </div>
 
             {globalRatingCompact ? (
-              <div className="flex items-center gap-1 whitespace-nowrap">
+              <div className="flex items-center gap-0.5 whitespace-nowrap">
+                <StarIcon className="h-3 w-3 text-amber-500" />
                 <span className="font-semibold text-amber-600">{globalRatingCompact.text}</span>
-                <StarIcon className="h-4 w-4 text-amber-500" />
-                {typeof globalRatingCompact.count === "number" ? (
-                  <span className="text-zinc-500">({globalRatingCompact.count})</span>
-                ) : null}
               </div>
-            ) : (
-              <span className="text-zinc-600">&nbsp;</span>
-            )}
+            ) : null}
           </div>
 
-          {showPrice ? (
-            <div className="mt-2 flex items-baseline gap-2 text-sm">
-              {typeof price.sale === "number" &&
-              typeof price.original === "number" &&
-              Number.isFinite(price.sale) &&
-              Number.isFinite(price.original) &&
-              price.sale < price.original ? (
-                <>
-                  <span className="font-semibold text-zinc-900">{formatPrice(price.sale)}</span>
-                  <span className="text-xs text-zinc-500 line-through">{formatPrice(price.original)}</span>
-                </>
-              ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
-                <span className="font-semibold text-zinc-900">{formatPrice(price.original)}</span>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">
+              {pieces != null ? `${pieces.toLocaleString()} pcs` : "\u2014"}
+            </span>
+
+            {showPrice ? (
+              typeof set.set_tag === "string" && set.set_tag.trim() ? (
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                  {set.set_tag}
+                </span>
               ) : (
-                <span className="text-xs text-zinc-600">&nbsp;</span>
-              )}
-            </div>
-          ) : null}
+                <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                  {typeof price.sale === "number" &&
+                  typeof price.original === "number" &&
+                  Number.isFinite(price.sale) &&
+                  Number.isFinite(price.original) &&
+                  price.sale < price.original ? (
+                    <>
+                      <span className="text-sm font-bold text-zinc-900">{formatPrice(price.sale)}</span>
+                      <span className="text-[10px] text-zinc-400 line-through">{formatPrice(price.original)}</span>
+                    </>
+                  ) : typeof price.original === "number" && Number.isFinite(price.original) ? (
+                    <span className="text-sm font-bold text-zinc-900">{formatPrice(price.original)}</span>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+          </div>
         </div>
       </Link>
 

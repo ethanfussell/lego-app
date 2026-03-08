@@ -172,14 +172,14 @@ export default function ThemeDetailClient(props: {
               <div key={s.set_num} className="h-full">
                 <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300">
                   <Link className="block flex-1" href={`/sets/${encodeURIComponent(s.set_num)}`}>
-                    <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-100">
+                    <div className="relative aspect-square w-full overflow-hidden bg-white">
                       {imgSrc ? (
                         <Image
                           src={imgSrc}
                           alt={s.name}
                           fill
                           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                          className="object-contain p-4"
+                          className="object-contain p-2"
                           loading="lazy"
                         />
                       ) : null}

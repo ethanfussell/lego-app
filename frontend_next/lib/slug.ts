@@ -51,10 +51,14 @@ export function themeToSlug(theme: unknown, mode: "route" | "stable" = "route"):
   // Examples:
   // "Star Wars" -> "star-wars"
   // "Make & Create" -> "make-and-create"
-  // "Gabby's Dollhouse" -> "gabbys-dollhouse"
+  // "Gabby’s Dollhouse" -> "gabbys-dollhouse"
   // "Avatar: The Last Airbender" -> "avatar-the-last-airbender"
   // "Dino Attack / Dino 2010" -> "dino-attack-dino-2010"
+  // "Pokémon" -> "pokemon"
   let s = cleaned.toLowerCase();
+
+  // Strip diacritics: é → e, ü → u, etc.
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
   // normalize slash-like separators to spaces
   s = s.replace(/\s*\/\s*/g, " ");
@@ -63,10 +67,9 @@ export function themeToSlug(theme: unknown, mode: "route" | "stable" = "route"):
   s = s.replace(/&/g, " and ");
 
   // remove apostrophes/quotes
-  s = s.replace(/['’"]/g, "");
+  s = s.replace(/[‘’"]/g, "");
 
-  // replace any non-alphanumeric with spaces (keeps unicode letters? we keep ascii only here)
-  // If you want to keep unicode letters, change to: /[^\p{L}\p{N}]+/gu with a TS target that supports it.
+  // replace any non-alphanumeric with spaces
   s = s.replace(/[^a-z0-9]+/g, " ");
 
   s = normalizeSpaces(s);

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
+from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
@@ -34,7 +35,15 @@ from app.routers import admin as admin_router
 from app.routers import reports as reports_router
 from app.routers import alerts as alerts_router
 
-app = FastAPI(title="LEGO API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.core.scheduler import start_scheduler, shutdown_scheduler
+    start_scheduler()
+    yield
+    shutdown_scheduler()
+
+
+app = FastAPI(title="LEGO API", lifespan=lifespan)
 
 # ---------------------------
 # Rate limiting
@@ -58,6 +67,29 @@ async def add_headers(request: Request, call_next):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-XSS-Protection"] = "1; mode=block"
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Cache headers for read-only GET endpoints
+    # Skip auth-sensitive routes, admin, and user-specific endpoints
+    if request.method == "GET" and resp.status_code < 400:
+        path = request.url.path
+        _no_cache_prefixes = (
+            "/admin", "/collections/me", "/auth", "/reviews/me",
+            "/lists/me", "/db/", "/health",
+        )
+        has_auth = "authorization" in request.headers
+
+        if not any(path.startswith(p) for p in _no_cache_prefixes):
+            if has_auth:
+                # Authenticated user: private cache, shorter TTL
+                resp.headers.setdefault(
+                    "Cache-Control", "private, max-age=60"
+                )
+            else:
+                # Public data: CDN-cacheable, 5 min fresh + serve stale up to 1 hr
+                resp.headers.setdefault(
+                    "Cache-Control",
+                    "public, max-age=300, s-maxage=300, stale-while-revalidate=3600"
+                )
 
     # Debug headers (only in dev, not production)
     if not _is_production:
