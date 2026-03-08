@@ -59,10 +59,22 @@ def put_rating(
   if not sn:
     raise HTTPException(status_code=400, detail="Missing set_num")
 
-  review = ReviewModel(set_num=sn, rating=float(payload.rating))
-  _assign_review_user(review, user)
+  # Upsert: update existing review if one exists, otherwise create new
+  existing = db.execute(
+    select(ReviewModel).where(
+      ReviewModel.user_id == user.id,
+      ReviewModel.set_num == sn,
+    ).limit(1)
+  ).scalar_one_or_none()
 
-  db.add(review)
+  if existing:
+    existing.rating = float(payload.rating)
+    review = existing
+  else:
+    review = ReviewModel(set_num=sn, rating=float(payload.rating))
+    _assign_review_user(review, user)
+    db.add(review)
+
   db.commit()
 
   # Auto-move from wishlist → owned when a user rates a set
