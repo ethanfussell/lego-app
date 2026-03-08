@@ -8,6 +8,7 @@ import { useAuth } from "@/app/providers";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import type { SetLite } from "@/lib/types";
 
 type ListDetail = {
@@ -82,6 +83,7 @@ export default function ListDetailClient(props: {
 
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
   const toast = useToast();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
@@ -452,7 +454,7 @@ export default function ListDetailClient(props: {
                     set={s as unknown as SetCardSetProp}
                     footer={
                       <div className="space-y-2">
-                        {token ? <SetCardActions token={token} setNum={sn} /> : null}
+                        {token ? <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} /> : null}
 
                         <button
                           type="button"

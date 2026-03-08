@@ -418,7 +418,7 @@ export default function CollectionOwnedClient() {
             const plain = toPlain(s.set_num);
             return (
               <li key={s.set_num} className="space-y-2">
-                <SetCard set={s} variant="owned" footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : null} />
+                <SetCard set={s} variant="owned" footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned /> : null} />
 
                 <button
                   type="button"

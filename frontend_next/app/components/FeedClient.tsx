@@ -6,6 +6,7 @@ import SetCard, { type SetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import { isRecord } from "@/lib/types";
 
 type QueryParams = {
@@ -20,8 +21,6 @@ type FeedClientProps = {
   title: string;
   description?: string;
   queryParams?: QueryParams;
-  ownedSetNums?: Set<string>;
-  wishlistSetNums?: Set<string>;
 };
 
 function errorMessage(e: unknown) {
@@ -81,10 +80,9 @@ export default function FeedClient({
   title,
   description,
   queryParams,
-  ownedSetNums,
-  wishlistSetNums,
 }: FeedClientProps) {
   const { token } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
 
   const qp = useMemo<QueryParams>(() => queryParams ?? {}, [queryParams]);
   const qpKey = useMemo(() => JSON.stringify(qp), [qp]);
@@ -150,25 +148,13 @@ export default function FeedClient({
           {sets.map((s) => {
             const sn = s.set_num; // guaranteed string
 
-            const owned = ownedSetNums?.has(sn) ?? false;
-            const wished = wishlistSetNums?.has(sn) ?? false;
-
             return (
               <li key={sn} className="w-full max-w-[260px]">
                 <SetCard
                   set={s}
                   footer={
                     token ? (
-                      <div className="space-y-2">
-                        {owned || wished ? (
-                          <div className="text-xs font-semibold text-zinc-500">
-                            {owned ? "In Owned" : null}
-                            {owned && wished ? " · " : null}
-                            {wished ? "In Wishlist" : null}
-                          </div>
-                        ) : null}
-                        <SetCardActions token={token} setNum={sn} />
-                      </div>
+                      <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} />
                     ) : null
                   }
                 />

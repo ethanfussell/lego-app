@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
 import SetCard, { type SetLite } from "./components/SetCard";
 import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import SetCardActions from "@/app/components/SetCardActions";
 import WelcomeBanner from "@/app/components/WelcomeBanner";
 import AdSlot from "@/app/components/AdSlot";
@@ -21,6 +22,9 @@ type PublicList = {
   items_count?: number | null;
   owner?: string | null;
   owner_username?: string | null;
+  username?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 };
 
 const CARD_MIN_WIDTH = 220;
@@ -176,6 +180,7 @@ function SectionHeader({
 
 export default function HomeClient({ newSets, popularSets, lists }: Props) {
   const { token, me, isAuthed } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /* resolve featured lists from the public lists data */
@@ -314,7 +319,7 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
                   key={s.set_num}
                   className="w-[220px] shrink-0 snap-start sm:w-[240px]"
                 >
-                  <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : undefined} />
+                  <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
                 </div>
               ))}
             </div>
@@ -336,7 +341,7 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {popularSets.map((s) => (
-              <SetCard key={s.set_num} set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : undefined} />
+              <SetCard key={s.set_num} set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
             ))}
           </div>
         </section>

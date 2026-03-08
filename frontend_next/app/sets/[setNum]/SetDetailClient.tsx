@@ -12,6 +12,7 @@ import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import AddToListMenu from "@/app/components/AddToListMenu";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import OffersSection, { type Offer as UiOffer } from "@/app/components/OffersSection";
 import EmailCapture from "@/app/components/EmailCapture";
 import Breadcrumbs from "@/app/components/Breadcrumbs";
@@ -65,36 +66,6 @@ type SetDetail = {
   retired?: boolean;
 };
 
-type ShopPill = "Retired" | "Retiring" | "Available" | "Out of stock" | "Unknown";
-
-function computeShopPill(isRetired: boolean, summaryStatus: string | null, offers: UiOffer[]): ShopPill {
-  if (isRetired) return "Retired";
-  if (summaryStatus === "retiring_soon") return "Retiring";
-
-  const arr = Array.isArray(offers) ? offers : [];
-  if (arr.length === 0) return "Unknown";
-
-  const anyIn = arr.some((o) => o?.in_stock === true);
-  if (anyIn) return "Available";
-
-  const anyUnknown = arr.some((o) => o?.in_stock == null);
-  if (anyUnknown) return "Unknown";
-
-  return "Out of stock";
-}
-
-function shopPillClasses(pill: ShopPill): string {
-  switch (pill) {
-    case "Available":
-      return "bg-emerald-50 text-emerald-700 border-emerald-500/20";
-    case "Retiring":
-      return "bg-amber-50 text-amber-700 border-amber-500/20";
-    case "Retired":
-      return "bg-red-50 text-red-700 border-red-500/20";
-    default:
-      return "bg-zinc-100 text-zinc-500 border-zinc-500/20";
-  }
-}
 
 // Backend offer shape (flexible)
 type ApiOffer = {
@@ -297,6 +268,7 @@ export default function SetDetailClient(props: Props) {
 
   const { token, hydrated } = useAuth();
   const toast = useToast();
+  const { isOwned, isWishlist } = useCollectionStatus();
   const isLoggedIn = hydrated && typeof token === "string" && token.trim().length > 0;
 
   const PREVIEW_SIMILAR_LIMIT = 12;
@@ -416,11 +388,6 @@ export default function SetDetailClient(props: Props) {
   }, [reviews, reviewSort]);
 
   const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
-
-  const shopPill: ShopPill = useMemo(() => {
-    const retired = setDetail?.status === "retired" || setDetail?.is_retired === true || setDetail?.retired === true;
-    return computeShopPill(retired, offersData?.summary?.status ?? null, uiOffers);
-  }, [setDetail?.status, setDetail?.is_retired, setDetail?.retired, offersData?.summary?.status, uiOffers]);
 
   const bestPrice = useMemo(() => {
     const priced = uiOffers
@@ -1062,7 +1029,6 @@ export default function SetDetailClient(props: Props) {
 
   const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
-  const isRetired = setDetail.status === "retired" || setDetail.is_retired === true || setDetail.retired === true;
   const heroImgSrc = asTrimmedString(image_url);
 
   return (
@@ -1081,7 +1047,7 @@ export default function SetDetailClient(props: Props) {
       {/* HERO */}
       <section className="mt-8 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
-          <div className="grid min-h-[260px] place-items-center rounded-2xl border border-zinc-100 bg-zinc-100 p-5 bg-gradient-to-b from-amber-500/[.03] to-transparent">
+          <div className="grid min-h-[260px] place-items-center rounded-2xl border border-zinc-200 bg-white p-5">
             {heroImgSrc ? (
               <HeroImage src={heroImgSrc} alt={name || setNum} sizes={heroImageSizes()} quality={IMAGE_QUALITY} />
             ) : (
@@ -1123,15 +1089,9 @@ export default function SetDetailClient(props: Props) {
             </p>
           ) : null}
 
-          {typeof parts === "number" ? <p className="mt-1 text-sm text-zinc-500">{parts.toLocaleString()} pieces</p> : null}
-
-          {description ? (
-            <p className="mt-3 text-sm leading-relaxed text-zinc-500">{description}</p>
-          ) : null}
-
-          <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold ${shopPillClasses(shopPill)}`}>
-            {shopPill}
-          </span>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {typeof parts === "number" ? <span className="text-sm text-zinc-500">{parts.toLocaleString()} pieces</span> : null}
+          </div>
 
           <p className="mt-3 text-sm text-zinc-600">
             ⭐{" "}
@@ -1156,7 +1116,13 @@ export default function SetDetailClient(props: Props) {
           <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-[220px]">
-                <AddToListMenu token={token || ""} setNum={setNum} />
+                <AddToListMenu
+                  token={token || ""}
+                  setNum={setNum}
+                  initialOwnedSelected={isOwned(setNum)}
+                  initialWishlistSelected={isWishlist(setNum)}
+                  fullWidth
+                />
               </div>
             </div>
 
@@ -1269,9 +1235,6 @@ export default function SetDetailClient(props: Props) {
             <p className="mt-1 text-sm text-zinc-500">Compare retailers and find the best price.</p>
           </div>
 
-          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${shopPillClasses(shopPill)}`}>
-            {shopPill}
-          </span>
         </div>
 
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
@@ -1647,7 +1610,7 @@ export default function SetDetailClient(props: Props) {
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
-                      <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} /> : undefined} />
+                      <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
                     </li>
                   ))}
                 </ul>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 
 type SetSummary = {
   set_num: string;
@@ -35,6 +36,7 @@ function toSetCardSet(s: SetSummary): SetCardSetProp {
 
 export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
   const { token } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
   const cardSets = useMemo(() => sets.map(toSetCardSet), [sets]);
 
   return (
@@ -48,7 +50,7 @@ export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
               set={setForCard}
               footer={
                 <div className="space-y-2">
-                  <SetCardActions token={token ?? null} setNum={original.set_num} />
+                  <SetCardActions token={token ?? null} setNum={original.set_num} isOwned={isOwned(original.set_num)} isWishlist={isWishlist(original.set_num)} />
                   <Link
                     href={`/sets/${encodeURIComponent(original.set_num)}`}
                     className="block text-center text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline"

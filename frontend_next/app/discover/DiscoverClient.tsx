@@ -12,6 +12,7 @@ import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 
 export type DiscoverInitial = {
   q: string; // kept for compatibility, but Discover ignores it
@@ -99,6 +100,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
   const router = useRouter();
   const sp = useSearchParams();
   const { token } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
 
   const sort = normalizeSort(sp.get("sort") ?? initial.sort);
   const order = normalizeOrder(sp.get("order") ?? initial.order);
@@ -239,7 +241,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
           <div className="mt-2 grid grid-cols-[repeat(auto-fill,220px)] gap-4">
             {results.map((set) => (
               <div key={set.set_num}>
-                <SetCard set={set} footer={token ? <SetCardActions token={token} setNum={set.set_num} /> : undefined} />
+                <SetCard set={set} footer={token ? <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} /> : undefined} />
               </div>
             ))}
           </div>

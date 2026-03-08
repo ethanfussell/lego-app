@@ -10,6 +10,7 @@ import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
 import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 
 const PREVIEW_COUNT = 10;
 
@@ -151,6 +152,7 @@ function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
 
 export default function CollectionClient() {
   const { token } = useAuth();
+  const { isOwned, isWishlist } = useCollectionStatus();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -168,9 +170,9 @@ export default function CollectionClient() {
   const renderFooterForSet = useCallback(
     (set: CardSetLite) => {
       if (!token) return null;
-      return <SetCardActions token={token} setNum={set.set_num} />;
+      return <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} />;
     },
-    [token]
+    [token, isOwned, isWishlist]
   );
 
   const refreshAll = useCallback(async () => {

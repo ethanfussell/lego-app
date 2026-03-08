@@ -9,10 +9,14 @@ import { outboundClick } from "@/lib/ga";
 export default function SetCardActions({
   token,
   setNum,
+  isOwned = false,
+  isWishlist = false,
   className = "",
 }: {
   token?: string | null;
   setNum: string;
+  isOwned?: boolean;
+  isWishlist?: boolean;
   className?: string;
 }) {
   const shopHref = `/sets/${encodeURIComponent(setNum)}#shop`;
@@ -50,6 +54,8 @@ export default function SetCardActions({
           <AddToListMenu
             token={token}
             setNum={setNum}
+            initialOwnedSelected={isOwned}
+            initialWishlistSelected={isWishlist}
             fullWidth
             buttonClassName={["w-full justify-center", "px-4 py-2 text-sm font-semibold"].join(" ")}
           />
