@@ -245,15 +245,15 @@ function HeroSpotlight({ set, newCount, retiringCount }: { set: SetLite | null; 
               </>
             )}
           </div>
-          {(set.retail_price || set.sale_price) && (
+          {(set.original_price || set.sale_price) && (
             <div className="mt-3 flex items-baseline gap-2">
-              {typeof set.sale_price === "number" && typeof set.retail_price === "number" && set.sale_price < set.retail_price ? (
+              {typeof set.sale_price === "number" && typeof set.original_price === "number" && set.sale_price < set.original_price ? (
                 <>
                   <span className="text-xl font-bold text-green-700">{formatPrice(set.sale_price)}</span>
-                  <span className="text-sm text-zinc-400 line-through">{formatPrice(set.retail_price)}</span>
+                  <span className="text-sm text-zinc-400 line-through">{formatPrice(set.original_price)}</span>
                 </>
               ) : (
-                <span className="text-xl font-bold text-zinc-900">{formatPrice(set.retail_price)}</span>
+                <span className="text-xl font-bold text-zinc-900">{formatPrice(set.original_price)}</span>
               )}
             </div>
           )}

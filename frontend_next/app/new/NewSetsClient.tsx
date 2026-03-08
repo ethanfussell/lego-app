@@ -47,7 +47,7 @@ function HeroSpotlight({ set }: { set: SetLite }) {
   const sn = String(set.set_num || "").trim();
   const imgSrc = isSafeNextImageSrc(set.image_url) ? set.image_url!.trim() : null;
   const pieces = typeof set.pieces === "number" ? set.pieces : null;
-  const price = typeof set.retail_price === "number" ? set.retail_price : null;
+  const price = typeof set.original_price === "number" ? set.original_price : null;
 
   return (
     <Link

@@ -215,13 +215,11 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     const original =
       typeof set.original_price === "number"
         ? set.original_price
-        : typeof set.retail_price === "number"
-          ? set.retail_price
-          : typeof set.price === "number"
-            ? set.price
-            : typeof set.price_from === "number"
-              ? set.price_from
-              : null;
+        : typeof set.price === "number"
+          ? set.price
+          : typeof set.price_from === "number"
+            ? set.price_from
+            : null;
 
     return { original, sale };
   }, [set]);
