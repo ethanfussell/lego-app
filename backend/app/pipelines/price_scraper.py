@@ -36,7 +36,7 @@ HEADERS = {
 
 REQUEST_TIMEOUT = 20.0
 THROTTLE_SECONDS = 2.0
-MAX_SETS_PER_RUN = 100
+MAX_SETS_PER_RUN = 200
 
 
 def _build_amazon_url(set_num_plain: str, name: str) -> str:
@@ -125,16 +125,40 @@ def _scrape_lego_product_page(
 
 
 def _get_active_sets(db: Session) -> list[dict]:
-    """Get sets from current year +/- 1 to scrape prices for."""
+    """Get sets from current year +/- 1 to scrape prices for.
+
+    Prioritises sets that have never been checked (no LEGO offer) or were
+    checked the longest time ago, so that every eligible set is eventually
+    reached across successive runs.
+    """
     current_year = datetime.now().year
+
+    # Left-join to the LEGO offer so we can sort by last_checked (NULL first)
+    from sqlalchemy import func, case
+    from sqlalchemy.orm import aliased
+
+    lego_offer = aliased(OfferModel)
 
     rows = db.execute(
         select(SetModel.set_num, SetModel.name, SetModel.year)
+        .outerjoin(
+            lego_offer,
+            and_(
+                func.replace(SetModel.set_num, "-1", "") == lego_offer.set_num,
+                lego_offer.store == "LEGO",
+            ),
+        )
         .where(
             SetModel.year >= current_year - 1,
             SetModel.year <= current_year + 1,
         )
-        .order_by(SetModel.year.desc(), SetModel.set_num.asc())
+        .order_by(
+            # Never-checked sets first, then oldest-checked first
+            case((lego_offer.last_checked.is_(None), 0), else_=1),
+            lego_offer.last_checked.asc(),
+            SetModel.year.desc(),
+            SetModel.set_num.asc(),
+        )
         .limit(MAX_SETS_PER_RUN)
     ).all()
 
