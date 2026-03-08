@@ -70,8 +70,9 @@ async function fetchThemePage1(themeName: string): Promise<{ sets: SetSummary[];
   if (res.status === 404) return "notfound";
   if (!res.ok) return { sets: [], total: 0 };
 
-  const totalHeader = res.headers.get("x-total-count");
-  const total = totalHeader ? parseInt(totalHeader, 10) : 0;
+  const totalHeader = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
+  const parsed = totalHeader ? parseInt(totalHeader, 10) : 0;
+  const total = Number.isFinite(parsed) ? parsed : 0;
 
   const data: unknown = await res.json().catch(() => null);
   return { sets: toSetSummaryArray(data), total };

@@ -84,7 +84,7 @@ export default function ThemeDetailClient(props: {
   const themeName = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
 
   const [sets, setSets] = useState<SetSummary[]>(initialSets);
-  const [total, setTotal] = useState(initialTotal);
+  const [total, setTotal] = useState(initialTotal || initialSets.length);
   const [page, setPage] = useState(1);
   const [sortValue, setSortValue] = useState<SortValue>("year_desc");
   const [loading, setLoading] = useState(false);
