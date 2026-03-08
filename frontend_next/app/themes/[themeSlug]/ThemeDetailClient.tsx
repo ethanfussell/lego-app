@@ -229,7 +229,7 @@ export default function ThemeDetailClient(props: {
 
       {/* Results grid */}
       {!loading && sets.length > 0 && (
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-6 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
           {cardSets.map((setForCard, idx) => {
             const original = sets[idx];
             return (
