@@ -170,10 +170,18 @@ async function fetchSpotlight(): Promise<SetLite | null> {
 
 export type SectionConfig = Record<string, { title?: string; subtitle?: string; limit?: number; min_rating?: number }>;
 
-async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectionConfig: SectionConfig }> {
+export type QuickExploreCard = {
+  label: string;
+  href: string;
+  icon: string;
+  color: string;
+};
+
+async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectionConfig: SectionConfig; quickExploreCards: QuickExploreCard[] | null }> {
   const raw = await fetchJSON("/sets/discover-page-config");
   let hiddenSections: string[] = [];
   let sectionConfig: SectionConfig = {};
+  let quickExploreCards: QuickExploreCard[] | null = null;
 
   if (isRecord(raw)) {
     if (typeof raw.discover_hidden_sections === "string") {
@@ -188,9 +196,22 @@ async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectio
         if (typeof parsed === "object" && parsed !== null) sectionConfig = parsed;
       } catch { /* ignore */ }
     }
+    if (typeof raw.quick_explore_cards === "string") {
+      try {
+        const parsed = JSON.parse(raw.quick_explore_cards);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          quickExploreCards = parsed.filter(
+            (c: unknown) =>
+              typeof c === "object" && c !== null &&
+              typeof (c as QuickExploreCard).label === "string" &&
+              typeof (c as QuickExploreCard).href === "string",
+          );
+        }
+      } catch { /* ignore */ }
+    }
   }
 
-  return { hiddenSections, sectionConfig };
+  return { hiddenSections, sectionConfig, quickExploreCards };
 }
 
 export type DiscoverData = {
@@ -204,6 +225,7 @@ export type DiscoverData = {
   spotlight: SetLite | null;
   hiddenSections: string[];
   sectionConfig: SectionConfig;
+  quickExploreCards: QuickExploreCard[] | null;
 };
 
 export default async function Page() {
@@ -231,6 +253,7 @@ export default async function Page() {
     spotlight,
     hiddenSections: discoverConfig.hiddenSections,
     sectionConfig: discoverConfig.sectionConfig,
+    quickExploreCards: discoverConfig.quickExploreCards,
   };
 
   return <DiscoverHub data={data} />;

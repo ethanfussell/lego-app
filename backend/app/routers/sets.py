@@ -936,7 +936,7 @@ def discover_page_config(db: Session = Depends(get_db)):
     settings: Dict[str, Any] = {}
     rows = db.execute(
         select(AdminSetting).where(
-            AdminSetting.key.in_(["discover_hidden_sections", "discover_section_config"])
+            AdminSetting.key.in_(["discover_hidden_sections", "discover_section_config", "quick_explore_cards"])
         )
     ).scalars().all()
 

@@ -60,6 +60,7 @@ ALLOWED_SETTINGS = {
     "discover_section_config",
     "themes_excluded",
     "themes_custom_images",
+    "quick_explore_cards",
 }
 
 

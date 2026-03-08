@@ -1267,6 +1267,42 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Quick Explore card types & presets
+// ---------------------------------------------------------------------------
+
+type QuickExploreCard = {
+  label: string;
+  href: string;
+  icon: string;
+  color: string;
+};
+
+const COLOR_PRESETS: { id: string; label: string; value: string }[] = [
+  { id: "green", label: "Green", value: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { id: "blue", label: "Blue", value: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { id: "amber", label: "Amber", value: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { id: "purple", label: "Purple", value: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
+  { id: "orange", label: "Orange", value: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
+  { id: "teal", label: "Teal", value: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
+  { id: "rose", label: "Rose", value: "from-rose-50 to-pink-50 border-rose-200 hover:border-rose-300" },
+  { id: "zinc", label: "Gray", value: "from-zinc-50 to-slate-50 border-zinc-200 hover:border-zinc-300" },
+];
+
+function colorPresetId(colorValue: string): string {
+  const match = COLOR_PRESETS.find((p) => p.value === colorValue);
+  return match ? match.id : COLOR_PRESETS[0].id;
+}
+
+const DEFAULT_QUICK_EXPLORE_CARDS: QuickExploreCard[] = [
+  { label: "Under $30", href: "/search?max_price=30", icon: "💰", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { label: "500+ Pieces", href: "/search?min_pieces=500", icon: "🧱", color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { label: "Top Rated", href: "/search?sort=rating&order=desc", icon: "⭐", color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { label: "Display Sets", href: "/themes/Icons", icon: "🏛️", color: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
+  { label: "For Kids", href: "/themes/City", icon: "👦", color: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
+  { label: "Most Pieces", href: "/pieces/most", icon: "🏗️", color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
+];
+
+// ---------------------------------------------------------------------------
 // Discover Controls Section
 // ---------------------------------------------------------------------------
 
@@ -1291,6 +1327,7 @@ function DiscoverControlsSection({ token }: { token: string }) {
 
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
   const [sectionConfig, setSectionConfig] = useState<SectionConfigMap>({});
+  const [quickExploreCards, setQuickExploreCards] = useState<QuickExploreCard[]>(DEFAULT_QUICK_EXPLORE_CARDS);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1319,6 +1356,20 @@ function DiscoverControlsSection({ token }: { token: string }) {
           try {
             const parsed = JSON.parse(configVal);
             if (!cancelled && typeof parsed === "object" && parsed !== null) setSectionConfig(parsed);
+          } catch { /* ignore */ }
+        }
+
+        const cardsVal = data?.quick_explore_cards?.value;
+        if (cardsVal) {
+          try {
+            const parsed = JSON.parse(cardsVal);
+            if (!cancelled && Array.isArray(parsed) && parsed.length > 0) {
+              setQuickExploreCards(parsed.filter((c: unknown) =>
+                typeof c === "object" && c !== null &&
+                typeof (c as QuickExploreCard).label === "string" &&
+                typeof (c as QuickExploreCard).href === "string"
+              ));
+            }
           } catch { /* ignore */ }
         }
 
@@ -1370,6 +1421,11 @@ function DiscoverControlsSection({ token }: { token: string }) {
           method: "PUT",
           token,
           body: { value: JSON.stringify(sectionConfig) },
+        }),
+        apiFetch(`/admin/settings/quick_explore_cards`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(quickExploreCards) },
         }),
       ]);
       await revalidatePage("/discover");
@@ -1522,8 +1578,101 @@ function DiscoverControlsSection({ token }: { token: string }) {
                       </div>
                     )}
 
+                    {/* Quick Explore cards editor */}
+                    {section.id === "quick_explore" && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-2">Cards</label>
+                        <div className="space-y-2">
+                          {quickExploreCards.map((card, idx) => (
+                            <div key={idx} className="flex flex-wrap items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+                              <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <span className="text-lg">{card.icon}</span>
+                                <input
+                                  type="text"
+                                  value={card.icon}
+                                  onChange={(e) => {
+                                    const next = [...quickExploreCards];
+                                    next[idx] = { ...next[idx], icon: e.target.value };
+                                    setQuickExploreCards(next);
+                                  }}
+                                  placeholder="Icon"
+                                  className="w-14 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-center focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                />
+                                <input
+                                  type="text"
+                                  value={card.label}
+                                  onChange={(e) => {
+                                    const next = [...quickExploreCards];
+                                    next[idx] = { ...next[idx], label: e.target.value };
+                                    setQuickExploreCards(next);
+                                  }}
+                                  placeholder="Label"
+                                  className="flex-1 min-w-[100px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={card.href}
+                                onChange={(e) => {
+                                  const next = [...quickExploreCards];
+                                  next[idx] = { ...next[idx], href: e.target.value };
+                                  setQuickExploreCards(next);
+                                }}
+                                placeholder="/search?..."
+                                className="flex-1 min-w-[160px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm font-mono focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                              <select
+                                value={colorPresetId(card.color)}
+                                onChange={(e) => {
+                                  const preset = COLOR_PRESETS.find((p) => p.id === e.target.value);
+                                  if (!preset) return;
+                                  const next = [...quickExploreCards];
+                                  next[idx] = { ...next[idx], color: preset.value };
+                                  setQuickExploreCards(next);
+                                }}
+                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              >
+                                {COLOR_PRESETS.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.label}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = quickExploreCards.filter((_, i) => i !== idx);
+                                  setQuickExploreCards(next);
+                                }}
+                                className="shrink-0 rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                                title="Remove card"
+                              >
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        {quickExploreCards.length < 12 && (
+                          <button
+                            type="button"
+                            onClick={() => setQuickExploreCards([...quickExploreCards, { label: "", href: "/", icon: "🔗", color: COLOR_PRESETS[0].value }])}
+                            className="mt-2 text-sm font-semibold text-amber-600 hover:text-amber-700 hover:underline"
+                          >
+                            + Add card
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setQuickExploreCards([...DEFAULT_QUICK_EXPLORE_CARDS])}
+                          className="mt-2 ml-4 text-sm text-zinc-400 hover:text-zinc-600 hover:underline"
+                        >
+                          Reset to defaults
+                        </button>
+                      </div>
+                    )}
+
                     {/* No configurable fields hint */}
-                    {!section.hasLimit && !("defaultSubtitle" in section) && !("hasMinRating" in section) && (
+                    {!section.hasLimit && !("defaultSubtitle" in section) && !("hasMinRating" in section) && section.id !== "quick_explore" && (
                       <p className="text-xs text-zinc-400 italic">Only title customization is available for this section.</p>
                     )}
                   </div>

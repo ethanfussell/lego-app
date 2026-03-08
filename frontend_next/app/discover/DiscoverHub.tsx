@@ -11,7 +11,7 @@ import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import { formatPrice } from "@/lib/format";
 import { safeImageSrc } from "@/lib/image";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
-import type { DiscoverData, SectionConfig } from "./page";
+import type { DiscoverData, SectionConfig, QuickExploreCard } from "./page";
 
 /* ═══════════════════════════════════════════════════════════════
    SHARED HELPERS
@@ -393,51 +393,22 @@ function FeaturedListsSection({ lists, limit = 6 }: { lists: PublicList[]; limit
    5. QUICK FILTERS / DISCOVERY CARDS
    ═══════════════════════════════════════════════════════════════ */
 
-const DISCOVERY_CARDS = [
-  {
-    label: "Under $30",
-    href: "/search?max_price=30",
-    icon: "💰",
-    color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300",
-  },
-  {
-    label: "500+ Pieces",
-    href: "/search?min_pieces=500",
-    icon: "🧱",
-    color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300",
-  },
-  {
-    label: "Top Rated",
-    href: "/search?sort=rating&order=desc",
-    icon: "⭐",
-    color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300",
-  },
-  {
-    label: "Display Sets",
-    href: "/themes/Icons",
-    icon: "🏛️",
-    color: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300",
-  },
-  {
-    label: "For Kids",
-    href: "/themes/City",
-    icon: "👦",
-    color: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300",
-  },
-  {
-    label: "Most Pieces",
-    href: "/pieces/most",
-    icon: "🏗️",
-    color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300",
-  },
+const DEFAULT_DISCOVERY_CARDS: QuickExploreCard[] = [
+  { label: "Under $30", href: "/search?max_price=30", icon: "💰", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { label: "500+ Pieces", href: "/search?min_pieces=500", icon: "🧱", color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { label: "Top Rated", href: "/search?sort=rating&order=desc", icon: "⭐", color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { label: "Display Sets", href: "/themes/Icons", icon: "🏛️", color: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
+  { label: "For Kids", href: "/themes/City", icon: "👦", color: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
+  { label: "Most Pieces", href: "/pieces/most", icon: "🏗️", color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
 ];
 
-function DiscoveryCards() {
+function DiscoveryCards({ cards }: { cards: QuickExploreCard[] }) {
+  const cols = cards.length <= 4 ? "sm:grid-cols-2 md:grid-cols-4" : cards.length <= 6 ? "sm:grid-cols-3 md:grid-cols-6" : "sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
-      {DISCOVERY_CARDS.map((card) => (
+    <div className={`grid grid-cols-2 gap-2 ${cols}`}>
+      {cards.map((card, i) => (
         <Link
-          key={card.label}
+          key={`${card.label}-${i}`}
           href={card.href}
           className={`group flex flex-col items-center gap-1.5 rounded-xl border bg-gradient-to-br ${card.color} p-4 text-center transition-all hover:shadow-md`}
         >
@@ -519,7 +490,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
   const { token } = useAuth();
   const { isOwned, isWishlist } = useCollectionStatus();
 
-  const { newReleases, retiringSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig } = data;
+  const { newReleases, retiringSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig, quickExploreCards } = data;
   const hidden = new Set(hiddenSections);
   const cfg = (id: string) => sectionConfig[id] || {};
 
@@ -553,7 +524,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
       {!hidden.has("quick_explore") && (
         <section className="mt-8">
           <SectionHeader title={cfg("quick_explore").title || "Quick explore"} />
-          <DiscoveryCards />
+          <DiscoveryCards cards={quickExploreCards ?? DEFAULT_DISCOVERY_CARDS} />
         </section>
       )}
 
