@@ -19,6 +19,7 @@ from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
 from ..data import offers as offers_data  # used by /sets/{set_num}/offers
 from ..db import get_db
+from ..models import Offer as OfferModel
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
@@ -317,6 +318,110 @@ def _user_rating_for_set(
     return None
 
 
+# ---------------- on-demand price scrape ----------------
+
+import logging as _logging
+
+_od_logger = _logging.getLogger("bricktrack.on_demand_scrape")
+
+def _try_on_demand_scrape(
+    db: Session,
+    canonical_set_num: str,
+    plain: str,
+    name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Scrape LEGO.com for a single set and create offers on the fly.
+
+    Called when a user views a set that has no LEGO offer yet, so we
+    don't have to wait for the next batch scraper run.
+    """
+    from app.pipelines.price_scraper import (
+        scrape_lego_product_page,
+        build_amazon_url,
+        build_target_url,
+        build_walmart_url,
+        HEADERS,
+        REQUEST_TIMEOUT,
+    )
+    import httpx
+
+    now = datetime.now(timezone.utc)
+
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            lego_data = scrape_lego_product_page(client, plain)
+    except Exception:
+        _od_logger.debug("On-demand scrape failed for %s", plain)
+        lego_data = None
+
+    if not lego_data or not lego_data.get("price"):
+        return offers_data.get_offers_for_set(db, plain)
+
+    # Upsert LEGO offer
+    _upsert_on_demand_offer(
+        db, plain, "LEGO",
+        lego_data["price"], lego_data.get("currency", "USD"),
+        lego_data["url"], lego_data.get("in_stock"),
+        now,
+    )
+
+    # Also update Set.retail_price
+    set_row = db.execute(
+        select(SetModel).where(SetModel.set_num == canonical_set_num)
+    ).scalar_one_or_none()
+    if set_row:
+        set_row.retail_price = lego_data["price"]
+        set_row.retail_currency = lego_data.get("currency", "USD")
+
+    # Generate retailer search links
+    _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
+    _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
+    _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
+
+    db.commit()
+    _od_logger.info("On-demand scrape created offers for %s ($%s)", plain, lego_data["price"])
+
+    return offers_data.get_offers_for_set(db, plain)
+
+
+def _upsert_on_demand_offer(
+    db: Session,
+    set_num_plain: str,
+    store: str,
+    price: Optional[float],
+    currency: str,
+    url: str,
+    in_stock: Optional[bool],
+    now: datetime,
+) -> None:
+    from sqlalchemy import and_
+    existing = db.execute(
+        select(OfferModel).where(
+            and_(OfferModel.set_num == set_num_plain, OfferModel.store == store)
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        if price is not None:
+            existing.price = price
+        existing.currency = currency
+        existing.url = url
+        if in_stock is not None:
+            existing.in_stock = in_stock
+        existing.last_checked = now
+    else:
+        db.add(OfferModel(
+            set_num=set_num_plain,
+            store=store,
+            price=price,
+            currency=currency,
+            url=url,
+            in_stock=in_stock,
+            last_checked=now,
+        ))
+
+
 # ---------------- endpoints ----------------
 
 @router.get("")
@@ -556,8 +661,14 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
 
     canonical = s.get("set_num") or set_num
     plain = s.get("set_num_plain") or canonical.split("-")[0]
+    name = s.get("name") or ""
 
     offers = offers_data.get_offers_for_set(db, plain)
+
+    # On-demand scrape: if no LEGO offer exists, try LEGO.com right now
+    has_lego_offer = any(o.get("store") == "LEGO" for o in offers)
+    if not has_lego_offer:
+        offers = _try_on_demand_scrape(db, canonical, plain, name)
 
     # summary.updated_at = newest offer updated_at (ISO strings compare lexicographically)
     updated_at: Optional[str] = None

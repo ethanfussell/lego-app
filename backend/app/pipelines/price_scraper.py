@@ -39,20 +39,26 @@ THROTTLE_SECONDS = 2.0
 MAX_SETS_PER_RUN = 200
 
 
-def _build_amazon_url(set_num_plain: str, name: str) -> str:
+def build_amazon_url(set_num_plain: str, name: str) -> str:
     query = f"LEGO {set_num_plain} {name}"
     return f"https://www.amazon.com/s?k={quote(query)}"
 
 
-def _build_target_url(set_num_plain: str) -> str:
+def build_target_url(set_num_plain: str) -> str:
     return f"https://www.target.com/s?searchTerm=lego+{set_num_plain}"
 
 
-def _build_walmart_url(set_num_plain: str) -> str:
+def build_walmart_url(set_num_plain: str) -> str:
     return f"https://www.walmart.com/search?q=lego+{set_num_plain}"
 
 
-def _scrape_lego_product_page(
+# Keep old names as aliases for internal use
+_build_amazon_url = build_amazon_url
+_build_target_url = build_target_url
+_build_walmart_url = build_walmart_url
+
+
+def scrape_lego_product_page(
     client: httpx.Client,
     set_num_plain: str,
 ) -> Optional[dict]:
@@ -247,7 +253,7 @@ def run_price_scrape() -> dict:
                 stats["sets_processed"] += 1
 
                 # --- LEGO.com ---
-                lego_data = _scrape_lego_product_page(client, plain)
+                lego_data = scrape_lego_product_page(client, plain)
 
                 if lego_data and lego_data.get("price"):
                     stats["lego_prices_found"] += 1
