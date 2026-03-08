@@ -193,6 +193,7 @@ def list_sets_for_theme(
     sort: str = Query("relevance"),
     order: str = Query("desc"),
     q: Optional[str] = Query(None),
+    min_year: Optional[int] = Query(None),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
@@ -226,6 +227,13 @@ def list_sets_for_theme(
         for s in all_sets
         if _theme_key(str(s.get("theme") or "")) == target_key
     ]
+
+    # optional min_year filter
+    if min_year is not None:
+        filtered = [
+            s for s in filtered
+            if int(s.get("year") or 0) >= min_year
+        ]
 
     # optional query within the theme page (search by name/set_num/theme)
     q_clean = _norm(q or "")
