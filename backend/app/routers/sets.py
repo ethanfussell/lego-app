@@ -435,13 +435,14 @@ def list_sets(
             enriched.sort(
                 key=lambda r: (
                     r.get("_relevance") or 0,
+                    int(r.get("year") or 0),
                     r.get("_rating_count") or 0,
                     (r.get("_avg_rating") or 0.0),
                 ),
                 reverse=True,
             )
         else:
-            enriched.sort(key=_sort_key("name"), reverse=False)
+            enriched.sort(key=_sort_key("year"), reverse=True)
     else:
         enriched.sort(key=_sort_key(sort), reverse=reverse)
 
