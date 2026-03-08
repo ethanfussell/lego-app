@@ -115,41 +115,85 @@ export default function ThemesPageClient({
       {sorted.length === 0 ? (
         <p className="mt-8 text-sm text-zinc-500">No themes found.</p>
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sorted.map((r) => {
-            const href = `/themes/${themeToSlug(r.theme)}`;
+        <>
+          {/* Featured hero row — top themes by set count */}
+          {(() => {
+            const featured = sorted.slice(0, 4).filter((r) => r.set_count >= 20 && r.image_url);
+            if (featured.length < 2) return null;
             return (
-              <Link
-                key={r.theme}
-                href={href}
-                className="group overflow-hidden rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
-              >
-                {r.image_url ? (
-                  <div className="relative aspect-[4/3] w-full overflow-hidden bg-white">
-                    <Image
-                      src={r.image_url}
-                      alt={r.theme}
-                      fill
-                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-                      className="object-contain p-2 transition-transform duration-200 group-hover:scale-105"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex aspect-[4/3] w-full items-center justify-center bg-white text-3xl text-zinc-300">
-                    🧱
-                  </div>
-                )}
-                <div className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold">{r.theme}</div>
-                    <div className="text-xs font-semibold text-zinc-500">{r.set_count} sets</div>
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-500">View sets &rarr;</div>
-                </div>
-              </Link>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {featured.map((r) => {
+                  const href = `/themes/${themeToSlug(r.theme)}`;
+                  return (
+                    <Link
+                      key={r.theme}
+                      href={href}
+                      className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-md"
+                    >
+                      <div className="relative aspect-[16/9] w-full overflow-hidden bg-white">
+                        <Image
+                          src={r.image_url!}
+                          alt={r.theme}
+                          fill
+                          sizes="(min-width: 640px) 50vw, 100vw"
+                          className="object-contain p-4 transition-transform duration-200 group-hover:scale-105"
+                        />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white/80 to-transparent" />
+                      </div>
+                      <div className="p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-lg font-semibold">{r.theme}</div>
+                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                            {r.set_count} sets
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
             );
-          })}
-        </div>
+          })()}
+
+          {/* All theme cards */}
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {sorted.map((r) => {
+              const href = `/themes/${themeToSlug(r.theme)}`;
+              return (
+                <Link
+                  key={r.theme}
+                  href={href}
+                  className="group overflow-hidden rounded-xl border border-zinc-200 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-md"
+                >
+                  {r.image_url ? (
+                    <div className="relative aspect-[4/3] w-full overflow-hidden bg-white">
+                      <Image
+                        src={r.image_url}
+                        alt={r.theme}
+                        fill
+                        sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                        className="object-contain p-2 transition-transform duration-200 group-hover:scale-105"
+                      />
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-white/80 to-transparent" />
+                    </div>
+                  ) : (
+                    <div className="flex aspect-[4/3] w-full items-center justify-center bg-white text-3xl text-zinc-300">
+                      🧱
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold">{r.theme}</div>
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        {r.set_count} sets
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
