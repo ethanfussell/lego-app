@@ -58,6 +58,8 @@ ALLOWED_SETTINGS = {
     "retiring_excluded_themes",
     "discover_hidden_sections",
     "discover_section_config",
+    "themes_excluded",
+    "themes_custom_images",
 }
 
 

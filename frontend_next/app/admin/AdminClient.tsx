@@ -1550,6 +1550,387 @@ function DiscoverControlsSection({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Themes Controls Section
+// ---------------------------------------------------------------------------
+
+function ThemesControlsSection({ token }: { token: string }) {
+  const toast = useToast();
+
+  // Excluded themes
+  const [excludedThemes, setExcludedThemes] = useState<string[]>([]);
+  // Custom images: theme name → image URL
+  const [customImages, setCustomImages] = useState<Record<string, string>>({});
+  // All themes for the autocomplete
+  const [allThemes, setAllThemes] = useState<{ theme: string; set_count: number; image_url: string | null }[]>([]);
+
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Search for excluding themes
+  const [excludeQuery, setExcludeQuery] = useState("");
+  const [excludeResults, setExcludeResults] = useState<{ theme: string; set_count: number }[]>([]);
+  const [excludeOpen, setExcludeOpen] = useState(false);
+  const excludeRef = useRef<HTMLDivElement>(null);
+
+  // Search for custom image themes
+  const [imageQuery, setImageQuery] = useState("");
+  const [imageResults, setImageResults] = useState<{ theme: string; set_count: number }[]>([]);
+  const [imageOpen, setImageOpen] = useState(false);
+  const imageRef = useRef<HTMLDivElement>(null);
+  const [editingImageTheme, setEditingImageTheme] = useState<string | null>(null);
+  const [editingImageUrl, setEditingImageUrl] = useState("");
+
+  // Load settings + all themes
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [data, themes] = await Promise.all([
+          apiFetch<Record<string, { value: string | null }>>("/admin/settings", { token }),
+          apiFetch<{ theme: string; set_count: number; image_url: string | null }[]>("/themes?limit=200", { token }),
+        ]);
+        if (cancelled) return;
+
+        if (Array.isArray(themes)) setAllThemes(themes);
+
+        const exVal = data?.themes_excluded?.value;
+        if (exVal) {
+          try {
+            const parsed = JSON.parse(exVal);
+            if (Array.isArray(parsed)) setExcludedThemes(parsed);
+          } catch { /* ignore */ }
+        }
+
+        const imgVal = data?.themes_custom_images?.value;
+        if (imgVal) {
+          try {
+            const parsed = JSON.parse(imgVal);
+            if (typeof parsed === "object" && parsed !== null) setCustomImages(parsed);
+          } catch { /* ignore */ }
+        }
+
+        setSettingsLoaded(true);
+      } catch {
+        if (!cancelled) setSettingsLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Debounced exclude search
+  useEffect(() => {
+    if (!excludeQuery.trim() || excludeQuery.trim().length < 1) {
+      setExcludeResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await apiFetch<{ theme: string; set_count: number }[]>(
+          `/themes?q=${encodeURIComponent(excludeQuery.trim())}&limit=10`,
+          { token },
+        );
+        setExcludeResults(Array.isArray(results) ? results : []);
+        setExcludeOpen(true);
+      } catch {
+        setExcludeResults([]);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [excludeQuery, token]);
+
+  // Debounced image theme search
+  useEffect(() => {
+    if (!imageQuery.trim() || imageQuery.trim().length < 1) {
+      setImageResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await apiFetch<{ theme: string; set_count: number }[]>(
+          `/themes?q=${encodeURIComponent(imageQuery.trim())}&limit=10`,
+          { token },
+        );
+        setImageResults(Array.isArray(results) ? results : []);
+        setImageOpen(true);
+      } catch {
+        setImageResults([]);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [imageQuery, token]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (excludeRef.current && !excludeRef.current.contains(e.target as Node)) setExcludeOpen(false);
+      if (imageRef.current && !imageRef.current.contains(e.target as Node)) setImageOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function addExcluded(theme: string) {
+    if (!excludedThemes.includes(theme)) {
+      setExcludedThemes((prev) => [...prev, theme]);
+    }
+    setExcludeQuery("");
+    setExcludeResults([]);
+    setExcludeOpen(false);
+  }
+
+  function removeExcluded(theme: string) {
+    setExcludedThemes((prev) => prev.filter((t) => t !== theme));
+  }
+
+  function startEditImage(theme: string) {
+    setEditingImageTheme(theme);
+    setEditingImageUrl(customImages[theme] || "");
+    setImageQuery("");
+    setImageResults([]);
+    setImageOpen(false);
+  }
+
+  function saveImageUrl() {
+    if (!editingImageTheme) return;
+    if (editingImageUrl.trim()) {
+      setCustomImages((prev) => ({ ...prev, [editingImageTheme]: editingImageUrl.trim() }));
+    } else {
+      setCustomImages((prev) => {
+        const next = { ...prev };
+        delete next[editingImageTheme];
+        return next;
+      });
+    }
+    setEditingImageTheme(null);
+    setEditingImageUrl("");
+  }
+
+  function removeCustomImage(theme: string) {
+    setCustomImages((prev) => {
+      const next = { ...prev };
+      delete next[theme];
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await Promise.all([
+        apiFetch("/admin/settings/themes_excluded", {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(excludedThemes) },
+        }),
+        apiFetch("/admin/settings/themes_custom_images", {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(customImages) },
+        }),
+      ]);
+      await revalidatePage("/themes");
+      toast.push("Theme settings saved", { type: "success" });
+    } catch (e: unknown) {
+      toast.push(e instanceof Error ? e.message : "Failed to save", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading theme controls...</p>;
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold">Themes</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Customize theme card images and exclude themes from the /themes page.
+      </p>
+
+      {/* Custom Images */}
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Custom Theme Images</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Override the auto-selected image for a theme card. Paste an image URL for any theme.
+        </p>
+
+        {/* Current custom image entries */}
+        <div className="mt-3 space-y-2">
+          {Object.entries(customImages).map(([theme, url]) => (
+            <div
+              key={theme}
+              className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={theme}
+                className="h-10 w-10 shrink-0 rounded-lg border border-zinc-200 bg-white object-contain p-0.5"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-zinc-900">{theme}</div>
+                <div className="truncate text-xs text-zinc-400">{url}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => startEditImage(theme)}
+                className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => removeCustomImage(theme)}
+                className="shrink-0 rounded-full p-1 text-zinc-400 transition-colors hover:text-red-500"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+          {Object.keys(customImages).length === 0 && (
+            <span className="text-xs text-zinc-400">No custom images set — using auto-selected images</span>
+          )}
+        </div>
+
+        {/* Editing inline */}
+        {editingImageTheme && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="text-sm font-medium text-zinc-900">{editingImageTheme}</div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={editingImageUrl}
+                onChange={(e) => setEditingImageUrl(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                type="button"
+                onClick={saveImageUrl}
+                className="shrink-0 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400"
+              >
+                Set
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEditingImageTheme(null); setEditingImageUrl(""); }}
+                className="shrink-0 rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Search to add a new custom image */}
+        {!editingImageTheme && (
+          <div ref={imageRef} className="relative mt-3">
+            <input
+              type="text"
+              value={imageQuery}
+              onChange={(e) => setImageQuery(e.target.value)}
+              onFocus={() => imageResults.length > 0 && setImageOpen(true)}
+              placeholder="Search for a theme to set a custom image..."
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+            />
+            {imageOpen && imageResults.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 bg-white shadow-lg">
+                {imageResults.map((r) => (
+                  <button
+                    key={r.theme}
+                    type="button"
+                    onClick={() => startEditImage(r.theme)}
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-zinc-50 first:rounded-t-xl last:rounded-b-xl"
+                  >
+                    <span className="text-zinc-900">{r.theme}</span>
+                    <span className="text-xs text-zinc-400">{r.set_count} sets</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Excluded Themes */}
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Excluded Themes</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Themes to hide from the /themes browse page entirely.
+        </p>
+
+        {/* Theme pills */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {excludedThemes.map((theme) => (
+            <span
+              key={theme}
+              className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+            >
+              {theme}
+              <button
+                type="button"
+                onClick={() => removeExcluded(theme)}
+                className="ml-0.5 rounded-full p-0.5 text-red-400 transition-colors hover:text-red-600"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+          {excludedThemes.length === 0 && (
+            <span className="text-xs text-zinc-400">No themes excluded</span>
+          )}
+        </div>
+
+        {/* Search to add */}
+        <div ref={excludeRef} className="relative mt-3">
+          <input
+            type="text"
+            value={excludeQuery}
+            onChange={(e) => setExcludeQuery(e.target.value)}
+            onFocus={() => excludeResults.length > 0 && setExcludeOpen(true)}
+            placeholder="Search for a theme to exclude..."
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+          />
+          {excludeOpen && excludeResults.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 bg-white shadow-lg">
+              {excludeResults
+                .filter((r) => !excludedThemes.includes(r.theme))
+                .map((r) => (
+                  <button
+                    key={r.theme}
+                    type="button"
+                    onClick={() => addExcluded(r.theme)}
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-zinc-50 first:rounded-t-xl last:rounded-b-xl"
+                  >
+                    <span className="text-zinc-900">{r.theme}</span>
+                    <span className="text-xs text-zinc-400">{r.set_count} sets</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Save */}
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Theme Settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Admin Component
 // ---------------------------------------------------------------------------
 
@@ -1557,6 +1938,7 @@ const ADMIN_PAGES = [
   { id: "discover", label: "Discover", description: "Section visibility & layout" },
   { id: "new", label: "New Releases", description: "Spotlight & featured themes" },
   { id: "retiring", label: "Retiring Soon", description: "Hidden sets & excluded themes" },
+  { id: "themes", label: "Themes", description: "Custom images & excluded themes" },
   { id: "editor", label: "Set Editor", description: "Edit individual set data" },
 ] as const;
 
@@ -1871,6 +2253,7 @@ export default function AdminClient() {
                   {activePage === "discover" && token && <DiscoverControlsSection token={token} />}
                   {activePage === "new" && token && <PageControlsSection token={token} />}
                   {activePage === "retiring" && token && <RetiringSoonControlsSection token={token} />}
+                  {activePage === "themes" && token && <ThemesControlsSection token={token} />}
                   {activePage === "editor" && token && <SetEditorSection token={token} />}
                 </div>
               </>

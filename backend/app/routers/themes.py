@@ -10,8 +10,34 @@ from sqlalchemy.orm import Session
 from app.data.sets import load_cached_sets
 from app.data import offers as offers_data
 from app.db import get_db
+from app.models import AdminSetting
+
+import json as _json
 
 router = APIRouter(prefix="/themes", tags=["themes"])
+
+
+def _load_theme_settings(db: Session):
+    """Load themes_excluded (list) and themes_custom_images (dict) from admin_settings."""
+    excluded: List[str] = []
+    custom_images: Dict[str, str] = {}
+    try:
+        row = db.query(AdminSetting).filter_by(key="themes_excluded").first()
+        if row and row.value:
+            parsed = _json.loads(row.value)
+            if isinstance(parsed, list):
+                excluded = [str(t) for t in parsed]
+    except Exception:
+        pass
+    try:
+        row = db.query(AdminSetting).filter_by(key="themes_custom_images").first()
+        if row and row.value:
+            parsed = _json.loads(row.value)
+            if isinstance(parsed, dict):
+                custom_images = {str(k): str(v) for k, v in parsed.items()}
+    except Exception:
+        pass
+    return excluded, custom_images
 
 ALLOWED_SORTS = {"relevance", "year", "pieces", "name", "rating"}
 ALLOWED_ORDERS = {"asc", "desc"}
@@ -125,6 +151,7 @@ def list_themes(
     page: int = Query(1, ge=1),
     limit: int = Query(60, ge=1, le=200),
     min_year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
     Returns: [{"theme": "Castle", "set_count": 123}, ...]
@@ -132,8 +159,15 @@ def list_themes(
     Pass min_year to filter to themes with sets from that year onward.
     """
     all_sets = load_cached_sets()
+    excluded, custom_images = _load_theme_settings(db)
+    excluded_lower = {t.lower() for t in excluded}
 
     rows = _set_count_by_theme(all_sets, q or "", min_year=min_year)
+
+    # Filter out excluded themes
+    if excluded_lower:
+        rows = [(t, c, i) for t, c, i in rows if t.lower() not in excluded_lower]
+
     total = len(rows)
     response.headers["X-Total-Count"] = str(total)
 
@@ -141,7 +175,11 @@ def list_themes(
     page_rows = rows[offset : offset + limit]
 
     return [
-        {"theme": theme, "set_count": int(cnt), "image_url": img}
+        {
+            "theme": theme,
+            "set_count": int(cnt),
+            "image_url": custom_images.get(theme, img),
+        }
         for (theme, cnt, img) in page_rows
     ]
 
