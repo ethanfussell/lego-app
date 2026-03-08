@@ -2,10 +2,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { apiBase } from "@/lib/api";
 
-export const revalidate = 3600;
-
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ listId: string }> }
 ) {
   const { listId } = await ctx.params;
@@ -13,9 +11,17 @@ export async function GET(
 
   const url = `${apiBase()}/lists/${encodeURIComponent(id)}`;
 
+  // Forward auth so private lists are accessible
+  const headers: Record<string, string> = { accept: "application/json" };
+  const auth = req.headers.get("authorization");
+  if (auth) headers["authorization"] = auth;
+
+  const isAuthed = Boolean(auth);
+
   const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate },
+    headers,
+    cache: isAuthed ? "no-store" : undefined,
+    ...(!isAuthed ? { next: { revalidate: 3600 } } : {}),
   });
 
   const text = await res.text();
@@ -24,7 +30,9 @@ export async function GET(
     status: res.status,
     headers: {
       "content-type": res.headers.get("content-type") || "application/json; charset=utf-8",
-      "cache-control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=60",
+      "cache-control": isAuthed
+        ? "private, no-store"
+        : "public, max-age=0, s-maxage=3600, stale-while-revalidate=60",
     },
   });
 }
