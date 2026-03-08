@@ -262,13 +262,18 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-md">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
-        <div className="aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
+        <div className="relative aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
           {imgSrc ? (
             <div className="relative h-full w-full">
               <CardImage src={imgSrc} alt={title} sizes={imageSizesForVariant(variant)} quality={70} />
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-zinc-600">No image</div>
+          )}
+          {set.retirement_status === "retiring_soon" && (
+            <span className="absolute top-2 left-2 inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+              Retiring Soon
+            </span>
           )}
         </div>
 

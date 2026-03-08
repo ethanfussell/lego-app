@@ -37,6 +37,8 @@ def _set_to_dict(s: SetModel) -> Dict[str, Any]:
         "pieces": s.pieces,
         "image_url": s.image_url,
         "created_at": s.created_at,
+        "retirement_status": s.retirement_status,
+        "retirement_date": s.retirement_date,
     }
 
 
