@@ -660,7 +660,6 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
           <SectionHeader
             title={cfg("coming_soon").title || "Coming Soon"}
             subtitle={cfg("coming_soon").subtitle || "Upcoming releases"}
-            href="/coming-soon"
           />
           <SetRow
             sets={comingSoon.slice(0, cfg("coming_soon").limit ?? 14)}
