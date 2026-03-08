@@ -266,13 +266,6 @@ function HeroSpotlight({ set, newCount, retiringCount }: { set: SetLite | null; 
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   2. RETIRING SOON — with urgency badges
-   ═══════════════════════════════════════════════════════════════ */
-
-function retirementBadge(_set: SetLite): React.ReactNode {
-  return null;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    3. BROWSE BY THEME
@@ -517,33 +510,6 @@ function ArticlesPlaceholder() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   8. COMING SOON SECTION
-   ═══════════════════════════════════════════════════════════════ */
-
-function comingSoonBadge(set: SetLite): React.ReactNode {
-  if (!set.launch_date) return null;
-  const launch = new Date(set.launch_date);
-  const now = new Date();
-  const diffMs = launch.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays <= 7 && diffDays > 0) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-        This week
-      </span>
-    );
-  }
-  if (diffDays <= 30 && diffDays > 0) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700">
-        This month
-      </span>
-    );
-  }
-  return null;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -553,7 +519,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
   const { token } = useAuth();
   const { isOwned, isWishlist } = useCollectionStatus();
 
-  const { newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig } = data;
+  const { newReleases, retiringSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig } = data;
   const hidden = new Set(hiddenSections);
   const cfg = (id: string) => sectionConfig[id] || {};
 
@@ -616,7 +582,6 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
             token={token}
             isOwned={isOwned}
             isWishlist={isWishlist}
-            badge={retirementBadge}
           />
         </section>
       )}
@@ -633,24 +598,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
         </section>
       )}
 
-      {/* ─── 5. Coming Soon ─────────────────────────────────── */}
-      {!hidden.has("coming_soon") && comingSoon.length > 0 && (
-        <section className="mt-10">
-          <SectionHeader
-            title={cfg("coming_soon").title || "Coming Soon"}
-            subtitle={cfg("coming_soon").subtitle || "Upcoming releases"}
-          />
-          <SetRow
-            sets={comingSoon.slice(0, cfg("coming_soon").limit ?? 14)}
-            token={token}
-            isOwned={isOwned}
-            isWishlist={isWishlist}
-            badge={comingSoonBadge}
-          />
-        </section>
-      )}
-
-      {/* ─── 6. Browse by Theme ─────────────────────────────── */}
+      {/* ─── 5. Browse by Theme ─────────────────────────────── */}
       {!hidden.has("browse_by_theme") && themes.length > 0 && (
         <section className="mt-10">
           <SectionHeader
