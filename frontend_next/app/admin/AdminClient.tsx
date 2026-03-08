@@ -339,7 +339,7 @@ function SetEditorSection({ token }: { token: string }) {
   const lockedSet = new Set(selectedSet?.locked_fields || []);
 
   return (
-    <div className="mt-8">
+    <div>
       <h2 className="text-lg font-semibold">Set Editor</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Search for a set and edit its data. Admin edits are locked and persist across syncs.
@@ -784,8 +784,8 @@ function PageControlsSection({ token }: { token: string }) {
   if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading page controls...</p>;
 
   return (
-    <div className="mt-8">
-      <h2 className="text-lg font-semibold">New Page Controls</h2>
+    <div>
+      <h2 className="text-lg font-semibold">New Releases</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Control the /new page spotlight and featured themes.
       </p>
@@ -1121,8 +1121,8 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
   if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading retiring controls...</p>;
 
   return (
-    <div className="mt-8">
-      <h2 className="text-lg font-semibold">Retiring Soon Controls</h2>
+    <div>
+      <h2 className="text-lg font-semibold">Retiring Soon</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Hide sets and manage excluded themes on the /retiring-soon page.
       </p>
@@ -1270,9 +1270,17 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
 // Main Admin Component
 // ---------------------------------------------------------------------------
 
+const ADMIN_TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "new", label: "New Releases" },
+  { id: "retiring", label: "Retiring Soon" },
+  { id: "editor", label: "Set Editor" },
+] as const;
+
 export default function AdminClient() {
   const { token, hydrated } = useAuth();
   const toast = useToast();
+  const [activeTab, setActiveTab] = useState<string>("overview");
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1406,6 +1414,24 @@ export default function AdminClient() {
           Manage your BrickTrack data and view platform stats.
         </p>
 
+        {/* Tab navigation */}
+        <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
+          {ADMIN_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                activeTab === tab.id
+                  ? "bg-amber-500 text-black"
+                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <p className="mt-6 text-sm text-zinc-500">Loading stats...</p>
         ) : error ? (
@@ -1413,140 +1439,145 @@ export default function AdminClient() {
             <p className="text-sm font-semibold text-red-700">{error}</p>
           </div>
         ) : stats ? (
-          <>
-            {/* Stats cards */}
-            <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              <StatCard label="Total Sets" value={stats.set_count} />
-              <StatCard label="Users" value={stats.user_count} />
-              <StatCard label="Email Signups" value={stats.email_signup_count} />
-              <StatCard label="Reviews" value={stats.review_count} />
-              <StatCard label="Affiliate Clicks" value={stats.affiliate_click_count} />
-            </div>
-
-            {/* Content Moderation */}
-            <div className="mt-8">
-              <h2 className="text-lg font-semibold">Content Moderation</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Review and manage user-submitted reports.
-              </p>
-
-              {reportsLoading ? (
-                <p className="mt-4 text-sm text-zinc-500">Loading reports...</p>
-              ) : reportsError ? (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
-                  <p className="text-sm text-red-700">{reportsError}</p>
-                  <button
-                    type="button"
-                    onClick={() => void fetchReports()}
-                    className="mt-2 text-sm font-semibold text-red-700 underline"
-                  >
-                    Retry
-                  </button>
+          <div className="mt-6">
+            {/* Overview tab */}
+            {activeTab === "overview" && (
+              <>
+                {/* Stats cards */}
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  <StatCard label="Total Sets" value={stats.set_count} />
+                  <StatCard label="Users" value={stats.user_count} />
+                  <StatCard label="Email Signups" value={stats.email_signup_count} />
+                  <StatCard label="Reviews" value={stats.review_count} />
+                  <StatCard label="Affiliate Clicks" value={stats.affiliate_click_count} />
                 </div>
-              ) : reports.length === 0 ? (
-                <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center">
-                  <p className="text-sm text-zinc-500">No pending reports</p>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {reports.map((r) => (
-                    <div
-                      key={r.id}
-                      className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-semibold uppercase text-zinc-400">
-                              {r.target_type}
-                            </span>
-                            <ReasonBadge reason={r.reason} />
-                            <span className="text-xs text-zinc-400">by {r.reporter}</span>
-                          </div>
-                          <p className="mt-1 truncate text-sm text-zinc-700">
-                            {r.target_snippet || "[content deleted]"}
-                          </p>
-                          {r.notes ? (
-                            <p className="mt-1 text-xs italic text-zinc-500">
-                              &ldquo;{r.notes}&rdquo;
-                            </p>
-                          ) : null}
-                          <p className="mt-1 text-xs text-zinc-400">
-                            {new Date(r.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleReportAction(r.id, "resolved")}
-                            disabled={actioningId !== null}
-                            className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
-                          >
-                            Resolve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReportAction(r.id, "dismissed")}
-                            disabled={actioningId !== null}
-                            className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
-                      </div>
+
+                {/* Content Moderation */}
+                <div className="mt-8">
+                  <h2 className="text-lg font-semibold">Content Moderation</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Review and manage user-submitted reports.
+                  </p>
+
+                  {reportsLoading ? (
+                    <p className="mt-4 text-sm text-zinc-500">Loading reports...</p>
+                  ) : reportsError ? (
+                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
+                      <p className="text-sm text-red-700">{reportsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchReports()}
+                        className="mt-2 text-sm font-semibold text-red-700 underline"
+                      >
+                        Retry
+                      </button>
                     </div>
-                  ))}
+                  ) : reports.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center">
+                      <p className="text-sm text-zinc-500">No pending reports</p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {reports.map((r) => (
+                        <div
+                          key={r.id}
+                          className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-semibold uppercase text-zinc-400">
+                                  {r.target_type}
+                                </span>
+                                <ReasonBadge reason={r.reason} />
+                                <span className="text-xs text-zinc-400">by {r.reporter}</span>
+                              </div>
+                              <p className="mt-1 truncate text-sm text-zinc-700">
+                                {r.target_snippet || "[content deleted]"}
+                              </p>
+                              {r.notes ? (
+                                <p className="mt-1 text-xs italic text-zinc-500">
+                                  &ldquo;{r.notes}&rdquo;
+                                </p>
+                              ) : null}
+                              <p className="mt-1 text-xs text-zinc-400">
+                                {new Date(r.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleReportAction(r.id, "resolved")}
+                                disabled={actioningId !== null}
+                                className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+                              >
+                                Resolve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleReportAction(r.id, "dismissed")}
+                                disabled={actioningId !== null}
+                                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Data Management */}
-            <div className="mt-8">
-              <h2 className="text-lg font-semibold">Data Management</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Refresh sets from Rebrickable or sync the local cache to the database.
-              </p>
+                {/* Data Management */}
+                <div className="mt-8">
+                  <h2 className="text-lg font-semibold">Data Management</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Refresh sets from Rebrickable or sync the local cache to the database.
+                  </p>
 
-              <div className="mt-4 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="rounded-full bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
-                >
-                  {refreshing ? "Working..." : "Refresh Sets from Rebrickable"}
-                </button>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      className="rounded-full bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+                    >
+                      {refreshing ? "Working..." : "Refresh Sets from Rebrickable"}
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={handleSync}
-                  disabled={refreshing}
-                  className="rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-50"
-                >
-                  {refreshing ? "Working..." : "Sync Cache to DB"}
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={handleSync}
+                      disabled={refreshing}
+                      className="rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-50"
+                    >
+                      {refreshing ? "Working..." : "Sync Cache to DB"}
+                    </button>
+                  </div>
 
-              {refreshResult && (
-                <p
-                  className={`mt-3 text-sm ${
-                    refreshResult.includes("failed") ? "text-red-600" : "text-green-700"
-                  }`}
-                >
-                  {refreshResult}
-                </p>
-              )}
-            </div>
+                  {refreshResult && (
+                    <p
+                      className={`mt-3 text-sm ${
+                        refreshResult.includes("failed") ? "text-red-600" : "text-green-700"
+                      }`}
+                    >
+                      {refreshResult}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
-            {/* Set Editor */}
-            {token ? <SetEditorSection token={token} /> : null}
+            {/* New Releases tab */}
+            {activeTab === "new" && token && <PageControlsSection token={token} />}
 
-            {/* Page Controls */}
-            {token ? <PageControlsSection token={token} /> : null}
+            {/* Retiring Soon tab */}
+            {activeTab === "retiring" && token && <RetiringSoonControlsSection token={token} />}
 
-            {/* Retiring Soon Controls */}
-            {token ? <RetiringSoonControlsSection token={token} /> : null}
-          </>
+            {/* Set Editor tab */}
+            {activeTab === "editor" && token && <SetEditorSection token={token} />}
+          </div>
         ) : null}
       </div>
     </RequireAuth>
