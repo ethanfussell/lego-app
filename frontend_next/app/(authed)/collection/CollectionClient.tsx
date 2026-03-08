@@ -291,7 +291,7 @@ function ListCoverMosaic({ images }: { images: (string | null | undefined)[] }) 
 
 export default function CollectionClient() {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);

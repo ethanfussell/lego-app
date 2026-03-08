@@ -287,12 +287,14 @@ function RetirementWindowSection({
   owned,
   wish,
   token,
+  getUserRating,
 }: {
   monthKey: string;
   sets: SetLite[];
   owned: Set<string>;
   wish: Set<string>;
   token: string | null;
+  getUserRating: (s: string) => number | null;
 }) {
   const [sectionSort, setSectionSort] = useState<SortKey>("default");
 
@@ -349,7 +351,7 @@ function RetirementWindowSection({
 
           return (
             <div key={sn} className="w-[220px]">
-              <SetCard set={toSetCardSet(s)} footer={footer} />
+              <SetCard set={toSetCardSet(s)} token={token ?? undefined} isOwnedByUser={isOwn} userRatingOverride={getUserRating(sn)} footer={footer} />
             </div>
           );
         })}
@@ -370,7 +372,7 @@ export default function RetiringSoonClient({
   initialError: string | null;
 }) {
   const { token } = useAuth();
-  const { ownedSetNums, wishlistSetNums } = useCollectionStatus();
+  const { ownedSetNums, wishlistSetNums, getUserRating } = useCollectionStatus();
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
 
   const allSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
@@ -459,6 +461,7 @@ export default function RetiringSoonClient({
                     owned={ownedSetNums}
                     wish={wishlistSetNums}
                     token={token ?? null}
+                    getUserRating={getUserRating}
                   />
                 ))
               )}

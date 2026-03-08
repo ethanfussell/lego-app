@@ -83,7 +83,7 @@ export default function ListDetailClient(props: {
 
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const toast = useToast();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
@@ -452,6 +452,9 @@ export default function ListDetailClient(props: {
                 <li key={sn} className={isRemoving ? "opacity-60" : ""}>
                   <SetCard
                     set={s as unknown as SetCardSetProp}
+                    token={token ?? undefined}
+                    isOwnedByUser={isOwned(sn)}
+                    userRatingOverride={getUserRating(sn)}
                     footer={
                       <div className="space-y-2">
                         {token ? <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} /> : null}

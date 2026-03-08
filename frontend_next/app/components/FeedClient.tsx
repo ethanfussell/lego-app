@@ -82,7 +82,7 @@ export default function FeedClient({
   queryParams,
 }: FeedClientProps) {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const qp = useMemo<QueryParams>(() => queryParams ?? {}, [queryParams]);
   const qpKey = useMemo(() => JSON.stringify(qp), [qp]);
@@ -152,6 +152,9 @@ export default function FeedClient({
               <li key={sn} className="w-full max-w-[260px]">
                 <SetCard
                   set={s}
+                  token={token ?? undefined}
+                  isOwnedByUser={isOwned(sn)}
+                  userRatingOverride={getUserRating(sn)}
                   footer={
                     token ? (
                       <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} />

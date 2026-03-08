@@ -195,7 +195,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
   const router = useRouter();
   const sp = useSearchParams();
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   // Avoid `as any` for SetCard props
   type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
@@ -656,7 +656,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((set) => (
               <div key={set.set_num} className="h-full">
-                <SetCard set={set as unknown as SetCardSetProp} footer={token ? <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} /> : undefined} />
+                <SetCard set={set as unknown as SetCardSetProp} token={token ?? undefined} isOwnedByUser={isOwned(set.set_num)} userRatingOverride={getUserRating(set.set_num)} footer={token ? <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} /> : undefined} />
               </div>
             ))}
           </div>

@@ -77,7 +77,7 @@ export default function ThemeDetailClient(props: {
 }) {
   const { themeSlug, initialSets, initialTotal } = props;
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const themeName = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
 
@@ -234,6 +234,9 @@ export default function ThemeDetailClient(props: {
               <div key={original.set_num} className="h-full">
                 <SetCard
                   set={setForCard}
+                  token={token ?? undefined}
+                  isOwnedByUser={isOwned(original.set_num)}
+                  userRatingOverride={getUserRating(original.set_num)}
                   footer={
                     token ? (
                       <SetCardActions

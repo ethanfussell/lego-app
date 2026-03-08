@@ -36,7 +36,7 @@ function toSetCardSet(s: SetSummary): SetCardSetProp {
 
 export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const cardSets = useMemo(() => sets.map(toSetCardSet), [sets]);
 
   return (
@@ -48,6 +48,9 @@ export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
           <div key={original.set_num} className="h-full">
             <SetCard
               set={setForCard}
+              token={token ?? undefined}
+              isOwnedByUser={isOwned(original.set_num)}
+              userRatingOverride={getUserRating(original.set_num)}
               footer={
                 <div className="space-y-2">
                   <SetCardActions token={token ?? null} setNum={original.set_num} isOwned={isOwned(original.set_num)} isWishlist={isWishlist(original.set_num)} />

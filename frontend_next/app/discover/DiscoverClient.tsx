@@ -100,7 +100,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
   const router = useRouter();
   const sp = useSearchParams();
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const sort = normalizeSort(sp.get("sort") ?? initial.sort);
   const order = normalizeOrder(sp.get("order") ?? initial.order);
@@ -241,7 +241,7 @@ export default function DiscoverClient({ initial }: { initial: DiscoverInitial }
           <div className="mt-2 grid grid-cols-[repeat(auto-fill,220px)] gap-4">
             {results.map((set) => (
               <div key={set.set_num}>
-                <SetCard set={set} footer={token ? <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} /> : undefined} />
+                <SetCard set={set} token={token ?? undefined} isOwnedByUser={isOwned(set.set_num)} userRatingOverride={getUserRating(set.set_num)} footer={token ? <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} /> : undefined} />
               </div>
             ))}
           </div>

@@ -268,7 +268,7 @@ export default function SetDetailClient(props: Props) {
 
   const { token, hydrated } = useAuth();
   const toast = useToast();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const isLoggedIn = hydrated && typeof token === "string" && token.trim().length > 0;
 
   const PREVIEW_SIMILAR_LIMIT = 12;
@@ -1612,7 +1612,7 @@ export default function SetDetailClient(props: Props) {
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
-                      <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
+                      <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
                     </li>
                   ))}
                 </ul>

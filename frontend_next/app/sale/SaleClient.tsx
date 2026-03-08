@@ -13,7 +13,7 @@ type Props = {
 
 export default function SaleClient({ sets }: Props) {
   const { token, hydrated } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   // Avoid `as any` for SetCard props
   type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
@@ -24,6 +24,9 @@ export default function SaleClient({ sets }: Props) {
         <div key={set.set_num} className="w-[220px]">
           <SetCard
             set={set as unknown as SetCardSetProp}
+            token={token ?? undefined}
+            isOwnedByUser={isOwned(set.set_num)}
+            userRatingOverride={getUserRating(set.set_num)}
             footer={
               hydrated && token ? (
                 <SetCardActions token={token} setNum={set.set_num} isOwned={isOwned(set.set_num)} isWishlist={isWishlist(set.set_num)} />

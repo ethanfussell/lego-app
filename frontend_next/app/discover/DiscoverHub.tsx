@@ -131,12 +131,14 @@ function SetRow({
   token,
   isOwned,
   isWishlist,
+  getUserRating,
   badge,
 }: {
   sets: SetLite[];
   token: string | null;
   isOwned: (s: string) => boolean;
   isWishlist: (s: string) => boolean;
+  getUserRating: (s: string) => number | null;
   badge?: (set: SetLite) => React.ReactNode;
 }) {
   if (sets.length === 0) return null;
@@ -148,6 +150,9 @@ function SetRow({
           {badge && <div className="mb-1">{badge(s)}</div>}
           <SetCard
             set={s}
+            token={token ?? undefined}
+            isOwnedByUser={isOwned(s.set_num)}
+            userRatingOverride={getUserRating(s.set_num)}
             footer={
               token ? (
                 <SetCardActions
@@ -488,7 +493,7 @@ function ArticlesPlaceholder() {
 
 export default function DiscoverHub({ data }: { data: DiscoverData }) {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const { newReleases, retiringSoon, topRated, popular, themes, lists, spotlight, hiddenSections, sectionConfig, quickExploreCards } = data;
   const hidden = new Set(hiddenSections);
@@ -536,7 +541,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
             subtitle={cfg("new_releases").subtitle || "Recently launched sets"}
             href="/new"
           />
-          <SetRow sets={newReleases.slice(0, cfg("new_releases").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} />
+          <SetRow sets={newReleases.slice(0, cfg("new_releases").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} getUserRating={getUserRating} />
         </section>
       )}
 
@@ -553,6 +558,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
             token={token}
             isOwned={isOwned}
             isWishlist={isWishlist}
+            getUserRating={getUserRating}
           />
         </section>
       )}
@@ -565,7 +571,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
             subtitle={cfg("best_deals").subtitle || "Sets with price drops"}
             href="/sale"
           />
-          <SetRow sets={saleSets} token={token} isOwned={isOwned} isWishlist={isWishlist} />
+          <SetRow sets={saleSets} token={token} isOwned={isOwned} isWishlist={isWishlist} getUserRating={getUserRating} />
         </section>
       )}
 
@@ -590,7 +596,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
             href="/search?sort=rating&order=desc"
             linkLabel="Browse top rated"
           />
-          <SetRow sets={filteredTopRated.slice(0, cfg("top_rated").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} />
+          <SetRow sets={filteredTopRated.slice(0, cfg("top_rated").limit ?? 14)} token={token} isOwned={isOwned} isWishlist={isWishlist} getUserRating={getUserRating} />
         </section>
       )}
 

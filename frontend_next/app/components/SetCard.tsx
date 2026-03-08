@@ -56,7 +56,11 @@ type Props = {
   set: SetLite;
   variant?: "default" | "owned" | "wishlist" | "feed";
   footer?: React.ReactNode;
-  token?: string; // only needed for owned rating submit
+  token?: string; // needed for owned rating submit
+  /** When true (and token is set), render as owned with interactive stars regardless of variant */
+  isOwnedByUser?: boolean;
+  /** Pre-fetched user rating — avoids extra API call */
+  userRatingOverride?: number | null;
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -231,7 +235,7 @@ export function SetCardSkeleton() {
   );
 }
 
-export default function SetCard({ set, variant = "default", footer, token }: Props) {
+export default function SetCard({ set, variant = "default", footer, token, isOwnedByUser, userRatingOverride }: Props) {
   const title = set.name || set.set_num;
   const year = set.year ? String(set.year) : "\u2014";
   const pieces = pickPieces(set);
@@ -239,8 +243,9 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const ratingAvg = pickRatingAvg(set);
   const ratingCount = pickRatingCount(set);
 
+  const rawUserRating = userRatingOverride !== undefined ? userRatingOverride : set.user_rating;
   const initialUser =
-    typeof set.user_rating === "number" && Number.isFinite(set.user_rating) ? clamp(set.user_rating, 0, 5) : null;
+    typeof rawUserRating === "number" && Number.isFinite(rawUserRating) ? clamp(rawUserRating, 0, 5) : null;
 
   const [userRating, setUserRating] = useState<number | null>(initialUser);
   const [savingRate, setSavingRate] = useState(false);
@@ -267,8 +272,8 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     return { original, sale };
   }, [set]);
 
-  const showPrice = variant === "wishlist" || variant === "feed" || variant === "default";
-  const isOwned = variant === "owned";
+  const isOwned = variant === "owned" || (isOwnedByUser === true && !!token);
+  const showPrice = !isOwned && (variant === "wishlist" || variant === "feed" || variant === "default");
 
   const globalRatingCompact = ratingAvg != null ? { text: ratingAvg.toFixed(1), count: ratingCount } : null;
 

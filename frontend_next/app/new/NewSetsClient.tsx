@@ -135,7 +135,7 @@ export default function NewSetsClient({
   spotlightSetNum?: string | null;
 }) {
   const { token } = useAuth();
-  const { ownedSetNums, wishlistSetNums, isOwned, isWishlist } = useCollectionStatus();
+  const { ownedSetNums, wishlistSetNums, isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
   const [sort, setSort] = useState<SortValue>("launch_desc");
@@ -271,6 +271,9 @@ export default function NewSetsClient({
               <div key={sn}>
                 <SetCard
                   set={toSetCardSet(s)}
+                  token={token ?? undefined}
+                  isOwnedByUser={isOwned(sn)}
+                  userRatingOverride={getUserRating(sn)}
                   footer={
                     token ? (
                       <SetCardActions
