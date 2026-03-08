@@ -161,20 +161,9 @@ def enrich_with_best_prices(
             if rp is not None:
                 retail_map[str(sn)] = float(rp)
 
-    # Batch-fetch retirement_status for all sets so we can hide prices for
-    # retired sets that have no active purchase offers.
-    retirement_map: Dict[str, str] = {}
-    all_set_nums = list(dict.fromkeys(set_nums))
-    if all_set_nums:
-        ret_rows = db.execute(
-            select(SetModel.set_num, SetModel.retirement_status)
-            .where(
-                SetModel.set_num.in_(all_set_nums),
-                SetModel.retirement_status.isnot(None),
-            )
-        ).all()
-        for sn, rs in ret_rows:
-            retirement_map[str(sn)] = str(rs)
+    # Build a set of set_nums that have at least one active offer (with a price)
+    # so we only show prices on cards that actually lead somewhere purchasable.
+    sets_with_offers = set(best_prices.keys())
 
     for r in rows:
         canonical = r.get("set_num", "")
@@ -186,11 +175,11 @@ def enrich_with_best_prices(
 
         retail = r.get("retail_price")
         best = best_prices.get(canonical)
-        is_retired = retirement_map.get(canonical) == "retired"
+        has_offers = canonical in sets_with_offers
 
-        # For retired sets with no active offers, skip showing MSRP
-        # since it's misleading when the set can't be purchased
-        if isinstance(retail, (int, float)) and retail > 0 and not (is_retired and best is None):
+        # Only show MSRP as original_price when there are active offers;
+        # showing a price with no way to purchase is misleading.
+        if isinstance(retail, (int, float)) and retail > 0 and has_offers:
             r["original_price"] = retail
 
         # Only set sale_price when best offer is strictly less than retail
