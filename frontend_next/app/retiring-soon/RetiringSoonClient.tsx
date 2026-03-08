@@ -208,7 +208,7 @@ function FilterPills<T extends string | number>({
   allLabel?: string;
 }) {
   return (
-    <div className="overflow-x-auto pb-1">
+    <div className="overflow-x-auto pb-1 scrollbar-thin">
       <div className="flex gap-2">
         <button
           type="button"

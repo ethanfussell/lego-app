@@ -113,7 +113,7 @@ function ScrollRow({
 
       <div
         ref={ref}
-        className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide sm:-mx-0 sm:px-0"
+        className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 scrollbar-thin sm:-mx-0 sm:px-0"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         {children}

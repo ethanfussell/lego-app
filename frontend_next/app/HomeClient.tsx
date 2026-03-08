@@ -312,7 +312,7 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
 
             <div
               ref={scrollRef}
-              className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 scrollbar-hide sm:-mx-0 sm:px-0"
+              className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 scrollbar-thin sm:-mx-0 sm:px-0"
             >
               {newSets.map((s) => (
                 <div

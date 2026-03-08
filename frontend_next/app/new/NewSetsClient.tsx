@@ -1,7 +1,7 @@
 // frontend_next/app/new/NewSetsClient.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import SetCard from "@/app/components/SetCard";
@@ -236,7 +236,7 @@ function ThemePills({
   onChange: (v: string | null) => void;
 }) {
   return (
-    <div className="mt-4 overflow-x-auto pb-1">
+    <div className="mt-4 overflow-x-auto pb-1 scrollbar-thin">
       <div className="flex gap-2">
         <button
           type="button"
@@ -336,6 +336,14 @@ function CarouselRow({
   wish: Set<string>;
   token: string | null;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  function scroll(dir: 1 | -1) {
+    if (!scrollRef.current) return;
+    const amount = Math.max(240, Math.floor(scrollRef.current.clientWidth * 0.85));
+    scrollRef.current.scrollBy({ left: dir * amount, behavior: "smooth" });
+  }
+
   if (!sets.length) return null;
 
   return (
@@ -347,26 +355,49 @@ function CarouselRow({
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto pb-2">
-        <ul className="m-0 flex list-none gap-3 p-0">
-          {sets.map((s) => {
-            const sn = String(s.set_num || "").trim();
-            if (!sn) return null;
+      <div className="group/scroll relative mt-4">
+        <button
+          type="button"
+          onClick={() => scroll(-1)}
+          className="absolute -left-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-400 shadow-sm backdrop-blur hover:bg-white hover:text-zinc-700 sm:group-hover/scroll:block transition-colors"
+          aria-label="Scroll left"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => scroll(1)}
+          className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-zinc-200 bg-white/90 p-1.5 text-zinc-400 shadow-sm backdrop-blur hover:bg-white hover:text-zinc-700 sm:group-hover/scroll:block transition-colors"
+          aria-label="Scroll right"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
 
-            const isOwned = owned.has(sn);
-            const isWish = wish.has(sn);
+        <div ref={scrollRef} className="overflow-x-auto pb-2 scrollbar-thin">
+          <ul className="m-0 flex list-none gap-3 p-0">
+            {sets.map((s) => {
+              const sn = String(s.set_num || "").trim();
+              if (!sn) return null;
 
-            const footer = token ? (
-              <SetCardActions token={token} setNum={sn} isOwned={isOwned} isWishlist={isWish} />
-            ) : null;
+              const isOwned = owned.has(sn);
+              const isWish = wish.has(sn);
 
-            return (
-              <li key={sn} className="w-[220px] shrink-0">
-                <SetCard set={toSetCardSet(s)} footer={footer} />
-              </li>
-            );
-          })}
-        </ul>
+              const footer = token ? (
+                <SetCardActions token={token} setNum={sn} isOwned={isOwned} isWishlist={isWish} />
+              ) : null;
+
+              return (
+                <li key={sn} className="w-[220px] shrink-0">
+                  <SetCard set={toSetCardSet(s)} footer={footer} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
     </section>
   );

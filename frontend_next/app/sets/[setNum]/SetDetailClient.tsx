@@ -1608,7 +1608,7 @@ export default function SetDetailClient(props: Props) {
 
           {!similarLoading && !similarError && similarSets.length > 0 ? (
             <div className="relative mt-4">
-              <div ref={similarRowRef} className="overflow-x-auto pb-2">
+              <div ref={similarRowRef} className="overflow-x-auto pb-2 scrollbar-thin">
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
