@@ -270,28 +270,7 @@ function HeroSpotlight({ set, newCount, retiringCount }: { set: SetLite | null; 
    2. RETIRING SOON — with urgency badges
    ═══════════════════════════════════════════════════════════════ */
 
-function retirementBadge(set: SetLite): React.ReactNode {
-  if (!set.retirement_date) return null;
-  // retirement_date is typically "YYYY-MM" or a date string
-  const now = new Date();
-  const retDate = new Date(set.retirement_date + (set.retirement_date.length <= 7 ? "-01" : ""));
-  const diffMs = retDate.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays <= 30) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
-        Last chance
-      </span>
-    );
-  }
-  if (diffDays <= 90) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">
-        Retiring soon
-      </span>
-    );
-  }
+function retirementBadge(_set: SetLite): React.ReactNode {
   return null;
 }
 
