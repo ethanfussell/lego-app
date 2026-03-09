@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="LEGO API", lifespan=lifespan)
 
 # Reject weak SECRET_KEY in production
+_is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
 if _is_production:
     _secret = os.getenv("SECRET_KEY", "")
     if not _secret or _secret == "change-me-in-production" or len(_secret) < 16:
