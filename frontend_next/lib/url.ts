@@ -6,7 +6,7 @@ export function siteBase(): string {
 }
 
 /** Display name for the site, used in metadata titles. */
-export const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "LEGO App";
+export const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "BrickTrack";
 
 /** Parse an absolute URL string into a URL object, or null on failure. */
 export function safeParseUrl(raw: string): URL | null {

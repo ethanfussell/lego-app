@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="LEGO API", lifespan=lifespan)
+app = FastAPI(title="BrickTrack API", lifespan=lifespan)
 
 # Reject weak SECRET_KEY in production
 _is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
@@ -125,6 +125,8 @@ async def add_headers(request: Request, call_next):
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://bricktrack.com",
+    "https://www.bricktrack.com",
     "https://lego-app-gules.vercel.app",
 ]
 
@@ -144,7 +146,7 @@ app.add_middleware(
 # ---------------------------
 @app.get("/", tags=["meta"])
 def root():
-    return {"status": "ok", "message": "LEGO API is running"}
+    return {"status": "ok", "message": "BrickTrack API is running"}
 
 
 @app.get("/health", tags=["meta"])
