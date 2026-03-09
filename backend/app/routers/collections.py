@@ -193,11 +193,17 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
     if not s:
         return 0
 
-    q = db.query(ListItemModel).filter(ListItemModel.list_id == list_id)
+    from sqlalchemy import delete as sa_delete
 
     # exact: "10305-1"
     if "-" in s:
-        deleted = q.filter(func.lower(ListItemModel.set_num) == s.lower()).delete(synchronize_session=False)
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == list_id,
+                func.lower(ListItemModel.set_num) == s.lower(),
+            )
+        )
+        deleted = result.rowcount
         db.commit()
         if int(deleted) > 0:
             _compact_positions(db, list_id)
@@ -206,7 +212,13 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
     # base: "10305"
     base_lower = base_set_num(s).lower()
     plain_expr = func.split_part(ListItemModel.set_num, "-", 1)
-    deleted = q.filter(func.lower(plain_expr) == base_lower).delete(synchronize_session=False)
+    result = db.execute(
+        sa_delete(ListItemModel).where(
+            ListItemModel.list_id == list_id,
+            func.lower(plain_expr) == base_lower,
+        )
+    )
+    deleted = result.rowcount
     db.commit()
     if int(deleted) > 0:
         _compact_positions(db, list_id)
@@ -251,7 +263,10 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     for pos, sn in enumerate(canonical_order):
         by_set[sn].position = int(pos)
 
-    db.query(ListModel).filter(ListModel.id == list_id).update({"updated_at": func.now()})
+    from sqlalchemy import update as sa_update
+    db.execute(
+        sa_update(ListModel).where(ListModel.id == list_id).values(updated_at=func.now())
+    )
     db.commit()
 
 

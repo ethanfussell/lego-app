@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List as TypingList, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, or_
+from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -509,23 +509,26 @@ def api_remove_list_item(
     if not raw:
         raise HTTPException(status_code=422, detail="set_num_required")
 
-    q = db.query(ListItemModel).filter(ListItemModel.list_id == lst.id)
-
     if "-" in raw:
-        deleted = q.filter(func.lower(ListItemModel.set_num) == raw.lower()).delete(
-            synchronize_session=False
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == lst.id,
+                func.lower(ListItemModel.set_num) == raw.lower(),
+            )
         )
+        deleted = result.rowcount
     else:
         base_lower = base_set_num(raw).lower()
-        deleted = (
-            q.filter(
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == lst.id,
                 or_(
                     func.lower(ListItemModel.set_num) == base_lower,
                     func.lower(ListItemModel.set_num).like(f"{base_lower}-%"),
-                )
+                ),
             )
-            .delete(synchronize_session=False)
         )
+        deleted = result.rowcount
 
     if int(deleted) == 0:
         db.rollback()

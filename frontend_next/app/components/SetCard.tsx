@@ -68,13 +68,7 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 function pickRatingAvg(s: SetLite) {
-  const v =
-    typeof s.rating_avg === "number"
-      ? s.rating_avg
-      : typeof s.average_rating === "number"
-        ? s.average_rating
-        : null;
-
+  const v = typeof s.rating_avg === "number" ? s.rating_avg : null;
   return typeof v === "number" && Number.isFinite(v) ? clamp(v, 0, 5) : null;
 }
 

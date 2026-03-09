@@ -25,7 +25,6 @@ type SetSummary = {
   image_url?: string | null;
   rating_count?: number | null;
   rating_avg?: number | null;
-  average_rating?: number | null;
 };
 
 function buildBreadcrumbJsonLd(items: Array<{ label: string; href: string }>, baseUrl: string): JsonLdObject {

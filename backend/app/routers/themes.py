@@ -7,12 +7,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
+from sqlalchemy import select
+
 from app.data.sets import load_cached_sets
 from app.data import offers as offers_data
 from app.db import get_db
 from app.models import AdminSetting
 
 import json as _json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/themes", tags=["themes"])
 
@@ -22,21 +27,25 @@ def _load_theme_settings(db: Session):
     excluded: List[str] = []
     custom_images: Dict[str, str] = {}
     try:
-        row = db.query(AdminSetting).filter_by(key="themes_excluded").first()
+        row = db.execute(
+            select(AdminSetting).where(AdminSetting.key == "themes_excluded")
+        ).scalar_one_or_none()
         if row and row.value:
             parsed = _json.loads(row.value)
             if isinstance(parsed, list):
                 excluded = [str(t) for t in parsed]
-    except Exception:
-        pass
+    except (_json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.warning("Failed to parse themes_excluded setting: %s", e)
     try:
-        row = db.query(AdminSetting).filter_by(key="themes_custom_images").first()
+        row = db.execute(
+            select(AdminSetting).where(AdminSetting.key == "themes_custom_images")
+        ).scalar_one_or_none()
         if row and row.value:
             parsed = _json.loads(row.value)
             if isinstance(parsed, dict):
                 custom_images = {str(k): str(v) for k, v in parsed.items()}
-    except Exception:
-        pass
+    except (_json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.warning("Failed to parse themes_custom_images setting: %s", e)
     return excluded, custom_images
 
 ALLOWED_SORTS = {"relevance", "year", "pieces", "name", "rating"}
@@ -119,7 +128,7 @@ def _sort_key(sort: str):
         return lambda r: int(r.get("pieces") or 0)
     if sort == "rating":
         # cached sets may not have rating fields; treat missing as 0
-        return lambda r: (float(r.get("average_rating") or r.get("rating_avg") or 0.0), int(r.get("rating_count") or 0))
+        return lambda r: (float(r.get("rating_avg") or 0.0), int(r.get("rating_count") or 0))
     # relevance default (we'll handle separately)
     return lambda r: _norm_lower(str(r.get("name") or ""))
 
@@ -259,7 +268,7 @@ def list_sets_for_theme(
                 key=lambda s: (
                     _relevance_score(s, q_clean),
                     int(s.get("rating_count") or 0),
-                    float(s.get("average_rating") or s.get("rating_avg") or 0.0),
+                    float(s.get("rating_avg") or 0.0),
                 ),
                 reverse=True,
             )

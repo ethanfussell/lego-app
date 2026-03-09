@@ -21,7 +21,6 @@ type SetSummary = {
   image_url?: string | null;
   rating_count?: number | null;
   rating_avg?: number | null;
-  average_rating?: number | null;
   retail_price?: number | null;
   sale_price?: number | null;
   sale_price_from?: number | null;

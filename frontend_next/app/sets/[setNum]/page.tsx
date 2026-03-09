@@ -20,7 +20,6 @@ type LegoSet = {
   pieces?: number;
   theme?: string;
   image_url?: string | null;
-  average_rating?: number | null;
   rating_avg?: number | null;
   rating_count?: number | null;
   description?: string | null;
@@ -67,13 +66,7 @@ function isReviewLite(x: unknown): x is ReviewLite {
 }
 
 function pickAvgRating(setDetail: LegoSet): number | null {
-  const v =
-    typeof setDetail.average_rating === "number"
-      ? setDetail.average_rating
-      : typeof setDetail.rating_avg === "number"
-        ? setDetail.rating_avg
-        : null;
-
+  const v = typeof setDetail.rating_avg === "number" ? setDetail.rating_avg : null;
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 

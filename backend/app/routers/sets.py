@@ -602,7 +602,6 @@ def list_sets(
         rev_cnt = r.pop("_review_count", 0)
         r.pop("_relevance", None)
 
-        r["average_rating"] = avg
         r["rating_avg"] = avg
         r["rating_count"] = int(cnt or 0)
         r["review_count"] = int(rev_cnt or 0)
@@ -730,7 +729,7 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
     summary="Bulk fetch sets",
     description=(
         "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
-        "(average_rating, rating_count) and review_count (non-empty text). If authenticated, includes user_rating."
+        "(rating_avg, rating_count) and review_count (non-empty text). If authenticated, includes user_rating."
     ),
 )
 def bulk_get_sets(
@@ -815,7 +814,6 @@ def bulk_get_sets(
             user_rating = _user_rating_for_set(db, username, canonical, plain_map.get(canonical))
 
         r = dict(s)
-        r["average_rating"] = avg
         r["rating_avg"] = avg
         r["rating_count"] = int(cnt or 0)
         r["review_count"] = int(rev_cnt or 0)
@@ -915,7 +913,6 @@ def list_new_sets(
                 "theme": s.theme,
                 "pieces": s.pieces,
                 "image_url": s.image_url,
-                "average_rating": avg,
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
@@ -969,7 +966,6 @@ def list_retiring_sets(
                 "theme": s.theme,
                 "pieces": s.pieces,
                 "image_url": s.image_url,
-                "average_rating": avg,
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
@@ -1119,7 +1115,6 @@ def get_set(
         user_rating = _user_rating_for_set(db, current_user.username, canonical, plain)
 
     out = dict(s)
-    out["average_rating"] = avg
     out["rating_avg"] = avg
     out["rating_count"] = cnt
     out["review_count"] = review_cnt

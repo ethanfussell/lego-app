@@ -34,7 +34,6 @@ type SetLite = {
   pieces?: number | null;
   theme?: string;
   image_url?: string | null;
-  average_rating?: number | null;
   rating_avg?: number | null;
   rating_count?: number | null;
 };

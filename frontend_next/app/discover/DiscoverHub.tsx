@@ -510,7 +510,7 @@ export default function DiscoverHub({ data }: { data: DiscoverData }) {
   // Apply min_rating filter for top rated
   const minRating = cfg("top_rated").min_rating ?? 4.0;
   const filteredTopRated = topRated.filter((s) => {
-    const r = s.rating_avg ?? s.average_rating;
+    const r = s.rating_avg;
     return typeof r === "number" ? r >= minRating : true;
   });
 

@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user, get_current_user_optional
+from ..core.collections import move_wishlist_to_owned
 from ..core.sanitize import contains_profanity
 from ..core.set_nums import base_set_num
 from ..data.sets import get_set_by_num
@@ -19,8 +20,6 @@ from ..routers.sets import invalidate_ratings_cache
 from ..models import Review as ReviewModel
 from ..models import ReviewVote as ReviewVoteModel
 from ..models import Set as SetModel
-from ..models import List as ListModel
-from ..models import ListItem as ListItemModel
 from ..models import User as UserModel
 from ..schemas.review import Review, ReviewCreate, MyReviewItem
 
@@ -30,83 +29,6 @@ logger = logging.getLogger(__name__)
 
 # NOTE: this router is mounted with prefix="/sets" in main.py
 router = APIRouter(tags=["reviews"])
-
-
-def _move_wishlist_to_owned_on_rate(db: Session, user_id: int, set_num: str) -> bool:
-    """If the set is on the user's wishlist, move it to owned. Returns True if moved."""
-    # Single query: fetch both wishlist and owned system lists for this user
-    system_lists = db.execute(
-        select(ListModel).where(
-            ListModel.owner_id == user_id,
-            ListModel.is_system.is_(True),
-            ListModel.system_key.in_(["wishlist", "owned"]),
-        )
-    ).scalars().all()
-
-    wishlist = None
-    owned_list = None
-    for lst in system_lists:
-        if lst.system_key == "wishlist":
-            wishlist = lst
-        elif lst.system_key == "owned":
-            owned_list = lst
-
-    if not wishlist:
-        return False
-
-    base = base_set_num(set_num)
-    item = db.execute(
-        select(ListItemModel).where(
-            ListItemModel.list_id == int(wishlist.id),
-            ListItemModel.set_num.in_([set_num, base, f"{base}-1"]),
-        ).limit(1)
-    ).scalar_one_or_none()
-
-    if not item:
-        return False
-
-    # Remove from wishlist
-    db.delete(item)
-
-    # Create owned list if needed
-    if not owned_list:
-        max_pos = db.execute(
-            select(func.coalesce(func.max(ListModel.position), -1))
-            .where(ListModel.owner_id == user_id)
-        ).scalar_one()
-        owned_list = ListModel(
-            owner_id=user_id,
-            title="Owned",
-            description=None,
-            is_public=False,
-            position=int(max_pos) + 1,
-            is_system=True,
-            system_key="owned",
-        )
-        db.add(owned_list)
-        db.flush()
-
-    # Add to owned if not already there
-    already = db.execute(
-        select(ListItemModel).where(
-            ListItemModel.list_id == int(owned_list.id),
-            ListItemModel.set_num == set_num,
-        ).limit(1)
-    ).scalar_one_or_none()
-
-    if not already:
-        max_pos = db.execute(
-            select(func.coalesce(func.max(ListItemModel.position), -1))
-            .where(ListItemModel.list_id == int(owned_list.id))
-        ).scalar_one()
-        db.add(ListItemModel(
-            list_id=int(owned_list.id),
-            set_num=set_num,
-            position=int(max_pos) + 1,
-        ))
-
-    db.commit()
-    return True
 
 
 # ---------------- helpers ----------------
@@ -348,7 +270,7 @@ def create_or_update_review(
         # Auto-move wishlist → owned when a rating is set
         if payload.rating is not None:
             try:
-                _move_wishlist_to_owned_on_rate(db, current_user.id, canonical)
+                move_wishlist_to_owned(db, current_user.id, canonical)
             except Exception:
                 logger.exception("Failed to move set %s from wishlist to owned", canonical)
 
@@ -370,7 +292,7 @@ def create_or_update_review(
     # Auto-move wishlist → owned when a rating is set
     if payload.rating is not None:
         try:
-            _move_wishlist_to_owned_on_rate(db, current_user.id, canonical)
+            move_wishlist_to_owned(db, current_user.id, canonical)
         except Exception:
             logger.exception("Failed to move set %s from wishlist to owned", canonical)
 
@@ -392,13 +314,12 @@ def delete_my_review(
             return Response(status_code=status.HTTP_204_NO_CONTENT)
         raise
 
-    (
-        db.query(ReviewModel)
-        .filter(
+    from sqlalchemy import delete as sa_delete
+    db.execute(
+        sa_delete(ReviewModel).where(
             ReviewModel.user_id == current_user.id,
             ReviewModel.set_num == canonical,
         )
-        .delete(synchronize_session=False)
     )
     db.commit()
 
@@ -477,10 +398,13 @@ def remove_vote(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    db.query(ReviewVoteModel).filter(
-        ReviewVoteModel.review_id == review_id,
-        ReviewVoteModel.user_id == current_user.id,
-    ).delete(synchronize_session=False)
+    from sqlalchemy import delete as sa_delete
+    db.execute(
+        sa_delete(ReviewVoteModel).where(
+            ReviewVoteModel.review_id == review_id,
+            ReviewVoteModel.user_id == current_user.id,
+        )
+    )
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
