@@ -4,12 +4,13 @@ import importlib
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_admin_user
 from app.core.limiter import limiter
+from app.core.sanitize import sanitize_oneline
 from app.db import get_db
 from app.models import (
     User as UserModel,
@@ -38,6 +39,13 @@ class AdminSetUpdate(BaseModel):
     retail_price: Optional[float] = None
     theme: Optional[str] = None
     set_tag: Optional[str] = None
+
+    @field_validator("name", "theme", "set_tag", mode="before")
+    @classmethod
+    def sanitize_text_fields(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return sanitize_oneline(v) or None
 
 
 class AdminSetUnlock(BaseModel):

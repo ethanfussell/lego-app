@@ -3,13 +3,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.limiter import limiter
 from app.core.set_nums import base_set_num
 from app.data.sets import get_set_by_num
 from app.data import offers as offers_data
@@ -273,7 +274,9 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
 # ---------------- endpoints ----------------
 
 @router.post("/owned", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 def add_owned(
+    request: Request,
     payload: Dict[str, str],
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -314,7 +317,9 @@ def list_my_owned(
 
 
 @router.post("/wishlist", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 def add_wishlist(
+    request: Request,
     payload: Dict[str, str],
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),

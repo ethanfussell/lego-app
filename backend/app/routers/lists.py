@@ -5,12 +5,13 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List as TypingList, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.auth import get_current_user, get_current_user_optional
+from ..core.limiter import limiter
 from ..core.set_nums import base_set_num, resolve_set_num
 from ..data.lists import LISTS
 from ..db import get_db
@@ -385,7 +386,9 @@ def api_get_list_detail(
 
 # ---------------- Create list (auth required) ----------------
 @router.post("", response_model=ListDetail, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 def api_create_list(
+    request: Request,
     payload: ListCreate,
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -417,7 +420,9 @@ def api_create_list(
 
 # ---------------- Add item (auth required) ----------------
 @router.post("/{list_id}/items", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def api_add_list_item(
+    request: Request,
     list_id: int,
     payload: ListItemCreate,
     current_user: UserModel = Depends(get_current_user),

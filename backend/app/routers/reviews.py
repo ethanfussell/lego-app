@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func, case
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user, get_current_user_optional
 from ..core.collections import move_wishlist_to_owned
+from ..core.limiter import limiter
 from ..core.sanitize import contains_profanity
 from ..core.set_nums import base_set_num
 from ..data.sets import get_set_by_num
@@ -233,7 +234,9 @@ def list_reviews_for_set(
 
 # POST /sets/{set_num}/reviews
 @router.post("/{set_num}/reviews", response_model=Review)
+@limiter.limit("20/minute")
 def create_or_update_review(
+    request: Request,
     set_num: str,
     payload: ReviewCreate,
     current_user: UserModel = Depends(get_current_user),
@@ -330,7 +333,9 @@ def delete_my_review(
 
 # POST /sets/{set_num}/reviews/{review_id}/vote
 @router.post("/{set_num}/reviews/{review_id}/vote")
+@limiter.limit("30/minute")
 def vote_on_review(
+    request: Request,
     set_num: str,
     review_id: int,
     payload: VoteCreate,

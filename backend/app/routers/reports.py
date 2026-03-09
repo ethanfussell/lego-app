@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_admin_user
+from app.core.sanitize import sanitize_text
 from app.core.limiter import limiter
 from app.db import get_db
 from app.models import Report as ReportModel, User as UserModel, Review as ReviewModel, List as ListModel
@@ -26,6 +27,13 @@ class ReportCreate(BaseModel):
     target_id: int
     reason: str
     notes: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def sanitize_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return sanitize_text(v) or None
 
     @field_validator("target_type")
     @classmethod

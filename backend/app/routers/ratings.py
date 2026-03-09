@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, RelationshipProperty
 
 from ..core.auth import get_current_user
 from ..core.collections import move_wishlist_to_owned
+from ..core.limiter import limiter
 from ..db import get_db
 from ..models import User as UserModel
 
@@ -54,7 +55,9 @@ def _assign_review_user(review: ReviewModel, user: UserModel) -> None:
 
 
 @router.put("/{set_num}")
+@limiter.limit("30/minute")
 def put_rating(
+  request: Request,
   set_num: str,
   payload: RatingIn,
   db: Session = Depends(get_db),
