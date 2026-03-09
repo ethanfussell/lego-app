@@ -1,6 +1,7 @@
 # app/routes/email_signups.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+from app.core.limiter import limiter
 from app.db import get_db
 from app.models import EmailSignup
 from app.schemas.email_signup import EmailSignupIn, EmailSignupOut
@@ -8,7 +9,8 @@ from app.schemas.email_signup import EmailSignupIn, EmailSignupOut
 router = APIRouter(tags=["email"])
 
 @router.post("/email-signups", response_model=EmailSignupOut)
-def create_email_signup(payload: EmailSignupIn, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def create_email_signup(request: Request, payload: EmailSignupIn, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
 
     existing = db.query(EmailSignup).filter(EmailSignup.email == email).first()

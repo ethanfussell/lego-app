@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
@@ -110,9 +111,9 @@ def create_report(
 @router.get("/admin/reports")
 def list_reports(
     request: Request,
-    report_status: str = "pending",
-    limit: int = 50,
-    offset: int = 0,
+    report_status: Literal["pending", "resolved", "dismissed"] = "pending",
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     admin: UserModel = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:

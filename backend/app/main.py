@@ -45,6 +45,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LEGO API", lifespan=lifespan)
 
+# Reject weak SECRET_KEY in production
+if _is_production:
+    _secret = os.getenv("SECRET_KEY", "")
+    if not _secret or _secret == "change-me-in-production" or len(_secret) < 16:
+        raise RuntimeError("SECRET_KEY must be set to a strong value in production (min 16 chars)")
+
 # ---------------------------
 # Rate limiting
 # ---------------------------
@@ -67,6 +73,16 @@ async def add_headers(request: Request, call_next):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-XSS-Protection"] = "1; mode=block"
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.clerk.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://api.clerk.com https://*.clerk.accounts.dev; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
 
     # Cache headers for read-only GET endpoints
     # Skip auth-sensitive routes, admin, and user-specific endpoints
@@ -114,10 +130,10 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
+    allow_origin_regex=r"^https:\/\/lego-app[a-z0-9-]*\.vercel\.app$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
     expose_headers=["X-Total-Count"],
 )
 

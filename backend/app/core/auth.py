@@ -42,8 +42,14 @@ def _settings():
     if os.getenv("PYTEST_CURRENT_TEST") is not None:
         allow_fake = True
 
-    # NEVER allow fake auth in production (Render sets RENDER env var)
-    if os.getenv("RENDER") is not None:
+    # NEVER allow fake auth in production
+    # Render sets RENDER; also check for common production indicators
+    is_production = (
+        os.getenv("RENDER") is not None
+        or (os.getenv("ENVIRONMENT") or "").lower() == "production"
+        or (os.getenv("NODE_ENV") or "").lower() == "production"
+    )
+    if is_production:
         allow_fake = False
 
     jwks_url = (os.getenv("CLERK_JWKS_URL") or "").strip()
