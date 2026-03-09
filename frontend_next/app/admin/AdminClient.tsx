@@ -5,6 +5,7 @@ import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 import RequireAuth from "@/app/components/RequireAuth";
+import BlogEditor from "@/app/admin/BlogEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2089,6 +2090,7 @@ const ADMIN_PAGES = [
   { id: "retiring", label: "Retiring Soon", description: "Hidden sets & excluded themes" },
   { id: "themes", label: "Themes", description: "Custom images & excluded themes" },
   { id: "editor", label: "Set Editor", description: "Edit individual set data" },
+  { id: "blog", label: "Blog", description: "Write & manage blog articles" },
 ] as const;
 
 export default function AdminClient() {
@@ -2404,6 +2406,7 @@ export default function AdminClient() {
                   {activePage === "retiring" && token && <RetiringSoonControlsSection token={token} />}
                   {activePage === "themes" && token && <ThemesControlsSection token={token} />}
                   {activePage === "editor" && token && <SetEditorSection token={token} />}
+                  {activePage === "blog" && token && <BlogEditor token={token} />}
                 </div>
               </>
             )}
