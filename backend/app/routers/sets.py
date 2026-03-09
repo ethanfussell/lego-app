@@ -177,11 +177,12 @@ def _review_count_for_set(db: Session, set_num: str) -> int:
     return int(cnt or 0)
 
 
-def _set_tags_map(db: Session) -> Dict[str, str]:
-    """Map set_num -> set_tag for all sets that have a tag."""
-    rows = db.execute(
-        select(SetModel.set_num, SetModel.set_tag).where(SetModel.set_tag.isnot(None))
-    ).all()
+def _set_tags_map(db: Session, set_nums: Optional[List[str]] = None) -> Dict[str, str]:
+    """Map set_num -> set_tag for sets that have a tag. If set_nums given, filter to those only."""
+    q = select(SetModel.set_num, SetModel.set_tag).where(SetModel.set_tag.isnot(None))
+    if set_nums:
+        q = q.where(SetModel.set_num.in_(set_nums))
+    rows = db.execute(q).all()
     return {r[0]: r[1] for r in rows if r[1]}
 
 
@@ -189,7 +190,8 @@ def _enrich_with_tags(db: Session, items: List[Dict[str, Any]]) -> None:
     """Add set_tag to a list of set dicts from DB tags."""
     if not items:
         return
-    tags = _set_tags_map(db)
+    set_nums = [item.get("set_num", "") for item in items if item.get("set_num")]
+    tags = _set_tags_map(db, set_nums)
     if not tags:
         return
     for item in items:

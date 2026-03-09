@@ -88,17 +88,14 @@ def best_prices_for_sets(
 
     # Build plain → canonical lookup (Offer.set_num stores "10305", not "10305-1")
     plain_to_canonical: Dict[str, str] = {}
+    seen: set[str] = set()
     plain_nums: List[str] = []
     for sn in set_nums:
         plain = _normalize_plain_set_num(sn)
-        if plain:
+        if plain and plain not in seen:
             plain_to_canonical.setdefault(plain, sn)
-            if plain not in plain_to_canonical or plain not in [p for p in plain_nums]:
-                pass
             plain_nums.append(plain)
-
-    # Deduplicate plain_nums
-    plain_nums = list(dict.fromkeys(plain_nums))
+            seen.add(plain)
     if not plain_nums:
         return {}
 

@@ -49,7 +49,7 @@ const nextConfig: NextConfig = {
     // Skip image optimization in dev to avoid timeout errors with remote CDN images
     unoptimized: process.env.NODE_ENV !== "production",
     formats: ["image/avif", "image/webp"],
-    qualities: [70, 75, 80],
+    qualities: [75, 85],
     minimumCacheTTL: 86400, // cache optimized images for 24 hours
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 320, 360, 420],
     deviceSizes: [320, 360, 384, 420, 640, 750, 828, 1080, 1200],

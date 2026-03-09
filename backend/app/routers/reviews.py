@@ -34,13 +34,22 @@ router = APIRouter(tags=["reviews"])
 
 def _move_wishlist_to_owned_on_rate(db: Session, user_id: int, set_num: str) -> bool:
     """If the set is on the user's wishlist, move it to owned. Returns True if moved."""
-    wishlist = db.execute(
+    # Single query: fetch both wishlist and owned system lists for this user
+    system_lists = db.execute(
         select(ListModel).where(
             ListModel.owner_id == user_id,
             ListModel.is_system.is_(True),
-            ListModel.system_key == "wishlist",
-        ).limit(1)
-    ).scalar_one_or_none()
+            ListModel.system_key.in_(["wishlist", "owned"]),
+        )
+    ).scalars().all()
+
+    wishlist = None
+    owned_list = None
+    for lst in system_lists:
+        if lst.system_key == "wishlist":
+            wishlist = lst
+        elif lst.system_key == "owned":
+            owned_list = lst
 
     if not wishlist:
         return False
@@ -59,15 +68,7 @@ def _move_wishlist_to_owned_on_rate(db: Session, user_id: int, set_num: str) -> 
     # Remove from wishlist
     db.delete(item)
 
-    # Get or create owned list
-    owned_list = db.execute(
-        select(ListModel).where(
-            ListModel.owner_id == user_id,
-            ListModel.is_system.is_(True),
-            ListModel.system_key == "owned",
-        ).limit(1)
-    ).scalar_one_or_none()
-
+    # Create owned list if needed
     if not owned_list:
         max_pos = db.execute(
             select(func.coalesce(func.max(ListModel.position), -1))
