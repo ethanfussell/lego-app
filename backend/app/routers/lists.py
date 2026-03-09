@@ -94,8 +94,9 @@ def _compact_list_item_positions(db: Session, list_id: int) -> None:
         li.position = int(i)
 
 
-def _summary_dict(lst: ListModel, owner_username: str) -> Dict[str, Any]:
-    items_count = len(lst.items) if "items" in lst.__dict__ and lst.items is not None else 0
+def _summary_dict(lst: ListModel, owner_username: str, items_count: Optional[int] = None) -> Dict[str, Any]:
+    if items_count is None:
+        items_count = len(lst.items) if "items" in lst.__dict__ and lst.items is not None else 0
     return {
         "id": int(lst.id),
         "title": lst.title,
@@ -256,17 +257,23 @@ def api_get_public_lists(
         return out  # type: ignore[return-value]
 
     # ---- DB mode ----
+    items_count_sq = (
+        select(func.count(ListItemModel.list_id))
+        .where(ListItemModel.list_id == ListModel.id)
+        .correlate(ListModel)
+        .scalar_subquery()
+        .label("items_count")
+    )
     q = (
-        select(ListModel, UserModel.username)
+        select(ListModel, UserModel.username, items_count_sq)
         .join(UserModel, UserModel.id == ListModel.owner_id)
         .where(ListModel.is_public.is_(True))
-        .options(selectinload(ListModel.items))
     )
     if owner:
         q = q.where(UserModel.username == owner)
 
     rows = db.execute(q.order_by(ListModel.updated_at.desc(), ListModel.id.desc())).all()
-    return [_summary_dict(lst, username) for (lst, username) in rows]
+    return [_summary_dict(lst, username, items_count=cnt) for (lst, username, cnt) in rows]
 
     # ---- FALLBACK: LISTS (pytest only) ----
     if not _is_pytest():

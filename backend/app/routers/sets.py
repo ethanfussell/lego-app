@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import time
+import threading
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -197,6 +199,24 @@ def _enrich_with_tags(db: Session, items: List[Dict[str, Any]]) -> None:
             item["set_tag"] = tag
 
 
+_ratings_cache_lock = threading.Lock()
+_ratings_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+_RATINGS_TTL = 60  # seconds
+
+_review_counts_cache_lock = threading.Lock()
+_review_counts_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+
+
+def invalidate_ratings_cache() -> None:
+    """Call after a review is created/updated/deleted to bust the cache."""
+    with _ratings_cache_lock:
+        _ratings_cache["ts"] = 0.0
+        _ratings_cache["val"] = None
+    with _review_counts_cache_lock:
+        _review_counts_cache["ts"] = 0.0
+        _review_counts_cache["val"] = None
+
+
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
     """
     Map set_num -> (avg_rating, rating_count) where rating_count counts only non-null ratings.
@@ -218,6 +238,11 @@ def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
                 out[set_num] = (round(sum(vals) / len(vals), 2), len(vals))
         return out
 
+    now = time.monotonic()
+    with _ratings_cache_lock:
+        if now - _ratings_cache["ts"] < _RATINGS_TTL and _ratings_cache["val"] is not None:
+            return _ratings_cache["val"]
+
     rows = db.execute(
         select(ReviewModel.set_num, func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
         .where(ReviewModel.rating.is_not(None))
@@ -229,6 +254,10 @@ def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
         cnt_i = int(cnt or 0)
         avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
         out[str(set_num)] = (avg_f, cnt_i)
+
+    with _ratings_cache_lock:
+        _ratings_cache["ts"] = time.monotonic()
+        _ratings_cache["val"] = out
     return out
 
 
@@ -246,6 +275,11 @@ def _review_counts_map(db: Session) -> Dict[str, int]:
             counts[key] = counts.get(key, 0) + 1
         return counts
 
+    now = time.monotonic()
+    with _review_counts_cache_lock:
+        if now - _review_counts_cache["ts"] < _RATINGS_TTL and _review_counts_cache["val"] is not None:
+            return _review_counts_cache["val"]
+
     rows = db.execute(
         select(ReviewModel.set_num, func.count(ReviewModel.id))
         .where(
@@ -258,6 +292,10 @@ def _review_counts_map(db: Session) -> Dict[str, int]:
     out: Dict[str, int] = {}
     for set_num, cnt in rows:
         out[str(set_num)] = int(cnt or 0)
+
+    with _review_counts_cache_lock:
+        _review_counts_cache["ts"] = time.monotonic()
+        _review_counts_cache["val"] = out
     return out
 
 

@@ -15,6 +15,7 @@ from ..core.sanitize import contains_profanity
 from ..core.set_nums import base_set_num
 from ..data.sets import get_set_by_num
 from ..db import get_db
+from ..routers.sets import invalidate_ratings_cache
 from ..models import Review as ReviewModel
 from ..models import ReviewVote as ReviewVoteModel
 from ..models import Set as SetModel
@@ -341,6 +342,7 @@ def create_or_update_review(
         existing.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(existing)
+        invalidate_ratings_cache()
 
         # Auto-move wishlist → owned when a rating is set
         if payload.rating is not None:
@@ -362,6 +364,7 @@ def create_or_update_review(
     db.add(new_row)
     db.commit()
     db.refresh(new_row)
+    invalidate_ratings_cache()
 
     # Auto-move wishlist → owned when a rating is set
     if payload.rating is not None:

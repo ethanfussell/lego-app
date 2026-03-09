@@ -59,6 +59,8 @@ function toListArray(raw: unknown): PublicList[] {
   return arr.filter((x): x is PublicList => isRecord(x) && ((x as Record<string, unknown>).id != null));
 }
 
+export const revalidate = 60; // ISR: regenerate page at most every 60 seconds
+
 export default async function Page() {
   // Fetch all 3 data sources in parallel on the server
   const [newSetsRaw, popularSetsRaw, listsRaw] = await Promise.all([
