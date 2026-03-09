@@ -25,6 +25,9 @@ export default function Footer() {
             <Link href="/terms" className="hover:text-amber-600 transition-colors">
               Terms
             </Link>
+            <Link href="/blog" className="hover:text-amber-600 transition-colors">
+              Blog
+            </Link>
             <Link href="/affiliate-disclosure" className="hover:text-amber-600 transition-colors">
               Affiliate disclosure
             </Link>
