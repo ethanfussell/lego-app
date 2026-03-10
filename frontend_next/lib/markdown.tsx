@@ -1,8 +1,13 @@
 // lib/markdown.tsx — Lightweight MDX-like renderer for Turbopack compatibility
 // Renders standard markdown + custom JSX-style components (<Callout>, <CTA>, etc.)
+// Supports ::set and ::sets directives for embedding set cards in blog posts.
 
 import Link from "next/link";
 import React from "react";
+import { apiBase } from "@/lib/api";
+import type { SetLite } from "@/lib/types";
+import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
 
 /* ─── Custom component registry ─── */
 
@@ -60,23 +65,69 @@ function CTA({ href, children }: { href: string; children: string }) {
   );
 }
 
+/* ─── Set data fetching ─── */
+
+/**
+ * Scan content for ::set and ::sets directives, extract all set numbers,
+ * and batch-fetch their data from the API.
+ */
+async function fetchSetData(source: string): Promise<Map<string, SetLite>> {
+  const setNums = new Set<string>();
+  for (const line of source.split("\n")) {
+    const trimmed = line.trim();
+    // ::set 75192 or ::sets 75192, 75341, 10497
+    const match = trimmed.match(/^::sets?\s+(.+)/);
+    if (match) {
+      for (const num of match[1].split(",")) {
+        const cleaned = num.trim();
+        if (cleaned) setNums.add(cleaned);
+      }
+    }
+  }
+
+  if (setNums.size === 0) return new Map();
+
+  const results = new Map<string, SetLite>();
+
+  // Fetch all sets in parallel
+  const fetches = [...setNums].map(async (setNum) => {
+    try {
+      const res = await fetch(`${apiBase()}/sets/${encodeURIComponent(setNum)}`, {
+        headers: { accept: "application/json" },
+        next: { revalidate: 3600 },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as SetLite;
+        results.set(setNum, data);
+      }
+    } catch {
+      // Silently skip sets that can't be fetched
+    }
+  });
+
+  await Promise.all(fetches);
+  return results;
+}
+
 /* ─── Markdown + custom component renderer ─── */
 
 /**
- * Render MDX-like content: standard markdown + custom JSX components.
- * Processes the content in two passes:
- * 1. Split on custom component tags
- * 2. Render markdown blocks to HTML
+ * Async server component that renders MDX-like content.
+ * Supports standard markdown, custom JSX components, and ::set directives.
+ *
+ * Blog syntax:
+ *   ::set 75192          — embed a single set card
+ *   ::sets 75192, 75341  — embed a row of set cards
  */
-export function MdxContent({ source }: { source: string }) {
-  const elements = parseContent(source);
+export async function MdxContent({ source }: { source: string }) {
+  const setData = await fetchSetData(source);
+  const elements = parseContent(source, setData);
   return <div className="prose-custom max-w-none">{elements}</div>;
 }
 
 // Parse inline markdown formatting (bold, italic, code, links)
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  // Pattern: [text](url), **bold**, *italic*, `code`, <ThemeLink ...>...</ThemeLink>
   const regex =
     /\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`|<ThemeLink\s+slug="([^"]+)">(.*?)<\/ThemeLink>|<SetLink\s+setNum="([^"]+)">(.*?)<\/SetLink>/g;
   let lastIndex = 0;
@@ -87,7 +138,6 @@ function renderInline(text: string): React.ReactNode[] {
       nodes.push(text.slice(lastIndex, match.index));
     }
     if (match[1] !== undefined) {
-      // Link
       const isExternal = match[2].startsWith("http");
       nodes.push(
         <a
@@ -101,13 +151,10 @@ function renderInline(text: string): React.ReactNode[] {
         </a>,
       );
     } else if (match[3] !== undefined) {
-      // Bold
       nodes.push(<strong key={match.index}>{match[3]}</strong>);
     } else if (match[4] !== undefined) {
-      // Italic
       nodes.push(<em key={match.index}>{match[4]}</em>);
     } else if (match[5] !== undefined) {
-      // Inline code
       nodes.push(
         <code
           key={match.index}
@@ -117,10 +164,8 @@ function renderInline(text: string): React.ReactNode[] {
         </code>,
       );
     } else if (match[6] !== undefined) {
-      // ThemeLink
       nodes.push(<ThemeLink key={match.index} slug={match[6]}>{match[7]}</ThemeLink>);
     } else if (match[8] !== undefined) {
-      // SetLink
       nodes.push(<SetLink key={match.index} setNum={match[8]}>{match[9]}</SetLink>);
     }
     lastIndex = regex.lastIndex;
@@ -133,7 +178,7 @@ function renderInline(text: string): React.ReactNode[] {
   return nodes;
 }
 
-function parseContent(source: string): React.ReactNode[] {
+function parseContent(source: string, setData: Map<string, SetLite>): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   const lines = source.split("\n");
   let i = 0;
@@ -144,6 +189,38 @@ function parseContent(source: string): React.ReactNode[] {
 
     // Empty line — skip
     if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // ::set / ::sets directive — embed set cards
+    const setDirective = line.trim().match(/^::sets?\s+(.+)/);
+    if (setDirective) {
+      const nums = setDirective[1].split(",").map((s) => s.trim()).filter(Boolean);
+      const sets = nums.map((n) => setData.get(n)).filter((s): s is SetLite => !!s);
+
+      if (sets.length > 0) {
+        elements.push(
+          <div
+            key={key++}
+            className={`my-6 grid gap-4 ${
+              sets.length === 1
+                ? "max-w-sm mx-auto"
+                : sets.length === 2
+                  ? "grid-cols-1 sm:grid-cols-2 max-w-2xl mx-auto"
+                  : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+            }`}
+          >
+            {sets.map((set) => (
+              <SetCard
+                key={set.set_num}
+                set={set}
+                footer={<SetCardActions setNum={set.set_num} />}
+              />
+            ))}
+          </div>,
+        );
+      }
       i++;
       continue;
     }
@@ -161,7 +238,7 @@ function parseContent(source: string): React.ReactNode[] {
       i++; // skip closing tag
       elements.push(
         <Callout key={key++} type={type}>
-          {parseContent(innerLines.join("\n"))}
+          {parseContent(innerLines.join("\n"), setData)}
         </Callout>,
       );
       continue;
@@ -217,7 +294,7 @@ function parseContent(source: string): React.ReactNode[] {
           key={key++}
           className="my-6 border-l-4 border-zinc-300 pl-4 italic text-zinc-600"
         >
-          {parseContent(quoteLines.join("\n"))}
+          {parseContent(quoteLines.join("\n"), setData)}
         </blockquote>,
       );
       continue;
@@ -301,6 +378,7 @@ function parseContent(source: string): React.ReactNode[] {
       !lines[i].startsWith(">") &&
       !lines[i].startsWith("```") &&
       !lines[i].startsWith("<") &&
+      !/^::sets?\s+/.test(lines[i].trim()) &&
       !/^[-*+]\s+/.test(lines[i]) &&
       !/^\d+\.\s+/.test(lines[i]) &&
       !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim())
