@@ -91,9 +91,9 @@ export default function ListsClient() {
 
       {!token ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500 shadow-sm">
-          You’re not logged in. Go to{" "}
-          <Link href="/login" className="font-semibold hover:underline">
-            /login
+          Please{" "}
+          <Link href="/sign-in" className="font-semibold hover:underline">
+            sign in
           </Link>{" "}
           to view your lists.
         </div>

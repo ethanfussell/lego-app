@@ -594,11 +594,11 @@ export default function AccountClient() {
         <div className="mt-6">
           <CardShell>
             <p className="m-0 text-sm text-zinc-500">
-              You’re not logged in. Go to{" "}
-              <Link href="/login" className="font-semibold hover:underline">
-                /login
+              Please{" "}
+              <Link href="/sign-in" className="font-semibold hover:underline">
+                sign in
               </Link>{" "}
-              to sign in.
+              to continue.
             </p>
           </CardShell>
         </div>

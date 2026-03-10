@@ -61,12 +61,12 @@ export default function SetCardActions({
           />
         ) : (
           <Link
-            href="/login"
+            href="/sign-in"
             onClick={() => {
               trackLoginCta({ placement: "set_card_actions" });
 
               outboundClick({
-                url: "/login",
+                url: "/sign-in",
                 label: "Log in",
                 placement: "set_card_actions",
                 set_num: setNum,
