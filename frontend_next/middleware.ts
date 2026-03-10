@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 
 /**
  * Public routes — accessible without authentication.
@@ -23,28 +23,32 @@ const isPublicRoute = createRouteMatcher([
   "/api/(.*)", // API proxy routes
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  // Site-wide password gate (temporary, for pre-launch)
-  const sitePassword = process.env.SITE_PASSWORD;
-  if (sitePassword) {
-    const { pathname } = req.nextUrl;
-    const isPasswordPage = pathname === "/password";
-    const isPasswordApi = pathname === "/api/password";
-
-    // Let password routes through immediately — no auth processing needed
-    if (isPasswordPage || isPasswordApi) return NextResponse.next();
-
-    const hasAccess = req.cookies.get("site_access")?.value === "granted";
-    if (!hasAccess) {
-      return NextResponse.redirect(new URL("/password", req.url));
-    }
-  }
-
-  // Protect non-public routes — user must be signed in
+const clerk = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
 });
+
+export default function middleware(req: NextRequest, event: NextFetchEvent) {
+  // Site-wide password gate — handled before Clerk to avoid external auth calls
+  const sitePassword = process.env.SITE_PASSWORD;
+  if (sitePassword) {
+    const { pathname } = req.nextUrl;
+
+    // Password page & API bypass everything
+    if (pathname === "/password" || pathname === "/api/password") {
+      return NextResponse.next();
+    }
+
+    // No access cookie → redirect to password page
+    if (req.cookies.get("site_access")?.value !== "granted") {
+      return NextResponse.redirect(new URL("/password", req.url));
+    }
+  }
+
+  // Authenticated user or gate disabled — run Clerk
+  return clerk(req, event);
+}
 
 export const config = {
   matcher: [
