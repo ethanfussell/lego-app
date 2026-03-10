@@ -22,7 +22,7 @@ export default function SetCardActions({
   const shopHref = `/sets/${encodeURIComponent(setNum)}#shop`;
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`@container flex items-center gap-2 ${className}`}>
       {/* Shop */}
       <div className="flex-1">
         <Link
@@ -48,8 +48,8 @@ export default function SetCardActions({
         </Link>
       </div>
 
-      {/* Add to list (or prompt to login) */}
-      <div className="flex-1">
+      {/* Add to list (or prompt to login) — hidden when card is too narrow */}
+      <div className="hidden @min-[200px]:block flex-1">
         {token ? (
           <AddToListMenu
             token={token}
