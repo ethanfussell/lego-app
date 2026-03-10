@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 /**
  * Public routes — accessible without authentication.
@@ -23,42 +23,28 @@ const isPublicRoute = createRouteMatcher([
   "/api/(.*)", // API proxy routes
 ]);
 
-/**
- * Site-wide password gate — runs BEFORE Clerk so password-related
- * routes never wait on Clerk's external auth checks.
- */
-function passwordGate(req: NextRequest): NextResponse | null {
+export default clerkMiddleware(async (auth, req) => {
+  // Site-wide password gate (temporary, for pre-launch)
   const sitePassword = process.env.SITE_PASSWORD;
-  if (!sitePassword) return null; // gate disabled
+  if (sitePassword) {
+    const { pathname } = req.nextUrl;
+    const isPasswordPage = pathname === "/password";
+    const isPasswordApi = pathname === "/api/password";
 
-  const { pathname } = req.nextUrl;
-  const isPasswordPage = pathname === "/password";
-  const isPasswordApi = pathname === "/api/password";
+    // Let password routes through immediately — no auth processing needed
+    if (isPasswordPage || isPasswordApi) return NextResponse.next();
 
-  // Let the password page and API through without any middleware processing
-  if (isPasswordPage || isPasswordApi) return NextResponse.next();
-
-  const hasAccess = req.cookies.get("site_access")?.value === "granted";
-  if (!hasAccess) {
-    return NextResponse.redirect(new URL("/password", req.url));
+    const hasAccess = req.cookies.get("site_access")?.value === "granted";
+    if (!hasAccess) {
+      return NextResponse.redirect(new URL("/password", req.url));
+    }
   }
 
-  return null; // has access, continue to Clerk
-}
-
-const clerk = clerkMiddleware(async (auth, req) => {
   // Protect non-public routes — user must be signed in
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
 });
-
-export default function middleware(req: NextRequest) {
-  const gateResponse = passwordGate(req);
-  if (gateResponse) return gateResponse;
-
-  return clerk(req, {} as never);
-}
 
 export const config = {
   matcher: [
