@@ -19,6 +19,7 @@ const isPublicRoute = createRouteMatcher([
   "/login(.*)",
   "/signup(.*)",
   "/lists/(.*)", // public list viewing
+  "/password", // site-wide password gate
   "/api/(.*)", // API proxy routes
 ]);
 
