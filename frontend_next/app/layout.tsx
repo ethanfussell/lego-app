@@ -32,6 +32,12 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     images: ["/opengraph-image"],
   },
+
+  manifest: "/manifest.json",
+  themeColor: "#f97316",
+  icons: {
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
