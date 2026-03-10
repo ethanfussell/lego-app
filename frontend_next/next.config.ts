@@ -6,9 +6,6 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
 
-  // Ensure CJS-only packages are resolved by Node, not bundled by Turbopack
-  serverExternalPackages: ["gray-matter"],
-
   // Security headers
   async headers() {
     return [

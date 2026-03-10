@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import matter from "gray-matter";
+import { parseFrontmatter, stringifyFrontmatter } from "@/lib/frontmatter";
 import { auth } from "@clerk/nextjs/server";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
@@ -34,7 +34,7 @@ export async function GET() {
 
   const posts = files.map((filename) => {
     const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
-    const { data, content } = matter(raw);
+    const { data, content } = parseFrontmatter(raw);
     const slug = filename.replace(/\.mdx$/, "");
     return {
       slug,
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   if (tags?.length) frontmatter.tags = tags;
   if (coverImage) frontmatter.coverImage = coverImage;
 
-  const fileContent = matter.stringify(content, frontmatter);
+  const fileContent = stringifyFrontmatter(content, frontmatter);
   fs.writeFileSync(filePath, fileContent, "utf-8");
 
   return NextResponse.json({ ok: true, slug });

@@ -1,7 +1,7 @@
 // lib/blog.ts — Blog post loading utilities
 import fs from "fs";
 import path from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "@/lib/frontmatter";
 import readingTime from "reading-time";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
@@ -32,7 +32,7 @@ export function getAllPosts(): BlogPostMeta[] {
   const posts: BlogPostMeta[] = files
     .map((filename) => {
       const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
-      const { data, content } = matter(raw);
+      const { data, content } = parseFrontmatter(raw);
       const slug = filename.replace(/\.mdx$/, "");
       const rt = readingTime(content);
 
@@ -59,7 +59,7 @@ export function getPostBySlug(slug: string): BlogPost | null {
   if (!fs.existsSync(filePath)) return null;
 
   const raw = fs.readFileSync(filePath, "utf-8");
-  const { data, content } = matter(raw);
+  const { data, content } = parseFrontmatter(raw);
   const rt = readingTime(content);
 
   return {
