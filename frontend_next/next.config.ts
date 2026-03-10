@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
 
+  // Expose to middleware (Edge Runtime) at build time
+  env: {
+    SITE_PASSWORD: process.env.SITE_PASSWORD ?? "",
+  },
+
   // Security headers
   async headers() {
     return [
