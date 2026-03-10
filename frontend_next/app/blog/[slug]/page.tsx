@@ -2,10 +2,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MDXRemote } from "next-mdx-remote/rsc";
 import { getAllSlugs, getPostBySlug } from "@/lib/blog";
 import { siteBase, SITE_NAME } from "@/lib/url";
-import { mdxComponents } from "@/app/components/mdx/MdxComponents";
+import { MdxContent } from "@/lib/markdown";
 
 export const revalidate = 3600; // ISR: revalidate every hour
 
@@ -135,9 +134,7 @@ export default async function BlogPostPage({
       ) : null}
 
       {/* MDX content */}
-      <div className="prose-custom max-w-none">
-        <MDXRemote source={post.content} components={mdxComponents} />
-      </div>
+      <MdxContent source={post.content} />
 
       {/* Back link */}
       <div className="mt-12 border-t border-zinc-200 pt-6">
