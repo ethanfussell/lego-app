@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Public routes — accessible without authentication.
@@ -23,25 +23,42 @@ const isPublicRoute = createRouteMatcher([
   "/api/(.*)", // API proxy routes
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  // Site-wide password gate (temporary, for pre-launch)
+/**
+ * Site-wide password gate — runs BEFORE Clerk so password-related
+ * routes never wait on Clerk's external auth checks.
+ */
+function passwordGate(req: NextRequest): NextResponse | null {
   const sitePassword = process.env.SITE_PASSWORD;
-  if (sitePassword) {
-    const { pathname } = req.nextUrl;
-    const isPasswordPage = pathname === "/password";
-    const isPasswordApi = pathname === "/api/password";
-    const hasAccess = req.cookies.get("site_access")?.value === "granted";
+  if (!sitePassword) return null; // gate disabled
 
-    if (!hasAccess && !isPasswordPage && !isPasswordApi) {
-      return NextResponse.redirect(new URL("/password", req.url));
-    }
+  const { pathname } = req.nextUrl;
+  const isPasswordPage = pathname === "/password";
+  const isPasswordApi = pathname === "/api/password";
+
+  // Let the password page and API through without any middleware processing
+  if (isPasswordPage || isPasswordApi) return NextResponse.next();
+
+  const hasAccess = req.cookies.get("site_access")?.value === "granted";
+  if (!hasAccess) {
+    return NextResponse.redirect(new URL("/password", req.url));
   }
 
+  return null; // has access, continue to Clerk
+}
+
+const clerk = clerkMiddleware(async (auth, req) => {
   // Protect non-public routes — user must be signed in
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
 });
+
+export default function middleware(req: NextRequest) {
+  const gateResponse = passwordGate(req);
+  if (gateResponse) return gateResponse;
+
+  return clerk(req, {} as never);
+}
 
 export const config = {
   matcher: [

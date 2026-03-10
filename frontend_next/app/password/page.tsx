@@ -14,17 +14,22 @@ export default function PasswordPage() {
     setError("");
     setLoading(true);
 
-    const res = await fetch("/api/password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
+    try {
+      const res = await fetch("/api/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
 
-    if (res.ok) {
-      router.push("/");
-      router.refresh();
-    } else {
-      setError("Incorrect password");
+      if (res.ok) {
+        router.push("/");
+        router.refresh();
+      } else {
+        setError("Incorrect password");
+        setLoading(false);
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
