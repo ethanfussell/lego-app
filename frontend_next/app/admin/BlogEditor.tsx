@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import BlogPreview from "./BlogPreview";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +18,7 @@ type BlogPost = {
 };
 
 type EditorMode = "list" | "edit";
+type EditorTab = "write" | "preview";
 
 // ---------------------------------------------------------------------------
 // Toolbar button helper
@@ -64,7 +66,10 @@ export default function BlogEditor({ token }: { token: string }) {
   const [coverImage, setCoverImage] = useState("");
   const [content, setContent] = useState("");
 
+  const [tab, setTab] = useState<EditorTab>("write");
   const contentRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const parsedTags = tagsText.split(",").map((t) => t.trim()).filter(Boolean);
 
   // ─── Fetch all posts ───
   const fetchPosts = useCallback(async () => {
@@ -283,6 +288,55 @@ export default function BlogEditor({ token }: { token: string }) {
     );
   }
 
+  // ─── Full-page preview ───
+  if (tab === "preview") {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setTab("write")}
+              className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
+            >
+              &larr; Back to Editor
+            </button>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+              Preview
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded-full bg-amber-500 px-6 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Saving..." : editSlug ? "Update Post" : "Publish Post"}
+            </button>
+          </div>
+        </div>
+
+        {message && (
+          <p className={`mb-4 text-sm ${message.includes("fail") || message.includes("Failed") || message.includes("required") ? "text-red-600" : "text-green-700"}`}>
+            {message}
+          </p>
+        )}
+
+        <div className="rounded-xl border border-zinc-200 bg-white px-6">
+          <BlogPreview
+            title={title}
+            description={description}
+            date={date}
+            tags={parsedTags}
+            coverImage={coverImage}
+            content={content}
+          />
+        </div>
+      </div>
+    );
+  }
+
   // ─── Editor view ───
   return (
     <div>
@@ -292,7 +346,7 @@ export default function BlogEditor({ token }: { token: string }) {
         </h2>
         <button
           type="button"
-          onClick={() => { setMode("list"); setMessage(""); }}
+          onClick={() => { setMode("list"); setMessage(""); setTab("write"); }}
           className="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors"
         >
           Cancel
@@ -406,7 +460,7 @@ export default function BlogEditor({ token }: { token: string }) {
           />
         </div>
 
-        {/* Save button */}
+        {/* Action buttons */}
         <div className="flex items-center gap-3 pt-2">
           <button
             type="button"
@@ -418,7 +472,14 @@ export default function BlogEditor({ token }: { token: string }) {
           </button>
           <button
             type="button"
-            onClick={() => { setMode("list"); setMessage(""); }}
+            onClick={() => setTab("preview")}
+            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("list"); setMessage(""); setTab("write"); }}
             className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
           >
             Cancel
