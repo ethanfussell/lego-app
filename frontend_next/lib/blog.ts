@@ -2,7 +2,12 @@
 import fs from "fs";
 import path from "path";
 import { parseFrontmatter } from "@/lib/frontmatter";
-import readingTime from "reading-time";
+/** Estimate reading time (~200 words per minute). */
+function readingTime(text: string): { text: string } {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const minutes = Math.max(1, Math.round(words / 200));
+  return { text: `${minutes} min read` };
+}
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 
