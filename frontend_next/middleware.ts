@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 /**
  * Public routes — accessible without authentication.
@@ -22,6 +23,19 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Site-wide password gate (temporary, for pre-launch)
+  const sitePassword = process.env.SITE_PASSWORD;
+  if (sitePassword) {
+    const { pathname } = req.nextUrl;
+    const isPasswordPage = pathname === "/password";
+    const isPasswordApi = pathname === "/api/password";
+    const hasAccess = req.cookies.get("site_access")?.value === "granted";
+
+    if (!hasAccess && !isPasswordPage && !isPasswordApi) {
+      return NextResponse.redirect(new URL("/password", req.url));
+    }
+  }
+
   // Protect non-public routes — user must be signed in
   if (!isPublicRoute(req)) {
     await auth.protect();
