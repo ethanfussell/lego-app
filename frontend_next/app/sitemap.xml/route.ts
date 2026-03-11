@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { themeToSlug } from "@/lib/slug";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // ---------------- config ----------------
 
