@@ -182,9 +182,6 @@ export default function OffersSection({
   error?: string | null;
   onRetry?: () => void;
 }) {
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState error={error} onRetry={onRetry} />;
-
   const raw = Array.isArray(offers) ? offers : [];
 
   const normalized: NormalizedOffer[] = raw
@@ -223,17 +220,6 @@ export default function OffersSection({
     });
   }, [normalized]);
 
-  if (sorted.length === 0) {
-    return (
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
-        {emptyMessage}
-      </div>
-    );
-  }
-
-  const bestIdx = pickBestIndex(sorted);
-
-  // For the single footer disclaimer
   const anyAffiliateLinks = useMemo(() => {
     for (const o of sorted) {
       const aff = buildAffiliateUrl(
@@ -244,6 +230,19 @@ export default function OffersSection({
     }
     return false;
   }, [sorted, placement, setNum]);
+
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+
+  if (sorted.length === 0) {
+    return (
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  const bestIdx = pickBestIndex(sorted);
 
   return (
     <div className="space-y-3">

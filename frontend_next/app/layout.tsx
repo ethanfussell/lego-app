@@ -1,5 +1,5 @@
 // app/layout.tsx
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
@@ -34,10 +34,13 @@ export const metadata: Metadata = {
   },
 
   manifest: "/manifest.json",
-  themeColor: "#f97316",
   icons: {
     apple: "/icon-192.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f97316",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

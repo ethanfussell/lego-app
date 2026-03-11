@@ -57,7 +57,7 @@ export default function WelcomeBanner({ username }: { username?: string }) {
   useEffect(() => {
     try {
       if (localStorage.getItem(STORAGE_KEY) !== "true") {
-        setVisible(true);
+        requestAnimationFrame(() => setVisible(true));
       }
     } catch {
       // localStorage not available

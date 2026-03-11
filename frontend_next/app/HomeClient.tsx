@@ -4,8 +4,7 @@
 import React, { useMemo, useRef } from "react";
 import Link from "next/link";
 
-import { apiFetch } from "@/lib/api";
-import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
+import { isRecord } from "@/lib/types";
 import SetCard, { type SetLite } from "./components/SetCard";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
@@ -27,106 +26,8 @@ type PublicList = {
   created_at?: string | null;
 };
 
-const CARD_MIN_WIDTH = 220;
 
-function coercePublicList(raw: unknown): PublicList | null {
-  if (!isRecord(raw)) return null;
-  const o = raw as UnknownRecord;
 
-  const idStr = asTrimmedString(o.id);
-  const idNum = asFiniteNumber(o.id);
-  const id: string | number | null = idStr ?? idNum ?? null;
-  if (id == null) return null;
-
-  const out: PublicList = {
-    id,
-    title: asTrimmedString(o.title),
-    name: asTrimmedString(o.name),
-    description: asTrimmedString(o.description),
-    items_count: asFiniteNumber(o.items_count),
-    owner: asTrimmedString(o.owner),
-    owner_username: asTrimmedString(o.owner_username),
-    username: asTrimmedString(o.username),
-    updated_at: asTrimmedString(o.updated_at),
-    created_at: asTrimmedString(o.created_at),
-  };
-
-  return out;
-}
-
-function pickArrayOrResults(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (isRecord(data)) {
-    const r = (data as UnknownRecord).results;
-    if (Array.isArray(r)) return r as unknown[];
-  }
-  return [];
-}
-
-function FeaturedBadge() {
-  return (
-    <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-extrabold text-amber-700 dark:text-amber-300">
-      Featured
-    </span>
-  );
-}
-
-function PlaceholderSetCard() {
-  return (
-    <div
-      className="shrink-0 snap-start rounded-xl border border-black/[.08] bg-white p-3 shadow-sm dark:border-white/[.14] dark:bg-zinc-950"
-      style={{ minWidth: CARD_MIN_WIDTH, maxWidth: CARD_MIN_WIDTH, minHeight: 160 }}
-    >
-      <div
-        className="mb-2 h-[100px] rounded-lg"
-        style={{
-          background:
-            "repeating-linear-gradient(45deg, rgba(0,0,0,.06), rgba(0,0,0,.06) 10px, rgba(0,0,0,.03) 10px, rgba(0,0,0,.03) 20px)",
-        }}
-      />
-      <div className="mb-1 h-3 rounded-full bg-black/[.08] dark:bg-white/[.10]" />
-      <div className="mb-1 h-3 w-2/3 rounded-full bg-black/[.06] dark:bg-white/[.08]" />
-      <div className="h-3 w-1/2 rounded-full bg-black/[.05] dark:bg-white/[.06]" />
-    </div>
-  );
-}
-
-function RowNav({
-  onLeft,
-  onRight,
-  href,
-  hrefLabel,
-}: {
-  onLeft: () => void;
-  onRight: () => void;
-  href?: string;
-  hrefLabel?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={onLeft}
-        className="rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-      >
-        ◀
-      </button>
-      <button
-        type="button"
-        onClick={onRight}
-        className="rounded-full border border-black/[.10] bg-white px-2 py-1 text-sm font-semibold hover:bg-black/[.04] dark:border-white/[.16] dark:bg-transparent dark:hover:bg-white/[.06]"
-      >
-        ▶
-      </button>
-
-      {href ? (
-        <Link href={href} className="ml-1 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
-          {hrefLabel || "View all →"}
-        </Link>
-      ) : null}
-    </div>
-  );
-}
 
 type Props = {
   newSets: SetLite[];

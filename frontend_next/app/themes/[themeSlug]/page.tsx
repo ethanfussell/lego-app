@@ -40,7 +40,7 @@ function isSetSummary(x: unknown): x is SetSummary {
 
 function pickRows(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
-  if (typeof data === "object" && data !== null && Array.isArray((data as any).results)) return (data as any).results;
+  if (typeof data === "object" && data !== null && Array.isArray((data as Record<string, unknown>).results)) return (data as Record<string, unknown>).results as unknown[];
   return [];
 }
 
