@@ -37,8 +37,25 @@ from app.routers import alerts as alerts_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import threading
     from app.core.scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
+
+    # Run retirement scraper once on startup (in background thread to not block)
+    def _startup_scrape():
+        try:
+            from app.pipelines.retirement_scraper import run_retirement_scrape
+            import logging
+            logger = logging.getLogger("bricktrack.startup")
+            logger.info("Running retirement scraper on startup...")
+            result = run_retirement_scrape()
+            logger.info("Startup retirement scrape result: %s", result)
+        except Exception:
+            import logging
+            logging.getLogger("bricktrack.startup").exception("Startup retirement scrape failed")
+
+    threading.Thread(target=_startup_scrape, daemon=True).start()
+
     yield
     shutdown_scheduler()
 

@@ -34,20 +34,44 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function fetchAllThemes(): Promise<ThemeRow[]> {
   const base = apiBase();
-  const res = await fetch(`${base}/themes?limit=200`, { next: { revalidate: 3600 } });
-  if (!res.ok) return [];
-  const data: unknown = await res.json();
-  return Array.isArray(data) ? (data as ThemeRow[]) : [];
+  const url = `${base}/themes?limit=200`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[themes] fetchAllThemes failed: ${res.status} from ${url}`);
+      return [];
+    }
+    const data: unknown = await res.json();
+    const rows = Array.isArray(data) ? (data as ThemeRow[]) : [];
+    const withImg = rows.filter((r) => r.image_url).length;
+    console.log(`[themes] fetchAllThemes: ${rows.length} themes, ${withImg} with images, url=${url}`);
+    return rows;
+  } catch (e) {
+    console.error(`[themes] fetchAllThemes error:`, e);
+    return [];
+  }
 }
 
 async function fetchActiveThemes(): Promise<ThemeRow[]> {
   const base = apiBase();
   const currentYear = new Date().getFullYear();
   const minYear = currentYear - 2;
-  const res = await fetch(`${base}/themes?limit=200&min_year=${minYear}`, { next: { revalidate: 3600 } });
-  if (!res.ok) return [];
-  const data: unknown = await res.json();
-  return Array.isArray(data) ? (data as ThemeRow[]) : [];
+  const url = `${base}/themes?limit=200&min_year=${minYear}`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[themes] fetchActiveThemes failed: ${res.status} from ${url}`);
+      return [];
+    }
+    const data: unknown = await res.json();
+    const rows = Array.isArray(data) ? (data as ThemeRow[]) : [];
+    const withImg = rows.filter((r) => r.image_url).length;
+    console.log(`[themes] fetchActiveThemes: ${rows.length} themes, ${withImg} with images, url=${url}`);
+    return rows;
+  } catch (e) {
+    console.error(`[themes] fetchActiveThemes error:`, e);
+    return [];
+  }
 }
 
 export default async function ThemesIndexPage() {
