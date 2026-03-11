@@ -26,8 +26,10 @@ const ALLOWED_HOSTS = new Set<string>([
   "amazon.com",
   "www.walmart.com",
   "walmart.com",
+  "goto.walmart.com",
   "www.target.com",
   "target.com",
+  "goto.target.com",
   "www.bestbuy.com",
   "bestbuy.com",
 ]);
@@ -44,6 +46,7 @@ function normalizeHost(host: string) {
  * Build an affiliate-tagged URL for a retailer offer.
  * - Validates URL (http/https only, allowlisted hosts)
  * - Appends Amazon Associates tag for amazon.com links
+ * - Impact links (Target/Walmart) are pre-tagged in the backend
  * - Adds UTM tracking params for attribution
  */
 export function buildAffiliateUrl(offer: AffiliateOffer, opts: BuildOpts = {}): string {
@@ -62,12 +65,14 @@ export function buildAffiliateUrl(offer: AffiliateOffer, opts: BuildOpts = {}): 
     u.searchParams.set("tag", AMAZON_TAG);
   }
 
-  // UTM tracking
-  u.searchParams.set("utm_source", "bricktrack");
-  u.searchParams.set("utm_medium", "affiliate");
-  if (opts.placement) u.searchParams.set("utm_campaign", opts.placement);
-  if (opts.setNum) u.searchParams.set("utm_content", opts.setNum);
-  if (typeof opts.offerRank === "number") u.searchParams.set("utm_term", String(opts.offerRank));
+  // UTM tracking (skip for Impact redirect URLs — they encode the destination)
+  if (!host.startsWith("goto.")) {
+    u.searchParams.set("utm_source", "bricktrack");
+    u.searchParams.set("utm_medium", "affiliate");
+    if (opts.placement) u.searchParams.set("utm_campaign", opts.placement);
+    if (opts.setNum) u.searchParams.set("utm_content", opts.setNum);
+    if (typeof opts.offerRank === "number") u.searchParams.set("utm_term", String(opts.offerRank));
+  }
 
   return u.toString();
 }

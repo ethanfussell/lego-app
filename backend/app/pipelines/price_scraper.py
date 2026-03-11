@@ -3,7 +3,7 @@ Pipeline: Scrape retail prices and update the Offer table.
 
 Sources:
   - LEGO.com: Official MSRP + stock status (JSON-LD structured data)
-  - Amazon/Target/Walmart: Search URL construction (affiliate links, no price scraping)
+  - Amazon/Target/Walmart/Best Buy: Search URL construction (affiliate links, no price scraping)
 
 Only processes "active" sets (current year +/- 1). Rate-limited to be polite.
 """
@@ -30,6 +30,8 @@ logger = logging.getLogger("bricktrack.pipeline.prices")
 
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
 AMAZON_TAG = os.getenv("AMAZON_AFFILIATE_TAG", "bricktrack-20")
+WALMART_IMPACT_ID = os.getenv("WALMART_IMPACT_AFFILIATE_ID", "")
+TARGET_IMPACT_ID = os.getenv("TARGET_IMPACT_AFFILIATE_ID", "")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -51,17 +53,21 @@ def build_amazon_url(set_num_plain: str, name: str, asin: str | None = None) -> 
 
 
 def build_target_url(set_num_plain: str) -> str:
-    return f"https://www.target.com/s?searchTerm=lego+{set_num_plain}"
+    base = f"https://www.target.com/s?searchTerm=lego+{set_num_plain}"
+    if TARGET_IMPACT_ID:
+        return f"https://goto.target.com/c/{quote(TARGET_IMPACT_ID)}/1/2?u={quote(base)}"
+    return base
 
 
 def build_walmart_url(set_num_plain: str) -> str:
-    return f"https://www.walmart.com/search?q=lego+{set_num_plain}"
+    base = f"https://www.walmart.com/search?q=lego+{set_num_plain}"
+    if WALMART_IMPACT_ID:
+        return f"https://goto.walmart.com/c/{quote(WALMART_IMPACT_ID)}/1/2?u={quote(base)}"
+    return base
 
 
-# Keep old names as aliases for internal use
-_build_amazon_url = build_amazon_url
-_build_target_url = build_target_url
-_build_walmart_url = build_walmart_url
+def build_bestbuy_url(set_num_plain: str) -> str:
+    return f"https://www.bestbuy.com/site/searchpage.jsp?st=lego+{set_num_plain}"
 
 
 def scrape_lego_product_page(
@@ -284,29 +290,19 @@ def run_price_scrape() -> dict:
                         set_row.retail_price = lego_data["price"]
                         set_row.retail_currency = lego_data.get("currency", "USD")
 
-                # --- Amazon ---
-                amazon_url = _build_amazon_url(plain, name)
-                is_new = _upsert_offer(db, plain, "Amazon", None, "USD", amazon_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
-
-                # --- Target ---
-                target_url = _build_target_url(plain)
-                is_new = _upsert_offer(db, plain, "Target", None, "USD", target_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
-
-                # --- Walmart ---
-                walmart_url = _build_walmart_url(plain)
-                is_new = _upsert_offer(db, plain, "Walmart", None, "USD", walmart_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
+                # --- Retailer search URLs ---
+                retailers = [
+                    ("Amazon", build_amazon_url(plain, name)),
+                    ("Target", build_target_url(plain)),
+                    ("Walmart", build_walmart_url(plain)),
+                    ("Best Buy", build_bestbuy_url(plain)),
+                ]
+                for store, url in retailers:
+                    is_new = _upsert_offer(db, plain, store, None, "USD", url, None)
+                    if is_new:
+                        stats["offers_inserted"] += 1
+                    else:
+                        stats["offers_updated"] += 1
 
                 # Commit per-set to avoid losing progress
                 db.commit()

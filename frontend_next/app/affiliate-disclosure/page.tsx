@@ -52,6 +52,14 @@ export default function Page() {
             <strong>Amazon Associates</strong> &mdash; Links to Amazon.com product pages and search
             results may contain our affiliate tag.
           </li>
+          <li>
+            <strong>Walmart</strong> &mdash; Links to Walmart.com may be affiliate links through the
+            Walmart affiliate program.
+          </li>
+          <li>
+            <strong>Target</strong> &mdash; Links to Target.com may be affiliate links through the
+            Target affiliate program.
+          </li>
         </ul>
 
         <p className="pt-2 text-xs text-zinc-500">
