@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
+import os
+
 import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select, and_
@@ -27,6 +29,7 @@ from app.models import Offer as OfferModel, Set as SetModel
 logger = logging.getLogger("bricktrack.pipeline.prices")
 
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
+AMAZON_TAG = os.getenv("AMAZON_AFFILIATE_TAG", "bricktrack-20")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -39,9 +42,12 @@ THROTTLE_SECONDS = 2.0
 MAX_SETS_PER_RUN = 200
 
 
-def build_amazon_url(set_num_plain: str, name: str) -> str:
+def build_amazon_url(set_num_plain: str, name: str, asin: str | None = None) -> str:
+    """Build an Amazon URL with affiliate tag. Uses direct product link if ASIN is available."""
+    if asin:
+        return f"https://www.amazon.com/dp/{quote(asin)}?tag={quote(AMAZON_TAG)}"
     query = f"LEGO {set_num_plain} {name}"
-    return f"https://www.amazon.com/s?k={quote(query)}"
+    return f"https://www.amazon.com/s?k={quote(query)}&tag={quote(AMAZON_TAG)}"
 
 
 def build_target_url(set_num_plain: str) -> str:
