@@ -10,6 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 
 type CollectionRow = { set_num: string };
+type ReviewRow = { set_num: string; rating: number };
 
 const COLLECTION_CHANGED = "collection-changed";
 
@@ -28,9 +29,27 @@ function isCollectionRow(x: unknown): x is CollectionRow {
   return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
 }
 
+function isReviewRow(x: unknown): x is ReviewRow {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    typeof (x as { set_num?: unknown }).set_num === "string" &&
+    typeof (x as { rating?: unknown }).rating === "number"
+  );
+}
+
 function toSetNums(raw: unknown): Set<string> {
   const rows = Array.isArray(raw) ? raw.filter(isCollectionRow) : [];
   return new Set(rows.map((r) => String(r.set_num || "").trim()).filter(Boolean));
+}
+
+function toRatingsMap(raw: unknown): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!Array.isArray(raw)) return map;
+  for (const r of raw) {
+    if (isReviewRow(r)) map.set(r.set_num, r.rating);
+  }
+  return map;
 }
 
 export function useCollectionStatus() {
@@ -38,6 +57,7 @@ export function useCollectionStatus() {
 
   const [ownedSetNums, setOwnedSetNums] = useState<Set<string>>(new Set());
   const [wishlistSetNums, setWishlistSetNums] = useState<Set<string>>(new Set());
+  const [ratingsMap, setRatingsMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -61,22 +81,26 @@ export function useCollectionStatus() {
       if (!token) {
         setOwnedSetNums(new Set());
         setWishlistSetNums(new Set());
+        setRatingsMap(new Map());
         return;
       }
 
       setLoading(true);
       try {
-        const [owned, wish] = await Promise.all([
+        const [owned, wish, reviews] = await Promise.all([
           apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" }),
           apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" }),
+          apiFetch<unknown>("/sets/reviews/me?limit=500", { token, cache: "no-store" }).catch(() => []),
         ]);
         if (cancelled) return;
         setOwnedSetNums(toSetNums(owned));
         setWishlistSetNums(toSetNums(wish));
+        setRatingsMap(toRatingsMap(reviews));
       } catch {
         if (cancelled) return;
         setOwnedSetNums(new Set());
         setWishlistSetNums(new Set());
+        setRatingsMap(new Map());
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -94,8 +118,9 @@ export function useCollectionStatus() {
       refresh,
       isOwned: (setNum: string) => ownedSetNums.has(setNum),
       isWishlist: (setNum: string) => !ownedSetNums.has(setNum) && wishlistSetNums.has(setNum),
+      getUserRating: (setNum: string) => ratingsMap.get(setNum) ?? null,
     }),
-    [ownedSetNums, wishlistSetNums, loading, refresh],
+    [ownedSetNums, wishlistSetNums, ratingsMap, loading, refresh],
   );
 
   return helpers;

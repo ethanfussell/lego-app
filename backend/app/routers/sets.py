@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import os
+import time
+import threading
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
 
@@ -19,6 +21,7 @@ from ..data.sets import get_set_by_num, load_cached_sets
 from ..data import reviews as reviews_data
 from ..data import offers as offers_data  # used by /sets/{set_num}/offers
 from ..db import get_db
+from ..models import Offer as OfferModel
 from ..models import Review as ReviewModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
@@ -174,11 +177,12 @@ def _review_count_for_set(db: Session, set_num: str) -> int:
     return int(cnt or 0)
 
 
-def _set_tags_map(db: Session) -> Dict[str, str]:
-    """Map set_num -> set_tag for all sets that have a tag."""
-    rows = db.execute(
-        select(SetModel.set_num, SetModel.set_tag).where(SetModel.set_tag.isnot(None))
-    ).all()
+def _set_tags_map(db: Session, set_nums: Optional[List[str]] = None) -> Dict[str, str]:
+    """Map set_num -> set_tag for sets that have a tag. If set_nums given, filter to those only."""
+    q = select(SetModel.set_num, SetModel.set_tag).where(SetModel.set_tag.isnot(None))
+    if set_nums:
+        q = q.where(SetModel.set_num.in_(set_nums))
+    rows = db.execute(q).all()
     return {r[0]: r[1] for r in rows if r[1]}
 
 
@@ -186,7 +190,8 @@ def _enrich_with_tags(db: Session, items: List[Dict[str, Any]]) -> None:
     """Add set_tag to a list of set dicts from DB tags."""
     if not items:
         return
-    tags = _set_tags_map(db)
+    set_nums = [item.get("set_num", "") for item in items if item.get("set_num")]
+    tags = _set_tags_map(db, set_nums)
     if not tags:
         return
     for item in items:
@@ -194,6 +199,24 @@ def _enrich_with_tags(db: Session, items: List[Dict[str, Any]]) -> None:
         tag = tags.get(sn)
         if tag:
             item["set_tag"] = tag
+
+
+_ratings_cache_lock = threading.Lock()
+_ratings_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+_RATINGS_TTL = 60  # seconds
+
+_review_counts_cache_lock = threading.Lock()
+_review_counts_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+
+
+def invalidate_ratings_cache() -> None:
+    """Call after a review is created/updated/deleted to bust the cache."""
+    with _ratings_cache_lock:
+        _ratings_cache["ts"] = 0.0
+        _ratings_cache["val"] = None
+    with _review_counts_cache_lock:
+        _review_counts_cache["ts"] = 0.0
+        _review_counts_cache["val"] = None
 
 
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
@@ -217,6 +240,11 @@ def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
                 out[set_num] = (round(sum(vals) / len(vals), 2), len(vals))
         return out
 
+    now = time.monotonic()
+    with _ratings_cache_lock:
+        if now - _ratings_cache["ts"] < _RATINGS_TTL and _ratings_cache["val"] is not None:
+            return _ratings_cache["val"]
+
     rows = db.execute(
         select(ReviewModel.set_num, func.avg(ReviewModel.rating), func.count(ReviewModel.rating))
         .where(ReviewModel.rating.is_not(None))
@@ -228,6 +256,10 @@ def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
         cnt_i = int(cnt or 0)
         avg_f: Optional[float] = round(float(avg), 2) if (avg is not None and cnt_i > 0) else None
         out[str(set_num)] = (avg_f, cnt_i)
+
+    with _ratings_cache_lock:
+        _ratings_cache["ts"] = time.monotonic()
+        _ratings_cache["val"] = out
     return out
 
 
@@ -245,6 +277,11 @@ def _review_counts_map(db: Session) -> Dict[str, int]:
             counts[key] = counts.get(key, 0) + 1
         return counts
 
+    now = time.monotonic()
+    with _review_counts_cache_lock:
+        if now - _review_counts_cache["ts"] < _RATINGS_TTL and _review_counts_cache["val"] is not None:
+            return _review_counts_cache["val"]
+
     rows = db.execute(
         select(ReviewModel.set_num, func.count(ReviewModel.id))
         .where(
@@ -257,6 +294,10 @@ def _review_counts_map(db: Session) -> Dict[str, int]:
     out: Dict[str, int] = {}
     for set_num, cnt in rows:
         out[str(set_num)] = int(cnt or 0)
+
+    with _review_counts_cache_lock:
+        _review_counts_cache["ts"] = time.monotonic()
+        _review_counts_cache["val"] = out
     return out
 
 
@@ -315,6 +356,110 @@ def _user_rating_for_set(
             return float(r2)
 
     return None
+
+
+# ---------------- on-demand price scrape ----------------
+
+import logging as _logging
+
+_od_logger = _logging.getLogger("bricktrack.on_demand_scrape")
+
+def _try_on_demand_scrape(
+    db: Session,
+    canonical_set_num: str,
+    plain: str,
+    name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Scrape LEGO.com for a single set and create offers on the fly.
+
+    Called when a user views a set that has no LEGO offer yet, so we
+    don't have to wait for the next batch scraper run.
+    """
+    from app.pipelines.price_scraper import (
+        scrape_lego_product_page,
+        build_amazon_url,
+        build_target_url,
+        build_walmart_url,
+        HEADERS,
+        REQUEST_TIMEOUT,
+    )
+    import httpx
+
+    now = datetime.now(timezone.utc)
+
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            lego_data = scrape_lego_product_page(client, plain)
+    except Exception:
+        _od_logger.debug("On-demand scrape failed for %s", plain)
+        lego_data = None
+
+    if not lego_data or not lego_data.get("price"):
+        return offers_data.get_offers_for_set(db, plain)
+
+    # Upsert LEGO offer
+    _upsert_on_demand_offer(
+        db, plain, "LEGO",
+        lego_data["price"], lego_data.get("currency", "USD"),
+        lego_data["url"], lego_data.get("in_stock"),
+        now,
+    )
+
+    # Also update Set.retail_price
+    set_row = db.execute(
+        select(SetModel).where(SetModel.set_num == canonical_set_num)
+    ).scalar_one_or_none()
+    if set_row:
+        set_row.retail_price = lego_data["price"]
+        set_row.retail_currency = lego_data.get("currency", "USD")
+
+    # Generate retailer search links
+    _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
+    _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
+    _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
+
+    db.commit()
+    _od_logger.info("On-demand scrape created offers for %s ($%s)", plain, lego_data["price"])
+
+    return offers_data.get_offers_for_set(db, plain)
+
+
+def _upsert_on_demand_offer(
+    db: Session,
+    set_num_plain: str,
+    store: str,
+    price: Optional[float],
+    currency: str,
+    url: str,
+    in_stock: Optional[bool],
+    now: datetime,
+) -> None:
+    from sqlalchemy import and_
+    existing = db.execute(
+        select(OfferModel).where(
+            and_(OfferModel.set_num == set_num_plain, OfferModel.store == store)
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        if price is not None:
+            existing.price = price
+        existing.currency = currency
+        existing.url = url
+        if in_stock is not None:
+            existing.in_stock = in_stock
+        existing.last_checked = now
+    else:
+        db.add(OfferModel(
+            set_num=set_num_plain,
+            store=store,
+            price=price,
+            currency=currency,
+            url=url,
+            in_stock=in_stock,
+            last_checked=now,
+        ))
 
 
 # ---------------- endpoints ----------------
@@ -435,13 +580,14 @@ def list_sets(
             enriched.sort(
                 key=lambda r: (
                     r.get("_relevance") or 0,
+                    int(r.get("year") or 0),
                     r.get("_rating_count") or 0,
                     (r.get("_avg_rating") or 0.0),
                 ),
                 reverse=True,
             )
         else:
-            enriched.sort(key=_sort_key("name"), reverse=False)
+            enriched.sort(key=_sort_key("year"), reverse=True)
     else:
         enriched.sort(key=_sort_key(sort), reverse=reverse)
 
@@ -456,7 +602,6 @@ def list_sets(
         rev_cnt = r.pop("_review_count", 0)
         r.pop("_relevance", None)
 
-        r["average_rating"] = avg
         r["rating_avg"] = avg
         r["rating_count"] = int(cnt or 0)
         r["review_count"] = int(rev_cnt or 0)
@@ -555,8 +700,14 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
 
     canonical = s.get("set_num") or set_num
     plain = s.get("set_num_plain") or canonical.split("-")[0]
+    name = s.get("name") or ""
 
     offers = offers_data.get_offers_for_set(db, plain)
+
+    # On-demand scrape: if no LEGO offer exists, try LEGO.com right now
+    has_lego_offer = any(o.get("store") == "LEGO" for o in offers)
+    if not has_lego_offer:
+        offers = _try_on_demand_scrape(db, canonical, plain, name)
 
     # summary.updated_at = newest offer updated_at (ISO strings compare lexicographically)
     updated_at: Optional[str] = None
@@ -578,7 +729,7 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
     summary="Bulk fetch sets",
     description=(
         "Fetch multiple sets by set_num. Returns cached set fields plus rating stats "
-        "(average_rating, rating_count) and review_count (non-empty text). If authenticated, includes user_rating."
+        "(rating_avg, rating_count) and review_count (non-empty text). If authenticated, includes user_rating."
     ),
 )
 def bulk_get_sets(
@@ -663,7 +814,6 @@ def bulk_get_sets(
             user_rating = _user_rating_for_set(db, username, canonical, plain_map.get(canonical))
 
         r = dict(s)
-        r["average_rating"] = avg
         r["rating_avg"] = avg
         r["rating_count"] = int(cnt or 0)
         r["review_count"] = int(rev_cnt or 0)
@@ -763,7 +913,6 @@ def list_new_sets(
                 "theme": s.theme,
                 "pieces": s.pieces,
                 "image_url": s.image_url,
-                "average_rating": avg,
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
@@ -817,7 +966,6 @@ def list_retiring_sets(
                 "theme": s.theme,
                 "pieces": s.pieces,
                 "image_url": s.image_url,
-                "average_rating": avg,
                 "rating_avg": avg,
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
@@ -841,17 +989,20 @@ def list_coming_soon_sets(
     db: Session = Depends(get_db),
 ):
     """
-    Sets with a launch_date in the future (not yet available).
+    Sets not yet available: either have a future launch_date, or are
+    marked as coming_soon by the Brickset sync (released=false).
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     base_q = (
         select(SetModel)
         .where(
-            SetModel.launch_date.isnot(None),
-            SetModel.launch_date > today,
+            or_(
+                SetModel.launch_date > today,
+                SetModel.retirement_status == "coming_soon",
+            ),
         )
-        .order_by(SetModel.launch_date.asc(), SetModel.name.asc())
+        .order_by(SetModel.launch_date.asc().nulls_last(), SetModel.name.asc())
     )
 
     total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
@@ -927,6 +1078,22 @@ def retiring_page_config(db: Session = Depends(get_db)):
     return settings
 
 
+@router.get("/discover-page-config")
+def discover_page_config(db: Session = Depends(get_db)):
+    """Return admin settings for the /discover page."""
+    settings: Dict[str, Any] = {}
+    rows = db.execute(
+        select(AdminSetting).where(
+            AdminSetting.key.in_(["discover_hidden_sections", "discover_section_config", "quick_explore_cards"])
+        )
+    ).scalars().all()
+
+    for row in rows:
+        settings[row.key] = row.value
+
+    return settings
+
+
 @router.get("/{set_num}")
 def get_set(
     set_num: str,
@@ -948,7 +1115,6 @@ def get_set(
         user_rating = _user_rating_for_set(db, current_user.username, canonical, plain)
 
     out = dict(s)
-    out["average_rating"] = avg
     out["rating_avg"] = avg
     out["rating_count"] = cnt
     out["review_count"] = review_cnt

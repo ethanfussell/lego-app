@@ -74,7 +74,6 @@ export type SetLite = {
 
   // global ratings
   rating_avg?: number | null;
-  average_rating?: number | null;
   rating_count?: number | null;
 
   // user rating

@@ -3,20 +3,18 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, RelationshipProperty
 
 from ..core.auth import get_current_user
+from ..core.collections import move_wishlist_to_owned
+from ..core.limiter import limiter
 from ..db import get_db
 from ..models import User as UserModel
-from ..models import List as ListModel
-from ..models import ListItem as ListItemModel
 
-# IMPORTANT: match how your project imports Review in other routers.
-# If this import fails, change it to whatever you use in sets.py.
-from ..models import Review as ReviewModel  # <-- adjust if needed
+from ..models import Review as ReviewModel
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +22,15 @@ router = APIRouter(prefix="/ratings", tags=["ratings"])
 
 
 class RatingIn(BaseModel):
-  rating: int = Field(..., ge=1, le=5)
+  rating: float = Field(..., ge=0.5, le=5.0)
+
+  @classmethod
+  def __get_validators__(cls):
+    yield from super().__get_validators__()
+
+  def model_post_init(self, __context: object) -> None:
+    # Snap to nearest 0.5
+    self.rating = round(self.rating * 2) / 2
 
 
 def _assign_review_user(review: ReviewModel, user: UserModel) -> None:
@@ -49,7 +55,9 @@ def _assign_review_user(review: ReviewModel, user: UserModel) -> None:
 
 
 @router.put("/{set_num}")
+@limiter.limit("30/minute")
 def put_rating(
+  request: Request,
   set_num: str,
   payload: RatingIn,
   db: Session = Depends(get_db),
@@ -59,16 +67,28 @@ def put_rating(
   if not sn:
     raise HTTPException(status_code=400, detail="Missing set_num")
 
-  review = ReviewModel(set_num=sn, rating=float(payload.rating))
-  _assign_review_user(review, user)
+  # Upsert: update existing review if one exists, otherwise create new
+  existing = db.execute(
+    select(ReviewModel).where(
+      ReviewModel.user_id == user.id,
+      ReviewModel.set_num == sn,
+    ).limit(1)
+  ).scalar_one_or_none()
 
-  db.add(review)
+  if existing:
+    existing.rating = float(payload.rating)
+    review = existing
+  else:
+    review = ReviewModel(set_num=sn, rating=float(payload.rating))
+    _assign_review_user(review, user)
+    db.add(review)
+
   db.commit()
 
   # Auto-move from wishlist → owned when a user rates a set
   moved_to_owned = False
   try:
-    moved_to_owned = _move_wishlist_to_owned(db, int(user.id), sn)
+    moved_to_owned = move_wishlist_to_owned(db, int(user.id), sn)
   except Exception:
     logger.exception("Failed to move set %s from wishlist to owned", sn)
 
@@ -80,83 +100,3 @@ def put_rating(
   }
 
 
-def _move_wishlist_to_owned(db: Session, user_id: int, set_num: str) -> bool:
-  """If the set is on the user's wishlist, move it to owned. Returns True if moved."""
-  from ..core.set_nums import base_set_num
-
-  # Find wishlist
-  wishlist = db.execute(
-    select(ListModel).where(
-      ListModel.owner_id == user_id,
-      ListModel.is_system.is_(True),
-      ListModel.system_key == "wishlist",
-    ).limit(1)
-  ).scalar_one_or_none()
-
-  if not wishlist:
-    return False
-
-  # Check if set is on the wishlist (exact or base match)
-  base = base_set_num(set_num)
-  item = db.execute(
-    select(ListItemModel).where(
-      ListItemModel.list_id == int(wishlist.id),
-      ListItemModel.set_num.in_([set_num, base, f"{base}-1"]),
-    ).limit(1)
-  ).scalar_one_or_none()
-
-  if not item:
-    return False
-
-  # Remove from wishlist
-  db.delete(item)
-
-  # Get or create owned list
-  owned_list = db.execute(
-    select(ListModel).where(
-      ListModel.owner_id == user_id,
-      ListModel.is_system.is_(True),
-      ListModel.system_key == "owned",
-    ).limit(1)
-  ).scalar_one_or_none()
-
-  if not owned_list:
-    from sqlalchemy import func
-    max_pos = db.execute(
-      select(func.coalesce(func.max(ListModel.position), -1))
-      .where(ListModel.owner_id == user_id)
-    ).scalar_one()
-    owned_list = ListModel(
-      owner_id=user_id,
-      title="Owned",
-      description=None,
-      is_public=False,
-      position=int(max_pos) + 1,
-      is_system=True,
-      system_key="owned",
-    )
-    db.add(owned_list)
-    db.flush()
-
-  # Add to owned if not already there
-  already = db.execute(
-    select(ListItemModel).where(
-      ListItemModel.list_id == int(owned_list.id),
-      ListItemModel.set_num == set_num,
-    ).limit(1)
-  ).scalar_one_or_none()
-
-  if not already:
-    from sqlalchemy import func
-    max_pos = db.execute(
-      select(func.coalesce(func.max(ListItemModel.position), -1))
-      .where(ListItemModel.list_id == int(owned_list.id))
-    ).scalar_one()
-    db.add(ListItemModel(
-      list_id=int(owned_list.id),
-      set_num=set_num,
-      position=int(max_pos) + 1,
-    ))
-
-  db.commit()
-  return True

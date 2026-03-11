@@ -1,7 +1,7 @@
 // frontend_next/app/components/SetCard.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
@@ -56,7 +56,11 @@ type Props = {
   set: SetLite;
   variant?: "default" | "owned" | "wishlist" | "feed";
   footer?: React.ReactNode;
-  token?: string; // only needed for owned rating submit
+  token?: string; // needed for owned rating submit
+  /** When true (and token is set), render as owned with interactive stars regardless of variant */
+  isOwnedByUser?: boolean;
+  /** Pre-fetched user rating — avoids extra API call */
+  userRatingOverride?: number | null;
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -64,13 +68,7 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 function pickRatingAvg(s: SetLite) {
-  const v =
-    typeof s.rating_avg === "number"
-      ? s.rating_avg
-      : typeof s.average_rating === "number"
-        ? s.average_rating
-        : null;
-
+  const v = typeof s.rating_avg === "number" ? s.rating_avg : null;
   return typeof v === "number" && Number.isFinite(v) ? clamp(v, 0, 5) : null;
 }
 
@@ -133,22 +131,65 @@ function Stars({ value, className = "" }: { value: number; className?: string })
   );
 }
 
-function StarPicker({ disabled, onPick }: { disabled?: boolean; onPick: (n: number) => void }) {
+function InteractiveStars({
+  value,
+  disabled,
+  onPick,
+}: {
+  value: number | null;
+  disabled?: boolean;
+  onPick: (n: number) => void;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const display = hover ?? value ?? 0;
+
+  function handleClick(e: React.MouseEvent<HTMLButtonElement>, starN: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isLeftHalf = e.clientX - rect.left < rect.width / 2;
+    onPick(isLeftHalf ? starN - 0.5 : starN);
+  }
+
+  function handleHover(e: React.MouseEvent<HTMLButtonElement>, starN: number) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isLeftHalf = e.clientX - rect.left < rect.width / 2;
+    setHover(isLeftHalf ? starN - 0.5 : starN);
+  }
+
   return (
-    <div className="flex items-center justify-center gap-1">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          type="button"
-          disabled={disabled}
-          onClick={() => onPick(n)}
-          className="rounded p-0.5 disabled:opacity-60 hover:scale-110 transition-transform"
-          aria-label={`Rate ${n} stars`}
-          title={`Rate ${n}`}
-        >
-          <StarIcon className="h-5 w-5 text-amber-500" />
-        </button>
-      ))}
+    <div
+      className="flex items-center justify-center gap-0.5"
+      onMouseLeave={() => setHover(null)}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const full = display >= n;
+        const half = !full && display >= n - 0.5;
+
+        return (
+          <button
+            key={n}
+            type="button"
+            disabled={disabled}
+            onClick={(e) => handleClick(e, n)}
+            onMouseMove={(e) => handleHover(e, n)}
+            className="relative rounded p-0.5 disabled:opacity-60 transition-transform hover:scale-110"
+            aria-label={`Rate ${n} stars`}
+            title={hover != null ? `${hover}` : `${n}`}
+          >
+            <span className="relative inline-block h-5 w-5">
+              <StarIcon className="absolute inset-0 h-5 w-5 text-zinc-300" />
+              {full ? (
+                <StarIcon className="absolute inset-0 h-5 w-5 text-amber-500 transition-colors" />
+              ) : half ? (
+                <span className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
+                  <StarIcon className="h-5 w-5 text-amber-500 transition-colors" />
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -188,7 +229,7 @@ export function SetCardSkeleton() {
   );
 }
 
-export default function SetCard({ set, variant = "default", footer, token }: Props) {
+export default function SetCard({ set, variant = "default", footer, token, isOwnedByUser, userRatingOverride }: Props) {
   const title = set.name || set.set_num;
   const year = set.year ? String(set.year) : "\u2014";
   const pieces = pickPieces(set);
@@ -196,13 +237,20 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const ratingAvg = pickRatingAvg(set);
   const ratingCount = pickRatingCount(set);
 
+  const rawUserRating = userRatingOverride !== undefined ? userRatingOverride : set.user_rating;
   const initialUser =
-    typeof set.user_rating === "number" && Number.isFinite(set.user_rating) ? clamp(set.user_rating, 0, 5) : null;
+    typeof rawUserRating === "number" && Number.isFinite(rawUserRating) ? clamp(rawUserRating, 0, 5) : null;
 
   const [userRating, setUserRating] = useState<number | null>(initialUser);
-  const [showRate, setShowRate] = useState(false);
+
+  // Sync when the override prop arrives asynchronously (e.g. useCollectionStatus finishes loading)
+  useEffect(() => {
+    if (initialUser !== null) setUserRating(initialUser);
+  }, [initialUser]);
+
   const [savingRate, setSavingRate] = useState(false);
   const [rateErr, setRateErr] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   const price = useMemo(() => {
     const sale =
@@ -215,19 +263,17 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
     const original =
       typeof set.original_price === "number"
         ? set.original_price
-        : typeof set.retail_price === "number"
-          ? set.retail_price
-          : typeof set.price === "number"
-            ? set.price
-            : typeof set.price_from === "number"
-              ? set.price_from
-              : null;
+        : typeof set.price === "number"
+          ? set.price
+          : typeof set.price_from === "number"
+            ? set.price_from
+            : null;
 
     return { original, sale };
   }, [set]);
 
-  const showPrice = variant === "wishlist" || variant === "feed" || variant === "default";
-  const isOwned = variant === "owned";
+  const isOwned = variant === "owned" || (isOwnedByUser === true && !!token);
+  const showPrice = !isOwned && (variant === "wishlist" || variant === "feed" || variant === "default");
 
   const globalRatingCompact = ratingAvg != null ? { text: ratingAvg.toFixed(1), count: ratingCount } : null;
 
@@ -248,7 +294,8 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       });
 
       setUserRating(n);
-      setShowRate(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1500);
       notifyCollectionChanged();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -261,16 +308,21 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
   const imgSrc = safeImageSrc(set.image_url);
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300 transition-colors">
+    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-md">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
-        <div className="aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
+        <div className="relative aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
           {imgSrc ? (
             <div className="relative h-full w-full">
               <CardImage src={imgSrc} alt={title} sizes={imageSizesForVariant(variant)} quality={70} />
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-zinc-600">No image</div>
+          )}
+          {!isOwned && set.retirement_status === "retiring_soon" && (
+            <span className="absolute top-2 left-2 inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+              Retiring Soon
+            </span>
           )}
         </div>
 
@@ -325,26 +377,15 @@ export default function SetCard({ set, variant = "default", footer, token }: Pro
       </Link>
 
       {isOwned ? (
-        <div className="border-t border-zinc-200 px-4 py-3">
-          <div className="flex flex-col items-center gap-2">
-            {userRating != null ? (
-              <Stars value={userRating} className="justify-center" />
-            ) : showRate ? (
-              <StarPicker disabled={savingRate} onPick={submitRating} />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setRateErr(null);
-                  setShowRate(true);
-                }}
-                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 transition-colors"
-              >
-                Add a rating
-              </button>
-            )}
-
-            {rateErr ? <div className="text-xs text-red-400">{rateErr}</div> : null}
+        <div className="border-t border-zinc-200 px-4 py-2.5">
+          <div className="flex flex-col items-center gap-1">
+            <InteractiveStars value={userRating} disabled={savingRate} onPick={submitRating} />
+            {justSaved ? (
+              <span className="text-[10px] font-medium text-emerald-600 animate-in fade-in duration-200">Saved!</span>
+            ) : userRating == null ? (
+              <span className="text-[10px] text-zinc-400">Tap to rate</span>
+            ) : null}
+            {rateErr ? <div className="text-[10px] text-red-400">{rateErr}</div> : null}
           </div>
         </div>
       ) : footer ? (

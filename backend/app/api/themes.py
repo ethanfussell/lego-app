@@ -69,7 +69,7 @@ def list_sets_for_theme(
     Strict theme browsing:
     - Filters cached sets where set["theme"] equals {theme} (case-insensitive).
     - Supports sorting (name/year/pieces/rating/relevance) + pagination.
-    - Returns same shape as /sets (adds average_rating/rating_avg/rating_count).
+    - Returns same shape as /sets (adds rating_avg/rating_count).
     - Sets X-Total-Count header.
     """
     theme_clean = (theme or "").strip()
@@ -123,7 +123,6 @@ def list_sets_for_theme(
     for r in page_rows:
         avg = r.pop("_avg_rating", None)
         cnt = r.pop("_rating_count", 0)
-        r["average_rating"] = avg
         r["rating_avg"] = avg
         r["rating_count"] = cnt
 

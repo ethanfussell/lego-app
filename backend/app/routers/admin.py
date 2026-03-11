@@ -4,12 +4,13 @@ import importlib
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_admin_user
 from app.core.limiter import limiter
+from app.core.sanitize import sanitize_oneline
 from app.db import get_db
 from app.models import (
     User as UserModel,
@@ -39,6 +40,13 @@ class AdminSetUpdate(BaseModel):
     theme: Optional[str] = None
     set_tag: Optional[str] = None
 
+    @field_validator("name", "theme", "set_tag", mode="before")
+    @classmethod
+    def sanitize_text_fields(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return sanitize_oneline(v) or None
+
 
 class AdminSetUnlock(BaseModel):
     """Request body for unlocking specific fields."""
@@ -56,6 +64,11 @@ ALLOWED_SETTINGS = {
     "featured_themes",
     "retiring_hidden_sets",
     "retiring_excluded_themes",
+    "discover_hidden_sections",
+    "discover_section_config",
+    "themes_excluded",
+    "themes_custom_images",
+    "quick_explore_cards",
 }
 
 
@@ -111,6 +124,7 @@ _PIPELINES = {
     "price_scrape": "app.pipelines.price_scraper.run_price_scrape",
     "msrp_seed": "app.pipelines.msrp_seed.run_msrp_seed",
     "brickset_sync": "app.pipelines.brickset_sync.run_brickset_sync",
+    "coming_soon_scrape": "app.pipelines.coming_soon_scraper.run_coming_soon_scrape",
 }
 
 

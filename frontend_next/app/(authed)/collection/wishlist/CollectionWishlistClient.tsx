@@ -52,7 +52,7 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
 
   // Optional pricing/ratings fields (if backend ever sends them)
   const rating_avg = asFiniteNumber(raw.rating_avg);
-  const average_rating = asFiniteNumber(raw.average_rating);
+  const rating_avg_val = asFiniteNumber(raw.rating_avg);
   const rating_count = asFiniteNumber(raw.rating_count);
 
   return {
@@ -64,7 +64,7 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
     ...(theme ? { theme } : {}),
     image_url: image_url ?? null,
     ...(typeof rating_avg === "number" ? { rating_avg } : {}),
-    ...(typeof average_rating === "number" ? { average_rating } : {}),
+    ...(typeof rating_avg_val === "number" ? { rating_avg: rating_avg_val } : {}),
     ...(typeof rating_count === "number" ? { rating_count } : {}),
   };
 }
@@ -157,7 +157,7 @@ export default function CollectionWishlistClient() {
 
   useEffect(() => {
     if (!token) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
 

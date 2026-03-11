@@ -5,6 +5,7 @@ import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 import RequireAuth from "@/app/components/RequireAuth";
+import BlogEditor from "@/app/admin/BlogEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -339,7 +340,7 @@ function SetEditorSection({ token }: { token: string }) {
   const lockedSet = new Set(selectedSet?.locked_fields || []);
 
   return (
-    <div className="mt-8">
+    <div>
       <h2 className="text-lg font-semibold">Set Editor</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Search for a set and edit its data. Admin edits are locked and persist across syncs.
@@ -784,8 +785,8 @@ function PageControlsSection({ token }: { token: string }) {
   if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading page controls...</p>;
 
   return (
-    <div className="mt-8">
-      <h2 className="text-lg font-semibold">New Page Controls</h2>
+    <div>
+      <h2 className="text-lg font-semibold">New Releases</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Control the /new page spotlight and featured themes.
       </p>
@@ -1121,8 +1122,8 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
   if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading retiring controls...</p>;
 
   return (
-    <div className="mt-8">
-      <h2 className="text-lg font-semibold">Retiring Soon Controls</h2>
+    <div>
+      <h2 className="text-lg font-semibold">Retiring Soon</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Hide sets and manage excluded themes on the /retiring-soon page.
       </p>
@@ -1267,12 +1268,835 @@ function RetiringSoonControlsSection({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Quick Explore card types & presets
+// ---------------------------------------------------------------------------
+
+type QuickExploreCard = {
+  label: string;
+  href: string;
+  icon: string;
+  color: string;
+};
+
+const COLOR_PRESETS: { id: string; label: string; value: string }[] = [
+  { id: "green", label: "Green", value: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { id: "blue", label: "Blue", value: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { id: "amber", label: "Amber", value: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { id: "purple", label: "Purple", value: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
+  { id: "orange", label: "Orange", value: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
+  { id: "teal", label: "Teal", value: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
+  { id: "rose", label: "Rose", value: "from-rose-50 to-pink-50 border-rose-200 hover:border-rose-300" },
+  { id: "zinc", label: "Gray", value: "from-zinc-50 to-slate-50 border-zinc-200 hover:border-zinc-300" },
+];
+
+function colorPresetId(colorValue: string): string {
+  const match = COLOR_PRESETS.find((p) => p.value === colorValue);
+  return match ? match.id : COLOR_PRESETS[0].id;
+}
+
+const DEFAULT_QUICK_EXPLORE_CARDS: QuickExploreCard[] = [
+  { label: "Under $30", href: "/search?max_price=30", icon: "💰", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { label: "500+ Pieces", href: "/search?min_pieces=500", icon: "🧱", color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { label: "Top Rated", href: "/search?sort=rating&order=desc", icon: "⭐", color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { label: "Display Sets", href: "/themes/Icons", icon: "🏛️", color: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
+  { label: "For Kids", href: "/themes/City", icon: "👦", color: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
+  { label: "Most Pieces", href: "/pieces/most", icon: "🏗️", color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
+];
+
+// ---------------------------------------------------------------------------
+// Discover Controls Section
+// ---------------------------------------------------------------------------
+
+const DISCOVER_SECTIONS = [
+  { id: "quick_explore", label: "Quick Explore", hasLimit: false, defaultTitle: "Quick explore" },
+  { id: "new_releases", label: "New Releases", hasLimit: true, defaultTitle: "New Releases", defaultSubtitle: "Recently launched sets", defaultLimit: 14 },
+  { id: "retiring_soon", label: "Retiring Soon", hasLimit: true, defaultTitle: "Retiring Soon", defaultSubtitle: "Get them before they're gone", defaultLimit: 14 },
+  { id: "best_deals", label: "Best Deals", hasLimit: false, defaultTitle: "Best Deals", defaultSubtitle: "Sets with price drops" },
+  { id: "coming_soon", label: "Coming Soon", hasLimit: true, defaultTitle: "Coming Soon", defaultSubtitle: "Upcoming releases", defaultLimit: 14 },
+  { id: "browse_by_theme", label: "Browse by Theme", hasLimit: true, defaultTitle: "Browse by Theme", defaultSubtitle: "Explore your favorite worlds", defaultLimit: 12 },
+  { id: "top_rated", label: "Top Rated", hasLimit: true, hasMinRating: true, defaultTitle: "Top Rated by Community", defaultSubtitle: "Highest-rated sets", defaultLimit: 14, defaultMinRating: 4.0 },
+  { id: "featured_lists", label: "Featured Lists", hasLimit: true, defaultTitle: "Featured Lists", defaultSubtitle: "Curated by the community", defaultLimit: 6 },
+  { id: "social", label: "Social", hasLimit: false, defaultTitle: "Social" },
+  { id: "guides", label: "Guides & Articles", hasLimit: false, defaultTitle: "Guides & Articles" },
+] as const;
+
+type SectionConfigEntry = { title?: string; subtitle?: string; limit?: number; min_rating?: number };
+type SectionConfigMap = Record<string, SectionConfigEntry>;
+
+function DiscoverControlsSection({ token }: { token: string }) {
+  const toast = useToast();
+
+  const [hiddenSections, setHiddenSections] = useState<string[]>([]);
+  const [sectionConfig, setSectionConfig] = useState<SectionConfigMap>({});
+  const [quickExploreCards, setQuickExploreCards] = useState<QuickExploreCard[]>(DEFAULT_QUICK_EXPLORE_CARDS);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Load current settings
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await apiFetch<Record<string, { value: string | null }>>(
+          "/admin/settings",
+          { token },
+        );
+        if (cancelled) return;
+
+        const hiddenVal = data?.discover_hidden_sections?.value;
+        if (hiddenVal) {
+          try {
+            const parsed = JSON.parse(hiddenVal);
+            if (!cancelled && Array.isArray(parsed)) setHiddenSections(parsed);
+          } catch { /* ignore */ }
+        }
+
+        const configVal = data?.discover_section_config?.value;
+        if (configVal) {
+          try {
+            const parsed = JSON.parse(configVal);
+            if (!cancelled && typeof parsed === "object" && parsed !== null) setSectionConfig(parsed);
+          } catch { /* ignore */ }
+        }
+
+        const cardsVal = data?.quick_explore_cards?.value;
+        if (cardsVal) {
+          try {
+            const parsed = JSON.parse(cardsVal);
+            if (!cancelled && Array.isArray(parsed) && parsed.length > 0) {
+              setQuickExploreCards(parsed.filter((c: unknown) =>
+                typeof c === "object" && c !== null &&
+                typeof (c as QuickExploreCard).label === "string" &&
+                typeof (c as QuickExploreCard).href === "string"
+              ));
+            }
+          } catch { /* ignore */ }
+        }
+
+        if (!cancelled) setSettingsLoaded(true);
+      } catch {
+        if (!cancelled) setSettingsLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  function toggleSection(sectionId: string) {
+    setHiddenSections((prev) =>
+      prev.includes(sectionId)
+        ? prev.filter((s) => s !== sectionId)
+        : [...prev, sectionId],
+    );
+  }
+
+  function updateSectionField(sectionId: string, field: keyof SectionConfigEntry, value: string | number | undefined) {
+    setSectionConfig((prev) => {
+      const entry = { ...prev[sectionId] };
+      if (value === undefined || value === "") {
+        delete entry[field];
+      } else {
+        (entry as Record<string, string | number>)[field] = value;
+      }
+      // Remove entry entirely if empty
+      if (Object.keys(entry).length === 0) {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      }
+      return { ...prev, [sectionId]: entry };
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await Promise.all([
+        apiFetch(`/admin/settings/discover_hidden_sections`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(hiddenSections) },
+        }),
+        apiFetch(`/admin/settings/discover_section_config`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(sectionConfig) },
+        }),
+        apiFetch(`/admin/settings/quick_explore_cards`, {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(quickExploreCards) },
+        }),
+      ]);
+      await revalidatePage("/discover");
+      toast.push("Discover settings saved", { type: "success" });
+    } catch (e: unknown) {
+      toast.push(e instanceof Error ? e.message : "Failed to save", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading discover controls...</p>;
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold">Discover</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Control which sections appear on the /discover page and customize their settings.
+      </p>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Sections</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Toggle visibility and click a section to customize its title, subtitle, and limits.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {DISCOVER_SECTIONS.map((section) => {
+            const isVisible = !hiddenSections.includes(section.id);
+            const isExpanded = expandedSection === section.id;
+            const cfg = sectionConfig[section.id] || {};
+
+            return (
+              <div key={section.id} className={`rounded-xl border transition-colors ${
+                isVisible ? "border-emerald-200 bg-emerald-50/50" : "border-zinc-200 bg-zinc-50"
+              }`}>
+                {/* Section header row */}
+                <div className="flex items-center gap-2 px-4 py-3">
+                  {/* Expand/collapse button */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSection(isExpanded ? null : section.id)}
+                    className="shrink-0 text-zinc-400 hover:text-zinc-600 transition-colors"
+                    aria-label={isExpanded ? "Collapse" : "Expand"}
+                  >
+                    <svg className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+
+                  {/* Section name */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSection(isExpanded ? null : section.id)}
+                    className="flex-1 text-left"
+                  >
+                    <span className={`text-sm font-medium ${isVisible ? "text-emerald-800" : "text-zinc-400 line-through"}`}>
+                      {section.label}
+                    </span>
+                    {cfg.title && cfg.title !== section.defaultTitle && (
+                      <span className="ml-2 text-xs text-zinc-400">
+                        &ldquo;{cfg.title}&rdquo;
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Visibility toggle */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleSection(section.id); }}
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                      isVisible
+                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                        : "bg-zinc-200 text-zinc-500 hover:bg-zinc-300"
+                    }`}
+                  >
+                    {isVisible ? "Visible" : "Hidden"}
+                  </button>
+                </div>
+
+                {/* Expanded config panel */}
+                {isExpanded && (
+                  <div className="border-t border-zinc-200/60 px-4 py-4 space-y-3">
+                    {/* Title */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 mb-1">Title</label>
+                      <input
+                        type="text"
+                        value={cfg.title ?? ""}
+                        onChange={(e) => updateSectionField(section.id, "title", e.target.value)}
+                        placeholder={section.defaultTitle}
+                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </div>
+
+                    {/* Subtitle */}
+                    {"defaultSubtitle" in section && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">Subtitle</label>
+                        <input
+                          type="text"
+                          value={cfg.subtitle ?? ""}
+                          onChange={(e) => updateSectionField(section.id, "subtitle", e.target.value)}
+                          placeholder={section.defaultSubtitle}
+                          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Limit */}
+                    {section.hasLimit && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">
+                          Items to show <span className="text-zinc-400">(default: {section.defaultLimit})</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={30}
+                          value={cfg.limit ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateSectionField(section.id, "limit", v === "" ? undefined : Math.max(2, Math.min(30, parseInt(v, 10) || 2)));
+                          }}
+                          placeholder={String(section.defaultLimit)}
+                          className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Min Rating (Top Rated only) */}
+                    {"hasMinRating" in section && section.hasMinRating && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-1">
+                          Minimum rating <span className="text-zinc-400">(default: {section.defaultMinRating})</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={0.1}
+                          value={cfg.min_rating ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateSectionField(section.id, "min_rating", v === "" ? undefined : Math.max(1, Math.min(5, parseFloat(v) || 1)));
+                          }}
+                          placeholder={String(section.defaultMinRating)}
+                          className="w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Quick Explore cards editor */}
+                    {section.id === "quick_explore" && (
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 mb-2">Cards</label>
+                        <div className="space-y-2">
+                          {quickExploreCards.map((card, idx) => (
+                            <div key={idx} className="flex flex-wrap items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+                              <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <span className="text-lg">{card.icon}</span>
+                                <input
+                                  type="text"
+                                  value={card.icon}
+                                  onChange={(e) => {
+                                    const next = [...quickExploreCards];
+                                    next[idx] = { ...next[idx], icon: e.target.value };
+                                    setQuickExploreCards(next);
+                                  }}
+                                  placeholder="Icon"
+                                  className="w-14 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-center focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                />
+                                <input
+                                  type="text"
+                                  value={card.label}
+                                  onChange={(e) => {
+                                    const next = [...quickExploreCards];
+                                    next[idx] = { ...next[idx], label: e.target.value };
+                                    setQuickExploreCards(next);
+                                  }}
+                                  placeholder="Label"
+                                  className="flex-1 min-w-[100px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={card.href}
+                                onChange={(e) => {
+                                  const next = [...quickExploreCards];
+                                  next[idx] = { ...next[idx], href: e.target.value };
+                                  setQuickExploreCards(next);
+                                }}
+                                placeholder="/search?..."
+                                className="flex-1 min-w-[160px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm font-mono focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                              <select
+                                value={colorPresetId(card.color)}
+                                onChange={(e) => {
+                                  const preset = COLOR_PRESETS.find((p) => p.id === e.target.value);
+                                  if (!preset) return;
+                                  const next = [...quickExploreCards];
+                                  next[idx] = { ...next[idx], color: preset.value };
+                                  setQuickExploreCards(next);
+                                }}
+                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              >
+                                {COLOR_PRESETS.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.label}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = quickExploreCards.filter((_, i) => i !== idx);
+                                  setQuickExploreCards(next);
+                                }}
+                                className="shrink-0 rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                                title="Remove card"
+                              >
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        {quickExploreCards.length < 12 && (
+                          <button
+                            type="button"
+                            onClick={() => setQuickExploreCards([...quickExploreCards, { label: "", href: "/", icon: "🔗", color: COLOR_PRESETS[0].value }])}
+                            className="mt-2 text-sm font-semibold text-amber-600 hover:text-amber-700 hover:underline"
+                          >
+                            + Add card
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setQuickExploreCards([...DEFAULT_QUICK_EXPLORE_CARDS])}
+                          className="mt-2 ml-4 text-sm text-zinc-400 hover:text-zinc-600 hover:underline"
+                        >
+                          Reset to defaults
+                        </button>
+                      </div>
+                    )}
+
+                    {/* No configurable fields hint */}
+                    {!section.hasLimit && !("defaultSubtitle" in section) && !("hasMinRating" in section) && section.id !== "quick_explore" && (
+                      <p className="text-xs text-zinc-400 italic">Only title customization is available for this section.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Save */}
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Themes Controls Section
+// ---------------------------------------------------------------------------
+
+function ThemesControlsSection({ token }: { token: string }) {
+  const toast = useToast();
+
+  // Excluded themes
+  const [excludedThemes, setExcludedThemes] = useState<string[]>([]);
+  // Custom images: theme name → image URL
+  const [customImages, setCustomImages] = useState<Record<string, string>>({});
+  // All themes for the autocomplete
+  const [allThemes, setAllThemes] = useState<{ theme: string; set_count: number; image_url: string | null }[]>([]);
+
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Search for excluding themes
+  const [excludeQuery, setExcludeQuery] = useState("");
+  const [excludeResults, setExcludeResults] = useState<{ theme: string; set_count: number }[]>([]);
+  const [excludeOpen, setExcludeOpen] = useState(false);
+  const excludeRef = useRef<HTMLDivElement>(null);
+
+  // Search for custom image themes
+  const [imageQuery, setImageQuery] = useState("");
+  const [imageResults, setImageResults] = useState<{ theme: string; set_count: number }[]>([]);
+  const [imageOpen, setImageOpen] = useState(false);
+  const imageRef = useRef<HTMLDivElement>(null);
+  const [editingImageTheme, setEditingImageTheme] = useState<string | null>(null);
+  const [editingImageUrl, setEditingImageUrl] = useState("");
+
+  // Load settings + all themes
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [data, themes] = await Promise.all([
+          apiFetch<Record<string, { value: string | null }>>("/admin/settings", { token }),
+          apiFetch<{ theme: string; set_count: number; image_url: string | null }[]>("/themes?limit=200", { token }),
+        ]);
+        if (cancelled) return;
+
+        if (Array.isArray(themes)) setAllThemes(themes);
+
+        const exVal = data?.themes_excluded?.value;
+        if (exVal) {
+          try {
+            const parsed = JSON.parse(exVal);
+            if (Array.isArray(parsed)) setExcludedThemes(parsed);
+          } catch { /* ignore */ }
+        }
+
+        const imgVal = data?.themes_custom_images?.value;
+        if (imgVal) {
+          try {
+            const parsed = JSON.parse(imgVal);
+            if (typeof parsed === "object" && parsed !== null) setCustomImages(parsed);
+          } catch { /* ignore */ }
+        }
+
+        setSettingsLoaded(true);
+      } catch {
+        if (!cancelled) setSettingsLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Debounced exclude search
+  useEffect(() => {
+    if (!excludeQuery.trim() || excludeQuery.trim().length < 1) {
+      setExcludeResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await apiFetch<{ theme: string; set_count: number }[]>(
+          `/themes?q=${encodeURIComponent(excludeQuery.trim())}&limit=10`,
+          { token },
+        );
+        setExcludeResults(Array.isArray(results) ? results : []);
+        setExcludeOpen(true);
+      } catch {
+        setExcludeResults([]);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [excludeQuery, token]);
+
+  // Debounced image theme search
+  useEffect(() => {
+    if (!imageQuery.trim() || imageQuery.trim().length < 1) {
+      setImageResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await apiFetch<{ theme: string; set_count: number }[]>(
+          `/themes?q=${encodeURIComponent(imageQuery.trim())}&limit=10`,
+          { token },
+        );
+        setImageResults(Array.isArray(results) ? results : []);
+        setImageOpen(true);
+      } catch {
+        setImageResults([]);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [imageQuery, token]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (excludeRef.current && !excludeRef.current.contains(e.target as Node)) setExcludeOpen(false);
+      if (imageRef.current && !imageRef.current.contains(e.target as Node)) setImageOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function addExcluded(theme: string) {
+    if (!excludedThemes.includes(theme)) {
+      setExcludedThemes((prev) => [...prev, theme]);
+    }
+    setExcludeQuery("");
+    setExcludeResults([]);
+    setExcludeOpen(false);
+  }
+
+  function removeExcluded(theme: string) {
+    setExcludedThemes((prev) => prev.filter((t) => t !== theme));
+  }
+
+  function startEditImage(theme: string) {
+    setEditingImageTheme(theme);
+    setEditingImageUrl(customImages[theme] || "");
+    setImageQuery("");
+    setImageResults([]);
+    setImageOpen(false);
+  }
+
+  function saveImageUrl() {
+    if (!editingImageTheme) return;
+    if (editingImageUrl.trim()) {
+      setCustomImages((prev) => ({ ...prev, [editingImageTheme]: editingImageUrl.trim() }));
+    } else {
+      setCustomImages((prev) => {
+        const next = { ...prev };
+        delete next[editingImageTheme];
+        return next;
+      });
+    }
+    setEditingImageTheme(null);
+    setEditingImageUrl("");
+  }
+
+  function removeCustomImage(theme: string) {
+    setCustomImages((prev) => {
+      const next = { ...prev };
+      delete next[theme];
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await Promise.all([
+        apiFetch("/admin/settings/themes_excluded", {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(excludedThemes) },
+        }),
+        apiFetch("/admin/settings/themes_custom_images", {
+          method: "PUT",
+          token,
+          body: { value: JSON.stringify(customImages) },
+        }),
+      ]);
+      await revalidatePage("/themes");
+      toast.push("Theme settings saved", { type: "success" });
+    } catch (e: unknown) {
+      toast.push(e instanceof Error ? e.message : "Failed to save", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settingsLoaded) return <p className="mt-8 text-sm text-zinc-500">Loading theme controls...</p>;
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold">Themes</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Customize theme card images and exclude themes from the /themes page.
+      </p>
+
+      {/* Custom Images */}
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Custom Theme Images</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Override the auto-selected image for a theme card. Paste an image URL for any theme.
+        </p>
+
+        {/* Current custom image entries */}
+        <div className="mt-3 space-y-2">
+          {Object.entries(customImages).map(([theme, url]) => (
+            <div
+              key={theme}
+              className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={theme}
+                className="h-10 w-10 shrink-0 rounded-lg border border-zinc-200 bg-white object-contain p-0.5"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-zinc-900">{theme}</div>
+                <div className="truncate text-xs text-zinc-400">{url}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => startEditImage(theme)}
+                className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => removeCustomImage(theme)}
+                className="shrink-0 rounded-full p-1 text-zinc-400 transition-colors hover:text-red-500"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+          {Object.keys(customImages).length === 0 && (
+            <span className="text-xs text-zinc-400">No custom images set — using auto-selected images</span>
+          )}
+        </div>
+
+        {/* Editing inline */}
+        {editingImageTheme && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="text-sm font-medium text-zinc-900">{editingImageTheme}</div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={editingImageUrl}
+                onChange={(e) => setEditingImageUrl(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                type="button"
+                onClick={saveImageUrl}
+                className="shrink-0 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400"
+              >
+                Set
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEditingImageTheme(null); setEditingImageUrl(""); }}
+                className="shrink-0 rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Search to add a new custom image */}
+        {!editingImageTheme && (
+          <div ref={imageRef} className="relative mt-3">
+            <input
+              type="text"
+              value={imageQuery}
+              onChange={(e) => setImageQuery(e.target.value)}
+              onFocus={() => imageResults.length > 0 && setImageOpen(true)}
+              placeholder="Search for a theme to set a custom image..."
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+            />
+            {imageOpen && imageResults.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 bg-white shadow-lg">
+                {imageResults.map((r) => (
+                  <button
+                    key={r.theme}
+                    type="button"
+                    onClick={() => startEditImage(r.theme)}
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-zinc-50 first:rounded-t-xl last:rounded-b-xl"
+                  >
+                    <span className="text-zinc-900">{r.theme}</span>
+                    <span className="text-xs text-zinc-400">{r.set_count} sets</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Excluded Themes */}
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-zinc-900">Excluded Themes</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Themes to hide from the /themes browse page entirely.
+        </p>
+
+        {/* Theme pills */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {excludedThemes.map((theme) => (
+            <span
+              key={theme}
+              className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+            >
+              {theme}
+              <button
+                type="button"
+                onClick={() => removeExcluded(theme)}
+                className="ml-0.5 rounded-full p-0.5 text-red-400 transition-colors hover:text-red-600"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+          {excludedThemes.length === 0 && (
+            <span className="text-xs text-zinc-400">No themes excluded</span>
+          )}
+        </div>
+
+        {/* Search to add */}
+        <div ref={excludeRef} className="relative mt-3">
+          <input
+            type="text"
+            value={excludeQuery}
+            onChange={(e) => setExcludeQuery(e.target.value)}
+            onFocus={() => excludeResults.length > 0 && setExcludeOpen(true)}
+            placeholder="Search for a theme to exclude..."
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+          />
+          {excludeOpen && excludeResults.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 bg-white shadow-lg">
+              {excludeResults
+                .filter((r) => !excludedThemes.includes(r.theme))
+                .map((r) => (
+                  <button
+                    key={r.theme}
+                    type="button"
+                    onClick={() => addExcluded(r.theme)}
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-zinc-50 first:rounded-t-xl last:rounded-b-xl"
+                  >
+                    <span className="text-zinc-900">{r.theme}</span>
+                    <span className="text-xs text-zinc-400">{r.set_count} sets</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Save */}
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Theme Settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Admin Component
 // ---------------------------------------------------------------------------
+
+const ADMIN_PAGES = [
+  { id: "discover", label: "Discover", description: "Section visibility & layout" },
+  { id: "new", label: "New Releases", description: "Spotlight & featured themes" },
+  { id: "retiring", label: "Retiring Soon", description: "Hidden sets & excluded themes" },
+  { id: "themes", label: "Themes", description: "Custom images & excluded themes" },
+  { id: "editor", label: "Set Editor", description: "Edit individual set data" },
+  { id: "blog", label: "Blog", description: "Write & manage blog articles" },
+] as const;
 
 export default function AdminClient() {
   const { token, hydrated } = useAuth();
   const toast = useToast();
+  const [activePage, setActivePage] = useState<string | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1413,140 +2237,180 @@ export default function AdminClient() {
             <p className="text-sm font-semibold text-red-700">{error}</p>
           </div>
         ) : stats ? (
-          <>
-            {/* Stats cards */}
-            <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              <StatCard label="Total Sets" value={stats.set_count} />
-              <StatCard label="Users" value={stats.user_count} />
-              <StatCard label="Email Signups" value={stats.email_signup_count} />
-              <StatCard label="Reviews" value={stats.review_count} />
-              <StatCard label="Affiliate Clicks" value={stats.affiliate_click_count} />
-            </div>
-
-            {/* Content Moderation */}
-            <div className="mt-8">
-              <h2 className="text-lg font-semibold">Content Moderation</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Review and manage user-submitted reports.
-              </p>
-
-              {reportsLoading ? (
-                <p className="mt-4 text-sm text-zinc-500">Loading reports...</p>
-              ) : reportsError ? (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
-                  <p className="text-sm text-red-700">{reportsError}</p>
-                  <button
-                    type="button"
-                    onClick={() => void fetchReports()}
-                    className="mt-2 text-sm font-semibold text-red-700 underline"
-                  >
-                    Retry
-                  </button>
+          <div className="mt-6">
+            {/* ─── Home view (no page selected) ─── */}
+            {!activePage && (
+              <>
+                {/* Stats cards */}
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  <StatCard label="Total Sets" value={stats.set_count} />
+                  <StatCard label="Users" value={stats.user_count} />
+                  <StatCard label="Email Signups" value={stats.email_signup_count} />
+                  <StatCard label="Reviews" value={stats.review_count} />
+                  <StatCard label="Affiliate Clicks" value={stats.affiliate_click_count} />
                 </div>
-              ) : reports.length === 0 ? (
-                <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center">
-                  <p className="text-sm text-zinc-500">No pending reports</p>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {reports.map((r) => (
-                    <div
-                      key={r.id}
-                      className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+
+                {/* Page cards */}
+                <h2 className="mt-10 text-lg font-semibold">Page Settings</h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Click a page to customize its content and behavior.
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {ADMIN_PAGES.map((page) => (
+                    <button
+                      key={page.id}
+                      type="button"
+                      onClick={() => setActivePage(page.id)}
+                      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm text-left transition-all hover:border-amber-300 hover:shadow-md"
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-semibold uppercase text-zinc-400">
-                              {r.target_type}
-                            </span>
-                            <ReasonBadge reason={r.reason} />
-                            <span className="text-xs text-zinc-400">by {r.reporter}</span>
-                          </div>
-                          <p className="mt-1 truncate text-sm text-zinc-700">
-                            {r.target_snippet || "[content deleted]"}
-                          </p>
-                          {r.notes ? (
-                            <p className="mt-1 text-xs italic text-zinc-500">
-                              &ldquo;{r.notes}&rdquo;
-                            </p>
-                          ) : null}
-                          <p className="mt-1 text-xs text-zinc-400">
-                            {new Date(r.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleReportAction(r.id, "resolved")}
-                            disabled={actioningId !== null}
-                            className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
-                          >
-                            Resolve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReportAction(r.id, "dismissed")}
-                            disabled={actioningId !== null}
-                            className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                      <div className="text-sm font-bold text-zinc-900">{page.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{page.description}</div>
+                    </button>
                   ))}
                 </div>
-              )}
-            </div>
 
-            {/* Data Management */}
-            <div className="mt-8">
-              <h2 className="text-lg font-semibold">Data Management</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Refresh sets from Rebrickable or sync the local cache to the database.
-              </p>
+                {/* Content Moderation */}
+                <div className="mt-10">
+                  <h2 className="text-lg font-semibold">Content Moderation</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Review and manage user-submitted reports.
+                  </p>
 
-              <div className="mt-4 flex flex-wrap gap-3">
+                  {reportsLoading ? (
+                    <p className="mt-4 text-sm text-zinc-500">Loading reports...</p>
+                  ) : reportsError ? (
+                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
+                      <p className="text-sm text-red-700">{reportsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchReports()}
+                        className="mt-2 text-sm font-semibold text-red-700 underline"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : reports.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center">
+                      <p className="text-sm text-zinc-500">No pending reports</p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {reports.map((r) => (
+                        <div
+                          key={r.id}
+                          className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-semibold uppercase text-zinc-400">
+                                  {r.target_type}
+                                </span>
+                                <ReasonBadge reason={r.reason} />
+                                <span className="text-xs text-zinc-400">by {r.reporter}</span>
+                              </div>
+                              <p className="mt-1 truncate text-sm text-zinc-700">
+                                {r.target_snippet || "[content deleted]"}
+                              </p>
+                              {r.notes ? (
+                                <p className="mt-1 text-xs italic text-zinc-500">
+                                  &ldquo;{r.notes}&rdquo;
+                                </p>
+                              ) : null}
+                              <p className="mt-1 text-xs text-zinc-400">
+                                {new Date(r.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleReportAction(r.id, "resolved")}
+                                disabled={actioningId !== null}
+                                className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+                              >
+                                Resolve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleReportAction(r.id, "dismissed")}
+                                disabled={actioningId !== null}
+                                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Data Management */}
+                <div className="mt-10">
+                  <h2 className="text-lg font-semibold">Data Management</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Refresh sets from Rebrickable or sync the local cache to the database.
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      className="rounded-full bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+                    >
+                      {refreshing ? "Working..." : "Refresh Sets from Rebrickable"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSync}
+                      disabled={refreshing}
+                      className="rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-50"
+                    >
+                      {refreshing ? "Working..." : "Sync Cache to DB"}
+                    </button>
+                  </div>
+
+                  {refreshResult && (
+                    <p
+                      className={`mt-3 text-sm ${
+                        refreshResult.includes("failed") ? "text-red-600" : "text-green-700"
+                      }`}
+                    >
+                      {refreshResult}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* ─── Subpage views ─── */}
+            {activePage && (
+              <>
                 <button
                   type="button"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="rounded-full bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+                  onClick={() => setActivePage(null)}
+                  className="flex items-center gap-1 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-800"
                 >
-                  {refreshing ? "Working..." : "Refresh Sets from Rebrickable"}
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleSync}
-                  disabled={refreshing}
-                  className="rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-50"
-                >
-                  {refreshing ? "Working..." : "Sync Cache to DB"}
-                </button>
-              </div>
-
-              {refreshResult && (
-                <p
-                  className={`mt-3 text-sm ${
-                    refreshResult.includes("failed") ? "text-red-600" : "text-green-700"
-                  }`}
-                >
-                  {refreshResult}
-                </p>
-              )}
-            </div>
-
-            {/* Set Editor */}
-            {token ? <SetEditorSection token={token} /> : null}
-
-            {/* Page Controls */}
-            {token ? <PageControlsSection token={token} /> : null}
-
-            {/* Retiring Soon Controls */}
-            {token ? <RetiringSoonControlsSection token={token} /> : null}
-          </>
+                <div className="mt-4">
+                  {activePage === "discover" && token && <DiscoverControlsSection token={token} />}
+                  {activePage === "new" && token && <PageControlsSection token={token} />}
+                  {activePage === "retiring" && token && <RetiringSoonControlsSection token={token} />}
+                  {activePage === "themes" && token && <ThemesControlsSection token={token} />}
+                  {activePage === "editor" && token && <SetEditorSection token={token} />}
+                  {activePage === "blog" && token && <BlogEditor token={token} />}
+                </div>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
     </RequireAuth>

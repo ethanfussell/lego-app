@@ -88,17 +88,14 @@ def best_prices_for_sets(
 
     # Build plain → canonical lookup (Offer.set_num stores "10305", not "10305-1")
     plain_to_canonical: Dict[str, str] = {}
+    seen: set[str] = set()
     plain_nums: List[str] = []
     for sn in set_nums:
         plain = _normalize_plain_set_num(sn)
-        if plain:
+        if plain and plain not in seen:
             plain_to_canonical.setdefault(plain, sn)
-            if plain not in plain_to_canonical or plain not in [p for p in plain_nums]:
-                pass
             plain_nums.append(plain)
-
-    # Deduplicate plain_nums
-    plain_nums = list(dict.fromkeys(plain_nums))
+            seen.add(plain)
     if not plain_nums:
         return {}
 
@@ -161,6 +158,10 @@ def enrich_with_best_prices(
             if rp is not None:
                 retail_map[str(sn)] = float(rp)
 
+    # Build a set of set_nums that have at least one active offer (with a price)
+    # so we only show prices on cards that actually lead somewhere purchasable.
+    sets_with_offers = set(best_prices.keys())
+
     for r in rows:
         canonical = r.get("set_num", "")
 
@@ -171,9 +172,11 @@ def enrich_with_best_prices(
 
         retail = r.get("retail_price")
         best = best_prices.get(canonical)
+        has_offers = canonical in sets_with_offers
 
-        # Always expose MSRP as original_price for frontend
-        if isinstance(retail, (int, float)) and retail > 0:
+        # Only show MSRP as original_price when there are active offers;
+        # showing a price with no way to purchase is misleading.
+        if isinstance(retail, (int, float)) and retail > 0 and has_offers:
             r["original_price"] = retail
 
         # Only set sale_price when best offer is strictly less than retail

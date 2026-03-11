@@ -1,12 +1,16 @@
 // frontend_next/app/themes/[themeSlug]/ThemeDetailClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { slugToTheme } from "@/lib/slug";
-import { isRecord, type UnknownRecord } from "@/lib/types";
-import { safeImageSrc } from "@/lib/image";
+import { isRecord } from "@/lib/types";
+import SetCard from "@/app/components/SetCard";
+import SetCardActions from "@/app/components/SetCardActions";
+import Pagination from "@/app/components/Pagination";
+import { SetGridSkeleton } from "@/app/components/Skeletons";
+import { useAuth } from "@/app/providers";
+import { useCollectionStatus } from "@/lib/useCollectionStatus";
 
 type SetSummary = {
   set_num: string;
@@ -17,45 +21,36 @@ type SetSummary = {
   image_url?: string | null;
   rating_count?: number | null;
   rating_avg?: number | null;
-  average_rating?: number | null;
+  retail_price?: number | null;
+  sale_price?: number | null;
+  sale_price_from?: number | null;
+  original_price?: number | null;
+  price?: number | null;
+  price_from?: number | null;
+  set_tag?: string | null;
 };
 
-type Query = {
-  page: number;
-  limit: number;
-  sort: string;
-  order: string;
-};
+type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
 
-function toInt(raw: string, fallback: number) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.floor(n) : fallback;
-}
-function posInt(raw: string, fallback: number) {
-  const n = toInt(raw, fallback);
-  return n > 0 ? n : fallback;
+function toSetCardSet(s: SetSummary): SetCardSetProp {
+  return s as unknown as SetCardSetProp;
 }
 
-function getClientQueryDefaults(): Query {
-  // Must match your server defaults
-  return { page: 1, limit: 36, sort: "relevance", order: "desc" };
-}
+const PAGE_SIZE = 36;
 
-function readQueryFromLocation(): Query {
-  const d = getClientQueryDefaults();
-  if (typeof window === "undefined") return d;
+type SortValue =
+  | "year_desc"
+  | "year_asc"
+  | "rating_desc"
+  | "rating_asc"
+  | "pieces_desc"
+  | "pieces_asc"
+  | "name_asc"
+  | "name_desc";
 
-  const sp = new URLSearchParams(window.location.search);
-  const page = posInt(sp.get("page") || "1", 1);
-  const limit = posInt(sp.get("limit") || String(d.limit), d.limit);
-  const sort = (sp.get("sort") || d.sort).trim() || d.sort;
-  const order = (sp.get("order") || d.order).trim() || d.order;
-
-  return { page, limit, sort, order };
-}
-
-function sameQuery(a: Query, b: Query) {
-  return a.page === b.page && a.limit === b.limit && a.sort === b.sort && a.order === b.order;
+function parseSortValue(v: SortValue): { sort: string; order: string } {
+  const [sort, order] = v.split("_");
+  return { sort, order };
 }
 
 function isSetSummary(x: unknown): x is SetSummary {
@@ -67,151 +62,225 @@ function isSetSummary(x: unknown): x is SetSummary {
 
 function toSetSummaryArray(x: unknown): SetSummary[] {
   if (Array.isArray(x)) return x.filter(isSetSummary);
-
   if (isRecord(x)) {
     const r = x.results;
     return Array.isArray(r) ? r.filter(isSetSummary) : [];
   }
-
   return [];
 }
 
 export default function ThemeDetailClient(props: {
-  themeSlug: string; // canonical route slug (encoded / stable)
+  themeSlug: string;
   initialSets: SetSummary[];
-  initialQuery: Query;
+  initialTotal: number;
 }) {
-  const { themeSlug, initialSets, initialQuery } = props;
+  const { themeSlug, initialSets, initialTotal } = props;
+  const { token } = useAuth();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
-  // Derive display name from slug (works even when initialSets is empty)
   const themeName = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
 
-  // Start with server-rendered data so bots/users see real content immediately.
   const [sets, setSets] = useState<SetSummary[]>(initialSets);
+  const [total, setTotal] = useState(initialTotal || initialSets.length);
+  const [page, setPage] = useState(1);
+  const [sortValue, setSortValue] = useState<SortValue>("year_desc");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // IMPORTANT: This should NOT wipe out the grid (keeps SEO content stable)
-  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  // Active vs all: active = sets from the last 3 years
+  const [showAll, setShowAll] = useState(false);
 
-  const clientQuery = useMemo(() => readQueryFromLocation(), []);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const reqKeyRef = useRef(0);
 
-  useEffect(() => {
-    // If the URL query equals what the server rendered, don't immediately refetch.
-    // (Avoid Google seeing an error overlay on first render.)
-    if (sameQuery(clientQuery, initialQuery)) return;
+  const fetchSets = useCallback(async (pg: number, sv: SortValue, all: boolean) => {
+    const reqId = ++reqKeyRef.current;
+    setLoading(true);
+    setError(null);
 
-    const controller = new AbortController();
+    try {
+      const { sort, order } = parseSortValue(sv);
+      const qs = new URLSearchParams();
+      qs.set("page", String(pg));
+      qs.set("limit", String(PAGE_SIZE));
+      qs.set("sort", sort);
+      qs.set("order", order);
 
-    (async () => {
-      try {
-        setLoading(true);
-        setRefreshWarning(null);
+      if (!all) {
+        const currentYear = new Date().getFullYear();
+        const minYear = currentYear - 2;
+        qs.set("min_year", String(minYear));
+      }
 
-        const qs = new URLSearchParams();
-        qs.set("page", String(clientQuery.page));
-        qs.set("limit", String(clientQuery.limit));
-        qs.set("sort", clientQuery.sort);
-        qs.set("order", clientQuery.order);
+      const url = `/api/themes/${themeSlug}/sets?${qs.toString()}`;
+      const res = await fetch(url, { cache: "no-store" });
 
-        // Hit your Next route handler (same-origin).
-        // IMPORTANT: themeSlug is already URL-safe; don't double-encode.
-        const url = `/api/themes/${themeSlug}/sets?${qs.toString()}`;
+      if (reqKeyRef.current !== reqId) return;
 
-        const res = await fetch(url, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
+      if (!res.ok) {
+        setError(`Couldn't load sets (HTTP ${res.status})`);
+        return;
+      }
 
-        if (!res.ok) {
-          // Keep existing sets; just show a small warning
-          setRefreshWarning(`Couldn’t refresh right now (HTTP ${res.status}). Showing cached results.`);
-          return;
-        }
+      const totalHeader = res.headers.get("x-total-count");
+      const totalCount = totalHeader ? parseInt(totalHeader, 10) : 0;
 
-        const data: unknown = await res.json().catch(() => null);
-        const rows = toSetSummaryArray(data);
-        if (rows.length > 0) setSets(rows);
-      } catch (e: unknown) {
-        // Keep existing sets; just show a small warning
-        const name = isRecord(e) ? e.name : null;
-        if (name === "AbortError") return;
-        setRefreshWarning("Couldn’t refresh right now. Showing cached results.");
-      } finally {
+      const data: unknown = await res.json().catch(() => null);
+      const rows = toSetSummaryArray(data);
+
+      setSets(rows);
+      setTotal(totalCount || rows.length);
+    } catch {
+      if (reqKeyRef.current === reqId) {
+        setError("Couldn't load sets. Please try again.");
+      }
+    } finally {
+      if (reqKeyRef.current === reqId) {
         setLoading(false);
       }
-    })();
-
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }
   }, [themeSlug]);
 
-  return (
-    <div className="mx-auto max-w-5xl px-6 py-12">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{themeName || "Theme"}</h1>
+  // Re-fetch when sort, page, or active/all changes (skip initial render)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      // On mount, fetch with default sort (year_desc) since server used "relevance"
+      fetchSets(1, "year_desc", false);
+      return;
+    }
+    fetchSets(page, sortValue, showAll);
+  }, [page, sortValue, showAll, fetchSets]);
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
-            {loading ? <span>Refreshing…</span> : <span> </span>}
-            {refreshWarning ? <span className="text-xs text-zinc-500">{refreshWarning}</span> : null}
-          </div>
+  function handleSortChange(v: SortValue) {
+    setSortValue(v);
+    setPage(1);
+  }
+
+  function handlePageChange(p: number) {
+    setPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleToggleAll() {
+    setShowAll(!showAll);
+    setPage(1);
+  }
+
+  const cardSets = useMemo(() => sets.map(toSetCardSet), [sets]);
+
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      {/* Sort bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-zinc-500">
+          {total.toLocaleString()} {total === 1 ? "set" : "sets"}
         </div>
 
-        <Link href="/themes" className="text-sm font-semibold text-zinc-900 hover:text-amber-600 hover:underline">
-          ← All themes
-        </Link>
+        <div className="flex items-center gap-3">
+          {/* Active / All toggle */}
+          <button
+            type="button"
+            onClick={handleToggleAll}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              showAll
+                ? "border-zinc-300 bg-zinc-100 text-zinc-700"
+                : "border-amber-500 bg-amber-500 text-black"
+            }`}
+          >
+            {showAll ? "All sets" : "Active sets"}
+          </button>
+
+          {/* Sort select */}
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-zinc-500">Sort</span>
+            <select
+              value={sortValue}
+              onChange={(e) => handleSortChange(e.target.value as SortValue)}
+              disabled={loading}
+              className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold"
+            >
+              <option value="year_desc">Year (new → old)</option>
+              <option value="year_asc">Year (old → new)</option>
+              <option value="rating_desc">Rating (high → low)</option>
+              <option value="rating_asc">Rating (low → high)</option>
+              <option value="pieces_desc">Pieces (high → low)</option>
+              <option value="pieces_asc">Pieces (low → high)</option>
+              <option value="name_asc">Name (A → Z)</option>
+              <option value="name_desc">Name (Z → A)</option>
+            </select>
+          </label>
+        </div>
       </div>
 
-      {/* Always render the grid if we have any sets */}
-      {sets.length > 0 ? (
-        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sets.map((s) => {
-            const imgSrc = safeImageSrc(s.image_url);
+      {/* Loading */}
+      {loading && <div className="mt-6"><SetGridSkeleton count={12} /></div>}
 
+      {/* Error */}
+      {error && !loading && (
+        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {/* Results grid */}
+      {!loading && sets.length > 0 && (
+        <div className="mt-6 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+          {cardSets.map((setForCard, idx) => {
+            const original = sets[idx];
             return (
-              <div key={s.set_num} className="h-full">
-                <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm hover:border-zinc-300">
-                  <Link className="block flex-1" href={`/sets/${encodeURIComponent(s.set_num)}`}>
-                    <div className="relative aspect-square w-full overflow-hidden bg-white">
-                      {imgSrc ? (
-                        <Image
-                          src={imgSrc}
-                          alt={s.name}
-                          fill
-                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                          className="object-contain p-2"
-                          loading="lazy"
-                        />
-                      ) : null}
-                    </div>
-
-                    <div className="px-4 pb-4 pt-3">
-                      <div className="text-sm font-semibold leading-5 text-zinc-900">{s.name}</div>
-
-                      <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-                        <span className="truncate">{s.set_num}</span>
-                        {s.year ? (
-                          <>
-                            <span aria-hidden="true">•</span>
-                            <span className="shrink-0">{s.year}</span>
-                          </>
-                        ) : null}
-                      </div>
-
-                      {typeof s.pieces === "number" ? (
-                        <div className="mt-2 text-xs text-zinc-500">{s.pieces} pcs</div>
-                      ) : null}
-                    </div>
-                  </Link>
-                </div>
+              <div key={original.set_num} className="h-full">
+                <SetCard
+                  set={setForCard}
+                  token={token ?? undefined}
+                  isOwnedByUser={isOwned(original.set_num)}
+                  userRatingOverride={getUserRating(original.set_num)}
+                  footer={
+                    token ? (
+                      <SetCardActions
+                        token={token}
+                        setNum={original.set_num}
+                        isOwned={isOwned(original.set_num)}
+                        isWishlist={isWishlist(original.set_num)}
+                      />
+                    ) : undefined
+                  }
+                />
               </div>
             );
           })}
         </div>
-      ) : (
-        <div className="mt-6">
-          <p className="text-sm text-zinc-500">No sets found for this theme.</p>
+      )}
+
+      {/* Empty state */}
+      {!loading && !error && sets.length === 0 && (
+        <div className="mt-12 text-center">
+          <p className="text-sm text-zinc-500">
+            No {showAll ? "" : "active "}sets found for this theme.
+          </p>
+          {!showAll && (
+            <button
+              type="button"
+              onClick={handleToggleAll}
+              className="mt-3 text-sm font-semibold text-amber-600 hover:underline"
+            >
+              Show all sets →
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && totalPages > 1 && (
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          totalItems={total}
+          pageSize={PAGE_SIZE}
+          disabled={loading}
+          onPageChange={handlePageChange}
+        />
       )}
     </div>
   );

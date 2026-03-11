@@ -25,7 +25,8 @@ logger = logging.getLogger("bricktrack.pipeline.msrp_seed")
 # Curated MSRP data: {plain_set_num: (price_usd, name_hint)}
 # Source: LEGO.com published retail prices (public information)
 MSRP_DATA: dict[str, tuple[float, str]] = {
-    # Icons / Creator Expert
+    # Icons / Creator Expert / Modular Buildings
+    "11371": (249.99, "Shopping Street"),
     "10305": (399.99, "Lion Knights' Castle"),
     "10497": (99.99, "Galaxy Explorer"),
     "10330": (199.99, "McLaren MP4/4 & Ayrton Senna"),

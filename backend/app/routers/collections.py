@@ -3,13 +3,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.limiter import limiter
 from app.core.set_nums import base_set_num
 from app.data.sets import get_set_by_num
 from app.data import offers as offers_data
@@ -37,6 +38,8 @@ def _set_to_dict(s: SetModel) -> Dict[str, Any]:
         "pieces": s.pieces,
         "image_url": s.image_url,
         "created_at": s.created_at,
+        "retirement_status": s.retirement_status,
+        "retirement_date": s.retirement_date,
     }
 
 
@@ -191,11 +194,17 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
     if not s:
         return 0
 
-    q = db.query(ListItemModel).filter(ListItemModel.list_id == list_id)
+    from sqlalchemy import delete as sa_delete
 
     # exact: "10305-1"
     if "-" in s:
-        deleted = q.filter(func.lower(ListItemModel.set_num) == s.lower()).delete(synchronize_session=False)
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == list_id,
+                func.lower(ListItemModel.set_num) == s.lower(),
+            )
+        )
+        deleted = result.rowcount
         db.commit()
         if int(deleted) > 0:
             _compact_positions(db, list_id)
@@ -204,7 +213,13 @@ def _remove_item_idempotent_by_base_or_exact(db: Session, list_id: int, raw: str
     # base: "10305"
     base_lower = base_set_num(s).lower()
     plain_expr = func.split_part(ListItemModel.set_num, "-", 1)
-    deleted = q.filter(func.lower(plain_expr) == base_lower).delete(synchronize_session=False)
+    result = db.execute(
+        sa_delete(ListItemModel).where(
+            ListItemModel.list_id == list_id,
+            func.lower(plain_expr) == base_lower,
+        )
+    )
+    deleted = result.rowcount
     db.commit()
     if int(deleted) > 0:
         _compact_positions(db, list_id)
@@ -249,14 +264,19 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
     for pos, sn in enumerate(canonical_order):
         by_set[sn].position = int(pos)
 
-    db.query(ListModel).filter(ListModel.id == list_id).update({"updated_at": func.now()})
+    from sqlalchemy import update as sa_update
+    db.execute(
+        sa_update(ListModel).where(ListModel.id == list_id).values(updated_at=func.now())
+    )
     db.commit()
 
 
 # ---------------- endpoints ----------------
 
 @router.post("/owned", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 def add_owned(
+    request: Request,
     payload: Dict[str, str],
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -297,7 +317,9 @@ def list_my_owned(
 
 
 @router.post("/wishlist", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 def add_wishlist(
+    request: Request,
     payload: Dict[str, str],
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),

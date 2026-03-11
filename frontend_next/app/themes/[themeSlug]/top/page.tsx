@@ -43,7 +43,7 @@ type SetRow = {
   pieces?: number;
   theme?: string | null;
   image_url?: string | null;
-  average_rating?: number | null;
+  rating_avg?: number | null;
   rating_count?: number | null;
 };
 
@@ -62,7 +62,7 @@ function coerceSetRow(x: unknown): SetRow | null {
 
   const image_url = getString(x, "image_url");
 
-  const average_rating = getNumber(x, "average_rating") ?? getNumber(x, "rating_avg") ?? null;
+  const rating_avg = getNumber(x, "rating_avg") ?? getNumber(x, "rating_avg") ?? null;
 
   const rating_count = (() => {
     const rc = getNumber(x, "rating_count");
@@ -76,7 +76,7 @@ function coerceSetRow(x: unknown): SetRow | null {
     ...(typeof pieces === "number" ? { pieces } : {}),
     theme,
     image_url: image_url ?? null,
-    average_rating,
+    rating_avg,
     rating_count,
   };
 }
@@ -295,7 +295,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s) => {
-            const rating = typeof s.average_rating === "number" ? s.average_rating.toFixed(1) : null;
+            const rating = typeof s.rating_avg === "number" ? s.rating_avg.toFixed(1) : null;
             const rcount = typeof s.rating_count === "number" ? s.rating_count : null;
             const imgSrc = safeImageSrc(s.image_url);
 

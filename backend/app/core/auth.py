@@ -16,6 +16,7 @@ import jwt as pyjwt
 from jwt import PyJWKClient, PyJWKClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -42,8 +43,14 @@ def _settings():
     if os.getenv("PYTEST_CURRENT_TEST") is not None:
         allow_fake = True
 
-    # NEVER allow fake auth in production (Render sets RENDER env var)
-    if os.getenv("RENDER") is not None:
+    # NEVER allow fake auth in production
+    # Render sets RENDER; also check for common production indicators
+    is_production = (
+        os.getenv("RENDER") is not None
+        or (os.getenv("ENVIRONMENT") or "").lower() == "production"
+        or (os.getenv("NODE_ENV") or "").lower() == "production"
+    )
+    if is_production:
         allow_fake = False
 
     jwks_url = (os.getenv("CLERK_JWKS_URL") or "").strip()
@@ -141,7 +148,7 @@ def _get_or_create_user(db: Session, clerk_id: str) -> User:
     This handles first-time users seamlessly — they're created in our DB
     on their first authenticated API call after signing up via Clerk.
     """
-    user = db.query(User).filter(User.clerk_id == clerk_id).first()
+    user = db.execute(select(User).where(User.clerk_id == clerk_id)).scalar_one_or_none()
     if user:
         return user
 
@@ -183,7 +190,7 @@ def get_current_user(
 
     # Fake auth mode: look up by username (backwards compat with tests)
     if allow_fake and not clerk_id.startswith("user_"):
-        user = db.query(User).filter(User.username == clerk_id).first()
+        user = db.execute(select(User).where(User.username == clerk_id)).scalar_one_or_none()
         if user:
             return user
         # If not found by username, auto-create with clerk_id
@@ -208,7 +215,7 @@ def get_current_user_optional(
     allow_fake, _, _ = _settings()
 
     if allow_fake and not clerk_id.startswith("user_"):
-        user = db.query(User).filter(User.username == clerk_id).first()
+        user = db.execute(select(User).where(User.username == clerk_id)).scalar_one_or_none()
         if user:
             return user
 

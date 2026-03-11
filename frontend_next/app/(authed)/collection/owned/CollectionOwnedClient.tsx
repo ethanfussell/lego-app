@@ -288,7 +288,7 @@ export default function CollectionOwnedClient() {
 
     (async () => {
       if (!token) {
-        router.push("/login");
+        router.push("/sign-in");
         return;
       }
 

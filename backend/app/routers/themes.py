@@ -7,11 +7,46 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
+from sqlalchemy import select
+
 from app.data.sets import load_cached_sets
 from app.data import offers as offers_data
 from app.db import get_db
+from app.models import AdminSetting
+
+import json as _json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/themes", tags=["themes"])
+
+
+def _load_theme_settings(db: Session):
+    """Load themes_excluded (list) and themes_custom_images (dict) from admin_settings."""
+    excluded: List[str] = []
+    custom_images: Dict[str, str] = {}
+    try:
+        row = db.execute(
+            select(AdminSetting).where(AdminSetting.key == "themes_excluded")
+        ).scalar_one_or_none()
+        if row and row.value:
+            parsed = _json.loads(row.value)
+            if isinstance(parsed, list):
+                excluded = [str(t) for t in parsed]
+    except (_json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.warning("Failed to parse themes_excluded setting: %s", e)
+    try:
+        row = db.execute(
+            select(AdminSetting).where(AdminSetting.key == "themes_custom_images")
+        ).scalar_one_or_none()
+        if row and row.value:
+            parsed = _json.loads(row.value)
+            if isinstance(parsed, dict):
+                custom_images = {str(k): str(v) for k, v in parsed.items()}
+    except (_json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.warning("Failed to parse themes_custom_images setting: %s", e)
+    return excluded, custom_images
 
 ALLOWED_SORTS = {"relevance", "year", "pieces", "name", "rating"}
 ALLOWED_ORDERS = {"asc", "desc"}
@@ -38,25 +73,48 @@ def _theme_key(theme: str) -> str:
     return _norm_lower(theme)
 
 
-def _set_count_by_theme(all_sets: List[Dict[str, Any]], q: str) -> List[Tuple[str, int]]:
+def _set_count_by_theme(
+    all_sets: List[Dict[str, Any]],
+    q: str,
+    min_year: Optional[int] = None,
+) -> List[Tuple[str, int, Optional[str]]]:
+    """Returns list of (display_theme, set_count, image_url)."""
     ql = _norm_lower(q)
     counts: Dict[str, int] = {}
     display: Dict[str, str] = {}
+    # Track the best image per theme: pick the set with the most pieces
+    best_image: Dict[str, Tuple[int, Optional[str]]] = {}  # key -> (pieces, url)
 
     for s in all_sets:
         theme = _norm(str(s.get("theme") or ""))
         if not theme:
             continue
 
+        if min_year is not None:
+            try:
+                if int(s.get("year") or 0) < min_year:
+                    continue
+            except (ValueError, TypeError):
+                continue
+
         k = _theme_key(theme)
         if ql and ql not in k:
             continue
 
         counts[k] = counts.get(k, 0) + 1
-        # keep a nice display form (first seen)
         display.setdefault(k, theme)
 
-    rows = [(display[k], counts[k]) for k in counts.keys()]
+        img = s.get("image_url") or None
+        if img:
+            pieces = int(s.get("pieces") or 0)
+            prev = best_image.get(k)
+            if prev is None or pieces > prev[0]:
+                best_image[k] = (pieces, img)
+
+    rows = [
+        (display[k], counts[k], (best_image.get(k) or (0, None))[1])
+        for k in counts.keys()
+    ]
     rows.sort(key=lambda t: t[0].lower())
     return rows
 
@@ -70,7 +128,7 @@ def _sort_key(sort: str):
         return lambda r: int(r.get("pieces") or 0)
     if sort == "rating":
         # cached sets may not have rating fields; treat missing as 0
-        return lambda r: (float(r.get("average_rating") or r.get("rating_avg") or 0.0), int(r.get("rating_count") or 0))
+        return lambda r: (float(r.get("rating_avg") or 0.0), int(r.get("rating_count") or 0))
     # relevance default (we'll handle separately)
     return lambda r: _norm_lower(str(r.get("name") or ""))
 
@@ -101,21 +159,38 @@ def list_themes(
     q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(60, ge=1, le=200),
+    min_year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
     Returns: [{"theme": "Castle", "set_count": 123}, ...]
     Header: X-Total-Count = total number of distinct themes matching filters
+    Pass min_year to filter to themes with sets from that year onward.
     """
     all_sets = load_cached_sets()
+    excluded, custom_images = _load_theme_settings(db)
+    excluded_lower = {t.lower() for t in excluded}
 
-    rows = _set_count_by_theme(all_sets, q or "")
+    rows = _set_count_by_theme(all_sets, q or "", min_year=min_year)
+
+    # Filter out excluded themes
+    if excluded_lower:
+        rows = [(t, c, i) for t, c, i in rows if t.lower() not in excluded_lower]
+
     total = len(rows)
     response.headers["X-Total-Count"] = str(total)
 
     offset = (page - 1) * limit
     page_rows = rows[offset : offset + limit]
 
-    return [{"theme": theme, "set_count": int(cnt)} for (theme, cnt) in page_rows]
+    return [
+        {
+            "theme": theme,
+            "set_count": int(cnt),
+            "image_url": custom_images.get(theme, img),
+        }
+        for (theme, cnt, img) in page_rows
+    ]
 
 
 @router.get("/{theme}/sets")
@@ -127,6 +202,7 @@ def list_sets_for_theme(
     sort: str = Query("relevance"),
     order: str = Query("desc"),
     q: Optional[str] = Query(None),
+    min_year: Optional[int] = Query(None),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
@@ -161,6 +237,13 @@ def list_sets_for_theme(
         if _theme_key(str(s.get("theme") or "")) == target_key
     ]
 
+    # optional min_year filter
+    if min_year is not None:
+        filtered = [
+            s for s in filtered
+            if int(s.get("year") or 0) >= min_year
+        ]
+
     # optional query within the theme page (search by name/set_num/theme)
     q_clean = _norm(q or "")
     if q_clean:
@@ -185,7 +268,7 @@ def list_sets_for_theme(
                 key=lambda s: (
                     _relevance_score(s, q_clean),
                     int(s.get("rating_count") or 0),
-                    float(s.get("average_rating") or s.get("rating_avg") or 0.0),
+                    float(s.get("rating_avg") or 0.0),
                 ),
                 reverse=True,
             )

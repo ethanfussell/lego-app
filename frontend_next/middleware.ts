@@ -1,29 +1,16 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 /**
- * Public routes — accessible without authentication.
- * Everything else is also accessible (Clerk middleware doesn't block by default),
- * but the route matchers below let us protect specific routes.
+ * Protected routes — require sign-in.
+ * Everything else is public by default.
  */
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/search(.*)",
-  "/sets/(.*)",
-  "/themes(.*)",
-  "/retiring-soon(.*)",
-  "/new(.*)",
-  "/sale(.*)",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/login(.*)",
-  "/signup(.*)",
-  "/lists/(.*)", // public list viewing
-  "/api/(.*)", // API proxy routes
+const isProtectedRoute = createRouteMatcher([
+  "/collection(.*)",
+  "/account(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Protect non-public routes — user must be signed in
-  if (!isPublicRoute(req)) {
+  if (isProtectedRoute(req)) {
     await auth.protect();
   }
 });

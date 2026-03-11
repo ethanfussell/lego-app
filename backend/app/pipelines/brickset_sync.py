@@ -90,7 +90,7 @@ def _determine_status(bs_set: dict) -> str:
 
     # 5: Not yet released
     if bs_set.get("released") is False:
-        return "unknown"
+        return "coming_soon"
 
     # 6: Old sets without explicit availability data are retired
     set_year = bs_set.get("year")

@@ -15,22 +15,55 @@ export default function Page() {
         Affiliate Disclosure
       </h1>
 
-      <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-02-01</p>
+      <p className="mt-2 text-sm text-zinc-500">Last updated: March 2026</p>
 
-      <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-600">
+      <div className="mt-6 space-y-4 text-sm leading-relaxed text-zinc-600">
         <p>
-          Some links on {SITE_NAME} may be affiliate links. This means we may earn a commission if
-          you click a link and make a purchase, at no additional cost to you.
+          {SITE_NAME} is a participant in the Amazon Services LLC Associates Program, an affiliate
+          advertising program designed to provide a means for sites to earn advertising fees by
+          advertising and linking to Amazon.com.
         </p>
 
         <p>
-          We only recommend products or retailers we believe may be useful to LEGO fans. Affiliate
-          relationships do not influence our ratings, reviews, or editorial content.
+          Some links on {SITE_NAME} are affiliate links. When you click on an affiliate link and make
+          a purchase, we may receive a small commission at no additional cost to you. This helps
+          support the site and allows us to continue providing free LEGO set tracking, price
+          comparison, and community features.
         </p>
 
-        <p className="text-xs text-zinc-500">
-          This is a placeholder disclosure. Update this page with the specific affiliate programs
-          you join (e.g., Amazon Associates) before launch.
+        <h2 className="pt-2 text-base font-bold text-zinc-800">What this means for you</h2>
+
+        <ul className="list-disc space-y-1 pl-5">
+          <li>You pay the same price whether you use our affiliate link or not.</li>
+          <li>We only link to retailers we believe are trustworthy and useful to LEGO fans.</li>
+          <li>
+            Affiliate relationships never influence our ratings, reviews, or editorial content.
+          </li>
+          <li>
+            We always show you the best available price regardless of whether a retailer has an
+            affiliate program with us.
+          </li>
+        </ul>
+
+        <h2 className="pt-2 text-base font-bold text-zinc-800">Programs we participate in</h2>
+
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Amazon Associates</strong> &mdash; Links to Amazon.com product pages and search
+            results may contain our affiliate tag.
+          </li>
+          <li>
+            <strong>Walmart</strong> &mdash; Links to Walmart.com may be affiliate links through the
+            Walmart affiliate program.
+          </li>
+          <li>
+            <strong>Target</strong> &mdash; Links to Target.com may be affiliate links through the
+            Target affiliate program.
+          </li>
+        </ul>
+
+        <p className="pt-2 text-xs text-zinc-500">
+          If you have questions about our affiliate relationships, please contact us.
         </p>
       </div>
     </div>

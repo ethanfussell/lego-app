@@ -54,7 +54,7 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isLoaded) return;
     if (!isSignedIn) {
-      setToken("");
+      requestAnimationFrame(() => setToken(""));
       return;
     }
 

@@ -83,7 +83,7 @@ export default function ListDetailClient(props: {
 
   const router = useRouter();
   const { token, me, hydrated } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const toast = useToast();
 
   const id = useMemo(() => String(listId || "").trim(), [listId]);
@@ -347,7 +347,7 @@ export default function ListDetailClient(props: {
           {!token ? (
             <button
               type="button"
-              onClick={() => router.push("/login")}
+              onClick={() => router.push("/sign-in")}
               className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Log in to edit
@@ -452,6 +452,9 @@ export default function ListDetailClient(props: {
                 <li key={sn} className={isRemoving ? "opacity-60" : ""}>
                   <SetCard
                     set={s as unknown as SetCardSetProp}
+                    token={token ?? undefined}
+                    isOwnedByUser={isOwned(sn)}
+                    userRatingOverride={getUserRating(sn)}
                     footer={
                       <div className="space-y-2">
                         {token ? <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} /> : null}

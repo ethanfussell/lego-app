@@ -78,11 +78,11 @@ export default function MyListsClient() {
       {!isLoggedIn ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="m-0 text-sm text-zinc-500">
-            You’re not logged in. Go to{" "}
-            <Link href="/login" className="font-semibold hover:underline">
-              /login
+            Please{" "}
+            <Link href="/sign-in" className="font-semibold hover:underline">
+              sign in
             </Link>{" "}
-            to sign in.
+            to continue.
           </p>
         </div>
       ) : (

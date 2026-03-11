@@ -9,7 +9,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _RESEND_API_KEY: Optional[str] = None
-_FROM_ADDRESS: str = "BrickTrack <noreply@bricktrack.app>"
+_FROM_ADDRESS: str = "BrickTrack <noreply@bricktrack.com>"
 
 
 def _get_api_key() -> Optional[str]:
@@ -72,7 +72,7 @@ def send_welcome_email(to: str, username: str) -> bool:
         <li>Browse themes and discover new sets</li>
       </ul>
       <div style="margin-top: 24px;">
-        <a href="https://bricktrack.app/search"
+        <a href="https://bricktrack.com/search"
            style="display: inline-block; background: #f59e0b; color: #000; padding: 10px 24px;
                   border-radius: 999px; font-weight: 600; font-size: 14px; text-decoration: none;">
           Start exploring

@@ -5,12 +5,13 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List as TypingList, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, or_
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.auth import get_current_user, get_current_user_optional
+from ..core.limiter import limiter
 from ..core.set_nums import base_set_num, resolve_set_num
 from ..data.lists import LISTS
 from ..db import get_db
@@ -94,8 +95,9 @@ def _compact_list_item_positions(db: Session, list_id: int) -> None:
         li.position = int(i)
 
 
-def _summary_dict(lst: ListModel, owner_username: str) -> Dict[str, Any]:
-    items_count = len(lst.items) if "items" in lst.__dict__ and lst.items is not None else 0
+def _summary_dict(lst: ListModel, owner_username: str, items_count: Optional[int] = None) -> Dict[str, Any]:
+    if items_count is None:
+        items_count = len(lst.items) if "items" in lst.__dict__ and lst.items is not None else 0
     return {
         "id": int(lst.id),
         "title": lst.title,
@@ -256,17 +258,23 @@ def api_get_public_lists(
         return out  # type: ignore[return-value]
 
     # ---- DB mode ----
+    items_count_sq = (
+        select(func.count(ListItemModel.list_id))
+        .where(ListItemModel.list_id == ListModel.id)
+        .correlate(ListModel)
+        .scalar_subquery()
+        .label("items_count")
+    )
     q = (
-        select(ListModel, UserModel.username)
+        select(ListModel, UserModel.username, items_count_sq)
         .join(UserModel, UserModel.id == ListModel.owner_id)
         .where(ListModel.is_public.is_(True))
-        .options(selectinload(ListModel.items))
     )
     if owner:
         q = q.where(UserModel.username == owner)
 
     rows = db.execute(q.order_by(ListModel.updated_at.desc(), ListModel.id.desc())).all()
-    return [_summary_dict(lst, username) for (lst, username) in rows]
+    return [_summary_dict(lst, username, items_count=cnt) for (lst, username, cnt) in rows]
 
     # ---- FALLBACK: LISTS (pytest only) ----
     if not _is_pytest():
@@ -378,7 +386,9 @@ def api_get_list_detail(
 
 # ---------------- Create list (auth required) ----------------
 @router.post("", response_model=ListDetail, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 def api_create_list(
+    request: Request,
     payload: ListCreate,
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -410,7 +420,9 @@ def api_create_list(
 
 # ---------------- Add item (auth required) ----------------
 @router.post("/{list_id}/items", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def api_add_list_item(
+    request: Request,
     list_id: int,
     payload: ListItemCreate,
     current_user: UserModel = Depends(get_current_user),
@@ -502,23 +514,26 @@ def api_remove_list_item(
     if not raw:
         raise HTTPException(status_code=422, detail="set_num_required")
 
-    q = db.query(ListItemModel).filter(ListItemModel.list_id == lst.id)
-
     if "-" in raw:
-        deleted = q.filter(func.lower(ListItemModel.set_num) == raw.lower()).delete(
-            synchronize_session=False
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == lst.id,
+                func.lower(ListItemModel.set_num) == raw.lower(),
+            )
         )
+        deleted = result.rowcount
     else:
         base_lower = base_set_num(raw).lower()
-        deleted = (
-            q.filter(
+        result = db.execute(
+            sa_delete(ListItemModel).where(
+                ListItemModel.list_id == lst.id,
                 or_(
                     func.lower(ListItemModel.set_num) == base_lower,
                     func.lower(ListItemModel.set_num).like(f"{base_lower}-%"),
-                )
+                ),
             )
-            .delete(synchronize_session=False)
         )
+        deleted = result.rowcount
 
     if int(deleted) == 0:
         db.rollback()

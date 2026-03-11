@@ -91,7 +91,7 @@ class Set(Base):
     exit_date = Column(String, nullable=True)    # e.g. "2026-12-31"
 
     # Retirement tracking (populated via Brickset)
-    retirement_status = Column(String, nullable=True)  # "available" | "retiring_soon" | "retired"
+    retirement_status = Column(String, nullable=True)  # "coming_soon" | "available" | "retiring_soon" | "retired"
     retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
 
     # Custom tag (e.g. "GWP", "Insider Reward") — displayed instead of price
@@ -134,6 +134,8 @@ class Review(Base):
         UniqueConstraint("user_id", "set_num", name="reviews_user_set_unique"),
         CheckConstraint("rating IS NULL OR (rating >= 0.5 AND rating <= 5.0)", name="reviews_rating_check"),
         Index("idx_reviews_set_num", "set_num"),
+        Index("idx_reviews_user_set_num", "user_id", "set_num"),
+        Index("idx_reviews_created_at", "created_at"),
     )
 
 
@@ -185,6 +187,7 @@ class List(Base):
 
     __table_args__ = (
         Index("idx_lists_owner_position", "owner_id", "position"),
+        Index("idx_lists_owner_system_key", "owner_id", "is_system", "system_key"),
     )
 
 

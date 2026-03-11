@@ -2,15 +2,16 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { apiFetch, type ApiFetchOptions } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as CardSetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
-import QuickCollectionsAdd from "@/app/components/QuickCollectionsAdd";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
 import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
+import { formatPrice } from "@/lib/format";
 
 const PREVIEW_COUNT = 10;
 
@@ -92,6 +93,8 @@ function Row({
   href,
   emptyText = "No sets yet.",
   renderFooter,
+  variant,
+  token,
 }: {
   title: string;
   subtitle?: string;
@@ -99,6 +102,8 @@ function Row({
   href?: string;
   emptyText?: string;
   renderFooter?: (set: CardSetLite) => React.ReactNode;
+  variant?: "default" | "owned" | "wishlist" | "feed";
+  token?: string;
 }) {
   const hasItems = sets.length > 0;
 
@@ -112,7 +117,7 @@ function Row({
 
               return (
                 <div key={setNum} className="w-[220px] shrink-0">
-                  <SetCard set={set} footer={renderFooter ? renderFooter(set) : null} />
+                  <SetCard set={set} variant={variant} token={token} footer={renderFooter ? renderFooter(set) : null} />
                 </div>
               );
             })
@@ -122,7 +127,12 @@ function Row({
   );
 }
 
-function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
+/** Extended set type that carries collection metadata alongside card fields. */
+type CollectionSet = CardSetLite & {
+  collection_created_at?: string | null;
+};
+
+function coerceCollectionRow(raw: unknown): CollectionSet | null {
   if (!isRecord(raw)) return null;
 
   const sn = asTrimmedString(raw.set_num);
@@ -134,25 +144,154 @@ function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
   const pieces = asFiniteNumber(raw.pieces);
   const theme = asTrimmedString(raw.theme);
   const imageUrl = asTrimmedString(raw.image_url);
+  const originalPrice = asFiniteNumber(raw.original_price);
+  const retirementStatus = asTrimmedString(raw.retirement_status);
+  const collectionCreatedAt = asTrimmedString(raw.collection_created_at);
 
-  // CardSetLite supports either `pieces` or `num_parts` in different places; we’ll prefer num_parts if present.
   const num_parts = numParts ?? pieces ?? null;
 
-  const out: CardSetLite = {
+  return {
     set_num: sn,
     ...(name ? { name } : {}),
     ...(typeof year === "number" ? { year } : {}),
     ...(typeof num_parts === "number" ? { num_parts } : {}),
     ...(theme ? { theme } : {}),
     image_url: imageUrl ?? null,
+    ...(typeof originalPrice === "number" ? { original_price: originalPrice } : {}),
+    ...(retirementStatus ? { retirement_status: retirementStatus } : {}),
+    ...(collectionCreatedAt ? { collection_created_at: collectionCreatedAt } : {}),
   };
+}
 
-  return out;
+// Keep backward compat alias
+function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
+  return coerceCollectionRow(raw);
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature 1: Collection Stats Dashboard                               */
+/* ------------------------------------------------------------------ */
+
+function CollectionStatsDashboard({ sets }: { sets: CollectionSet[] }) {
+  const stats = useMemo(() => {
+    const totalPieces = sets.reduce((sum, s) => sum + (s.num_parts ?? 0), 0);
+    const totalValue = sets.reduce((sum, s) => sum + (s.original_price ?? 0), 0);
+    const themeCounts = new Map<string, number>();
+    for (const s of sets) {
+      const t = s.theme || "Unknown";
+      themeCounts.set(t, (themeCounts.get(t) ?? 0) + 1);
+    }
+    const topThemes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return { totalPieces, totalValue, topThemes };
+  }, [sets]);
+
+  if (sets.length === 0) return null;
+
+  return (
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
+        <div className="text-2xl font-bold text-amber-600">{sets.length}</div>
+        <div className="mt-1 text-xs text-zinc-500">Sets owned</div>
+      </div>
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
+        <div className="text-2xl font-bold text-amber-600">{stats.totalPieces.toLocaleString()}</div>
+        <div className="mt-1 text-xs text-zinc-500">Total pieces</div>
+      </div>
+      {stats.totalValue > 0 ? (
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
+          <div className="text-2xl font-bold text-amber-600">{formatPrice(stats.totalValue) ?? "$0"}</div>
+          <div className="mt-1 text-xs text-zinc-500">Est. value</div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
+          <div className="text-2xl font-bold text-zinc-300">&mdash;</div>
+          <div className="mt-1 text-xs text-zinc-500">Est. value</div>
+        </div>
+      )}
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-1.5">Top themes</div>
+        <div className="space-y-0.5">
+          {stats.topThemes.map(([theme, count]) => (
+            <div key={theme} className="flex items-center justify-between text-xs">
+              <span className="truncate text-zinc-600">{theme}</span>
+              <span className="shrink-0 font-semibold text-zinc-900">{count}</span>
+            </div>
+          ))}
+          {stats.topThemes.length === 0 && <div className="text-xs text-zinc-400">No themes yet</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature 2: Retiring Soon Alert                                      */
+/* ------------------------------------------------------------------ */
+
+function RetiringSoonAlert({ sets }: { sets: CollectionSet[] }) {
+  const retiring = useMemo(
+    () => sets.filter((s) => s.retirement_status === "retiring_soon"),
+    [sets],
+  );
+
+  if (retiring.length === 0) return null;
+
+  return (
+    <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <span className="text-amber-600 text-sm">&#9888;</span>
+        <span className="text-sm font-semibold text-amber-800">
+          {retiring.length === 1
+            ? "1 wishlist set is retiring soon"
+            : `${retiring.length} wishlist sets are retiring soon`}
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {retiring.slice(0, 5).map((s) => (
+          <span key={s.set_num} className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            {s.name || s.set_num}
+          </span>
+        ))}
+        {retiring.length > 5 && (
+          <span className="text-[11px] text-amber-600">+{retiring.length - 5} more</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature 4: List Cover Mosaic                                        */
+/* ------------------------------------------------------------------ */
+
+function isSafeNextImageSrc(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const t = url.trim();
+  return t.startsWith("https://") || t.startsWith("http://") || t.startsWith("/");
+}
+
+function ListCoverMosaic({ images }: { images: (string | null | undefined)[] }) {
+  const urls = images.filter(isSafeNextImageSrc).slice(0, 4) as string[];
+  if (urls.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-2 gap-0.5 rounded-lg overflow-hidden w-14 h-14 shrink-0 bg-zinc-100">
+      {urls.map((src, i) => (
+        <div key={i} className="relative w-full aspect-square bg-white">
+          <Image src={src} alt="" fill className="object-contain" sizes="28px" />
+        </div>
+      ))}
+      {/* Fill empty slots with gray */}
+      {Array.from({ length: Math.max(0, 4 - urls.length) }).map((_, i) => (
+        <div key={`empty-${i}`} className="w-full aspect-square bg-zinc-100" />
+      ))}
+    </div>
+  );
 }
 
 export default function CollectionClient() {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -161,9 +300,12 @@ export default function CollectionClient() {
   const [ownedDetail, setOwnedDetail] = useState<ListDetail | null>(null);
   const [wishlistDetail, setWishlistDetail] = useState<ListDetail | null>(null);
 
+  const [ownedAll, setOwnedAll] = useState<CollectionSet[]>([]);
+  const [wishlistAll, setWishlistAll] = useState<CollectionSet[]>([]);
   const [ownedPreview, setOwnedPreview] = useState<CardSetLite[]>([]);
   const [wishlistPreview, setWishlistPreview] = useState<CardSetLite[]>([]);
   const [customPreviewById, setCustomPreviewById] = useState<Record<string, CardSetLite[]>>({});
+  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
 
   const customLists = useMemo(() => lists.filter((l) => !isSystemList(l)), [lists]);
 
@@ -188,22 +330,36 @@ export default function CollectionClient() {
       setLists(mineArr);
 
       // System collections
-      const [ownedRowsU, wishRowsU] = await Promise.all([
+      const [ownedRowsU, wishRowsU, reviewsU] = await Promise.all([
         apiFetch<unknown>("/collections/me/owned", withToken(token, { cache: "no-store" })),
         apiFetch<unknown>("/collections/me/wishlist", withToken(token, { cache: "no-store" })),
+        apiFetch<unknown>("/sets/reviews/me?limit=500", withToken(token, { cache: "no-store" })).catch(() => []),
       ]);
+
+      // Build user ratings map from reviews
+      const ratingsMap: Record<string, number> = {};
+      if (Array.isArray(reviewsU)) {
+        for (const r of reviewsU) {
+          if (isRecord(r) && typeof r.set_num === "string" && typeof r.rating === "number") {
+            ratingsMap[r.set_num] = r.rating;
+          }
+        }
+      }
+      setUserRatings(ratingsMap);
 
       const ownedRows = Array.isArray(ownedRowsU) ? ownedRowsU : [];
       const wishRows = Array.isArray(wishRowsU) ? wishRowsU : [];
 
       const ownedSetsAll = ownedRows
-        .map(coerceCollectionRowToCardSetLite)
-        .filter((x): x is CardSetLite => Boolean(x));
+        .map(coerceCollectionRow)
+        .filter((x): x is CollectionSet => Boolean(x));
 
       const wishSetsAll = wishRows
-        .map(coerceCollectionRowToCardSetLite)
-        .filter((x): x is CardSetLite => Boolean(x));
+        .map(coerceCollectionRow)
+        .filter((x): x is CollectionSet => Boolean(x));
 
+      setOwnedAll(ownedSetsAll);
+      setWishlistAll(wishSetsAll);
       setOwnedPreview(ownedSetsAll.slice(0, PREVIEW_COUNT));
       setWishlistPreview(wishSetsAll.slice(0, PREVIEW_COUNT));
 
@@ -254,9 +410,12 @@ export default function CollectionClient() {
       setLists([]);
       setOwnedDetail(null);
       setWishlistDetail(null);
+      setOwnedAll([]);
+      setWishlistAll([]);
       setOwnedPreview([]);
       setWishlistPreview([]);
       setCustomPreviewById({});
+      setUserRatings({});
       setErr(null);
       setLoading(false);
       return;
@@ -264,6 +423,15 @@ export default function CollectionClient() {
 
     void refreshAll();
   }, [token, refreshAll]);
+
+  // Owned sets enriched with user ratings
+  const ownedWithRatings = useMemo(() => {
+    if (ownedPreview.length === 0) return ownedPreview;
+    return ownedPreview.map((s) => ({
+      ...s,
+      user_rating: userRatings[s.set_num] ?? undefined,
+    }));
+  }, [ownedPreview, userRatings]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -284,22 +452,25 @@ export default function CollectionClient() {
         </div>
 
         <p className="mt-2 text-sm text-zinc-500">Owned, Wishlist, and your custom lists.</p>
-
-        <div className="mt-5 max-w-xl">
-          <QuickCollectionsAdd onCollectionsChanged={refreshAll} />
-        </div>
       </div>
 
       {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
       {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
+      {/* Feature 1: Stats Dashboard */}
+      {!loading && <CollectionStatsDashboard sets={ownedAll} />}
+
       <Row
         title="Owned"
-        sets={ownedPreview}
+        sets={ownedWithRatings}
         href="/collection/owned"
-        renderFooter={renderFooterForSet}
+        variant="owned"
+        token={token ?? undefined}
         {...(ownedDetail?.items_count ? { subtitle: `${ownedDetail.items_count} sets` } : {})}
       />
+
+      {/* Feature 2: Retiring Soon Alert */}
+      <RetiringSoonAlert sets={wishlistAll} />
 
       <Row
         title="Wishlist"
@@ -315,14 +486,29 @@ export default function CollectionClient() {
         const count = l.items_count ?? 0;
 
         return (
-          <Row
-            key={id}
-            title={l.title ?? `List ${id}`}
-            sets={sets}
-            href={`/lists/${encodeURIComponent(id)}`}
-            renderFooter={renderFooterForSet}
-            subtitle={`${l.is_public ? "Public" : "Private"} • ${count} sets`}
-          />
+          <div key={id} className="mt-8">
+            {/* Feature 4: List Cover Mosaic */}
+            <div className="flex items-center gap-3 mb-1">
+              <ListCoverMosaic images={sets.map((s) => s.image_url)} />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900 truncate">{l.title ?? `List ${id}`}</div>
+                <div className="text-xs text-zinc-500">{l.is_public ? "Public" : "Private"} &middot; {count} sets</div>
+              </div>
+            </div>
+            <CarouselRow title="" viewHref={`/lists/${encodeURIComponent(id)}`} emptyText="No sets yet.">
+              {sets.length > 0
+                ? sets.map((set) => {
+                    const setNum = String(set.set_num ?? "").trim();
+                    if (!setNum) return null;
+                    return (
+                      <div key={setNum} className="w-[220px] shrink-0">
+                        <SetCard set={set} footer={renderFooterForSet(set)} />
+                      </div>
+                    );
+                  })
+                : null}
+            </CarouselRow>
+          </div>
         );
       })}
     </div>

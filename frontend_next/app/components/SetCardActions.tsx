@@ -22,7 +22,7 @@ export default function SetCardActions({
   const shopHref = `/sets/${encodeURIComponent(setNum)}#shop`;
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`@container flex items-center gap-2 ${className}`}>
       {/* Shop */}
       <div className="flex-1">
         <Link
@@ -61,12 +61,12 @@ export default function SetCardActions({
           />
         ) : (
           <Link
-            href="/login"
+            href="/sign-in"
             onClick={() => {
               trackLoginCta({ placement: "set_card_actions" });
 
               outboundClick({
-                url: "/login",
+                url: "/sign-in",
                 label: "Log in",
                 placement: "set_card_actions",
                 set_num: setNum,

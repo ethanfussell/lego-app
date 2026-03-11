@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_admin_user
+from app.core.sanitize import sanitize_text
 from app.core.limiter import limiter
 from app.db import get_db
 from app.models import Report as ReportModel, User as UserModel, Review as ReviewModel, List as ListModel
@@ -25,6 +27,13 @@ class ReportCreate(BaseModel):
     target_id: int
     reason: str
     notes: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def sanitize_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return sanitize_text(v) or None
 
     @field_validator("target_type")
     @classmethod
@@ -110,9 +119,9 @@ def create_report(
 @router.get("/admin/reports")
 def list_reports(
     request: Request,
-    report_status: str = "pending",
-    limit: int = 50,
-    offset: int = 0,
+    report_status: Literal["pending", "resolved", "dismissed"] = "pending",
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     admin: UserModel = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:

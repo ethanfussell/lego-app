@@ -14,7 +14,6 @@ class SetBulkOut(BaseModel):
     image_url: Optional[str] = Field(None, json_schema_extra={"example": "https://..."})
     price_from: Optional[float] = Field(None, json_schema_extra={"example": 299.99})
 
-    average_rating: Optional[float] = Field(None, json_schema_extra={"example": 4.62})
     rating_avg: Optional[float] = Field(None, json_schema_extra={"example": 4.62})
     rating_count: int = Field(0, json_schema_extra={"example": 18})
 

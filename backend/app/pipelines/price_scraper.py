@@ -3,7 +3,7 @@ Pipeline: Scrape retail prices and update the Offer table.
 
 Sources:
   - LEGO.com: Official MSRP + stock status (JSON-LD structured data)
-  - Amazon/Target/Walmart: Search URL construction (affiliate links, no price scraping)
+  - Amazon/Target/Walmart/Best Buy: Search URL construction (affiliate links, no price scraping)
 
 Only processes "active" sets (current year +/- 1). Rate-limited to be polite.
 """
@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
+import os
+
 import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select, and_
@@ -27,6 +29,9 @@ from app.models import Offer as OfferModel, Set as SetModel
 logger = logging.getLogger("bricktrack.pipeline.prices")
 
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
+AMAZON_TAG = os.getenv("AMAZON_AFFILIATE_TAG", "bricktrack-20")
+WALMART_IMPACT_ID = os.getenv("WALMART_IMPACT_AFFILIATE_ID", "")
+TARGET_IMPACT_ID = os.getenv("TARGET_IMPACT_AFFILIATE_ID", "")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -36,23 +41,36 @@ HEADERS = {
 
 REQUEST_TIMEOUT = 20.0
 THROTTLE_SECONDS = 2.0
-MAX_SETS_PER_RUN = 100
+MAX_SETS_PER_RUN = 200
 
 
-def _build_amazon_url(set_num_plain: str, name: str) -> str:
+def build_amazon_url(set_num_plain: str, name: str, asin: str | None = None) -> str:
+    """Build an Amazon URL with affiliate tag. Uses direct product link if ASIN is available."""
+    if asin:
+        return f"https://www.amazon.com/dp/{quote(asin)}?tag={quote(AMAZON_TAG)}"
     query = f"LEGO {set_num_plain} {name}"
-    return f"https://www.amazon.com/s?k={quote(query)}"
+    return f"https://www.amazon.com/s?k={quote(query)}&tag={quote(AMAZON_TAG)}"
 
 
-def _build_target_url(set_num_plain: str) -> str:
-    return f"https://www.target.com/s?searchTerm=lego+{set_num_plain}"
+def build_target_url(set_num_plain: str) -> str:
+    base = f"https://www.target.com/s?searchTerm=lego+{set_num_plain}"
+    if TARGET_IMPACT_ID:
+        return f"https://goto.target.com/c/{quote(TARGET_IMPACT_ID)}/1/2?u={quote(base)}"
+    return base
 
 
-def _build_walmart_url(set_num_plain: str) -> str:
-    return f"https://www.walmart.com/search?q=lego+{set_num_plain}"
+def build_walmart_url(set_num_plain: str) -> str:
+    base = f"https://www.walmart.com/search?q=lego+{set_num_plain}"
+    if WALMART_IMPACT_ID:
+        return f"https://goto.walmart.com/c/{quote(WALMART_IMPACT_ID)}/1/2?u={quote(base)}"
+    return base
 
 
-def _scrape_lego_product_page(
+def build_bestbuy_url(set_num_plain: str) -> str:
+    return f"https://www.bestbuy.com/site/searchpage.jsp?st=lego+{set_num_plain}"
+
+
+def scrape_lego_product_page(
     client: httpx.Client,
     set_num_plain: str,
 ) -> Optional[dict]:
@@ -125,16 +143,40 @@ def _scrape_lego_product_page(
 
 
 def _get_active_sets(db: Session) -> list[dict]:
-    """Get sets from current year +/- 1 to scrape prices for."""
+    """Get sets from current year +/- 1 to scrape prices for.
+
+    Prioritises sets that have never been checked (no LEGO offer) or were
+    checked the longest time ago, so that every eligible set is eventually
+    reached across successive runs.
+    """
     current_year = datetime.now().year
+
+    # Left-join to the LEGO offer so we can sort by last_checked (NULL first)
+    from sqlalchemy import func, case
+    from sqlalchemy.orm import aliased
+
+    lego_offer = aliased(OfferModel)
 
     rows = db.execute(
         select(SetModel.set_num, SetModel.name, SetModel.year)
+        .outerjoin(
+            lego_offer,
+            and_(
+                func.replace(SetModel.set_num, "-1", "") == lego_offer.set_num,
+                lego_offer.store == "LEGO",
+            ),
+        )
         .where(
             SetModel.year >= current_year - 1,
             SetModel.year <= current_year + 1,
         )
-        .order_by(SetModel.year.desc(), SetModel.set_num.asc())
+        .order_by(
+            # Never-checked sets first, then oldest-checked first
+            case((lego_offer.last_checked.is_(None), 0), else_=1),
+            lego_offer.last_checked.asc(),
+            SetModel.year.desc(),
+            SetModel.set_num.asc(),
+        )
         .limit(MAX_SETS_PER_RUN)
     ).all()
 
@@ -223,7 +265,7 @@ def run_price_scrape() -> dict:
                 stats["sets_processed"] += 1
 
                 # --- LEGO.com ---
-                lego_data = _scrape_lego_product_page(client, plain)
+                lego_data = scrape_lego_product_page(client, plain)
 
                 if lego_data and lego_data.get("price"):
                     stats["lego_prices_found"] += 1
@@ -248,29 +290,19 @@ def run_price_scrape() -> dict:
                         set_row.retail_price = lego_data["price"]
                         set_row.retail_currency = lego_data.get("currency", "USD")
 
-                # --- Amazon ---
-                amazon_url = _build_amazon_url(plain, name)
-                is_new = _upsert_offer(db, plain, "Amazon", None, "USD", amazon_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
-
-                # --- Target ---
-                target_url = _build_target_url(plain)
-                is_new = _upsert_offer(db, plain, "Target", None, "USD", target_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
-
-                # --- Walmart ---
-                walmart_url = _build_walmart_url(plain)
-                is_new = _upsert_offer(db, plain, "Walmart", None, "USD", walmart_url, None)
-                if is_new:
-                    stats["offers_inserted"] += 1
-                else:
-                    stats["offers_updated"] += 1
+                # --- Retailer search URLs ---
+                retailers = [
+                    ("Amazon", build_amazon_url(plain, name)),
+                    ("Target", build_target_url(plain)),
+                    ("Walmart", build_walmart_url(plain)),
+                    ("Best Buy", build_bestbuy_url(plain)),
+                ]
+                for store, url in retailers:
+                    is_new = _upsert_offer(db, plain, store, None, "USD", url, None)
+                    if is_new:
+                        stats["offers_inserted"] += 1
+                    else:
+                        stats["offers_updated"] += 1
 
                 # Commit per-set to avoid losing progress
                 db.commit()

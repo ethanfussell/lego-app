@@ -313,7 +313,7 @@ export default function AddToListMenu({
     }
   }
 
-  const label = ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add to list";
+  const label = ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add";
   const disableButtons = loading || !token;
 
   const menu = (

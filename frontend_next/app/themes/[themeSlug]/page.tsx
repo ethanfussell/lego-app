@@ -28,13 +28,6 @@ type SetSummary = {
   image_url?: string | null;
 };
 
-type Query = {
-  page: number;
-  limit: number;
-  sort: string;
-  order: string;
-};
-
 function canonicalForTheme(themeSlug: string): string {
   return `/themes/${themeSlug}`;
 }
@@ -47,7 +40,7 @@ function isSetSummary(x: unknown): x is SetSummary {
 
 function pickRows(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
-  if (typeof data === "object" && data !== null && Array.isArray((data as any).results)) return (data as any).results;
+  if (typeof data === "object" && data !== null && Array.isArray((data as Record<string, unknown>).results)) return (data as Record<string, unknown>).results as unknown[];
   return [];
 }
 
@@ -55,11 +48,11 @@ function toSetSummaryArray(data: unknown): SetSummary[] {
   return pickRows(data).filter(isSetSummary);
 }
 
-async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfound"> {
+async function fetchThemePage1(themeName: string): Promise<{ sets: SetSummary[]; total: number } | "notfound"> {
   const qs = new URLSearchParams();
   qs.set("page", "1");
   qs.set("limit", String(DEFAULT_LIMIT));
-  qs.set("sort", "relevance");
+  qs.set("sort", "year");
   qs.set("order", "desc");
 
   const url = `${apiBase()}/themes/${encodeURIComponent(themeName)}/sets?${qs.toString()}`;
@@ -71,14 +64,18 @@ async function fetchThemePage1(themeName: string): Promise<SetSummary[] | "notfo
       next: { revalidate },
     });
   } catch {
-    return [];
+    return { sets: [], total: 0 };
   }
 
   if (res.status === 404) return "notfound";
-  if (!res.ok) return [];
+  if (!res.ok) return { sets: [], total: 0 };
+
+  const totalHeader = res.headers.get("x-total-count") || res.headers.get("X-Total-Count");
+  const parsed = totalHeader ? parseInt(totalHeader, 10) : 0;
+  const total = Number.isFinite(parsed) ? parsed : 0;
 
   const data: unknown = await res.json().catch(() => null);
-  return toSetSummaryArray(data);
+  return { sets: toSetSummaryArray(data), total };
 }
 
 export async function generateMetadata({
@@ -145,15 +142,8 @@ export default async function ThemeSetsPage({
   // Use canonical slug everywhere (links + client fetches)
   const canonicalSlug = themeToSlug(themeName);
 
-  const rows = await fetchThemePage1(themeName);
-  if (rows === "notfound") notFound();
-
-  const initialQuery: Query = {
-    page: 1,
-    limit: DEFAULT_LIMIT,
-    sort: "relevance",
-    order: "desc",
-  };
+  const result = await fetchThemePage1(themeName);
+  if (result === "notfound") notFound();
 
   return (
     <>
@@ -187,8 +177,7 @@ export default async function ThemeSetsPage({
         </div>
       </div>
 
-      {/* Pass canonical route slug so client builds URLs consistently */}
-      <ThemeDetailClient themeSlug={canonicalSlug} initialSets={rows} initialQuery={initialQuery} />
+      <ThemeDetailClient themeSlug={canonicalSlug} initialSets={result.sets} initialTotal={result.total} />
     </>
   );
 }

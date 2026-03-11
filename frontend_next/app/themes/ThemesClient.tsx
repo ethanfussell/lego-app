@@ -16,7 +16,6 @@ type SetSummary = {
   image_url?: string | null;
   rating_count?: number | null;
   rating_avg?: number | null;
-  average_rating?: number | null;
 };
 
 type SetCardSetProp = React.ComponentProps<typeof SetCard>["set"];
@@ -30,13 +29,12 @@ function toSetCardSet(s: SetSummary): SetCardSetProp {
     image_url: typeof s.image_url === "string" ? s.image_url : null,
     rating_count: typeof s.rating_count === "number" ? s.rating_count : null,
     rating_avg: typeof s.rating_avg === "number" ? s.rating_avg : null,
-    average_rating: typeof s.average_rating === "number" ? s.average_rating : null,
   } as unknown as SetCardSetProp;
 }
 
 export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
   const { token } = useAuth();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const cardSets = useMemo(() => sets.map(toSetCardSet), [sets]);
 
   return (
@@ -48,6 +46,9 @@ export default function ThemesClient({ sets }: { sets: SetSummary[] }) {
           <div key={original.set_num} className="h-full">
             <SetCard
               set={setForCard}
+              token={token ?? undefined}
+              isOwnedByUser={isOwned(original.set_num)}
+              userRatingOverride={getUserRating(original.set_num)}
               footer={
                 <div className="space-y-2">
                   <SetCardActions token={token ?? null} setNum={original.set_num} isOwned={isOwned(original.set_num)} isWishlist={isWishlist(original.set_num)} />

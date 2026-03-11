@@ -76,7 +76,7 @@ export function trackAffiliateClick(payload: AffiliateClickPayload) {
   // Best effort: survives navigation
   if (typeof navigator !== "undefined" && "sendBeacon" in navigator) {
     const blob = new Blob([body], { type: "application/json" });
-    (navigator as any).sendBeacon(url, blob);
+    (navigator as unknown as { sendBeacon: (url: string, data: Blob) => boolean }).sendBeacon(url, blob);
     return;
   }
 

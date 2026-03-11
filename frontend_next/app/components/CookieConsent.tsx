@@ -59,8 +59,11 @@ export default function CookieConsent() {
 
   useEffect(() => {
     const stored = readConsent();
-    setConsent(stored);
-    setMounted(true);
+    // Use requestAnimationFrame to avoid synchronous setState in effect
+    requestAnimationFrame(() => {
+      setConsent(stored);
+      setMounted(true);
+    });
 
     // If previously declined, disable GA4
     if (stored === "declined") {

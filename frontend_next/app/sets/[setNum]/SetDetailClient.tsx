@@ -268,7 +268,7 @@ export default function SetDetailClient(props: Props) {
 
   const { token, hydrated } = useAuth();
   const toast = useToast();
-  const { isOwned, isWishlist } = useCollectionStatus();
+  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const isLoggedIn = hydrated && typeof token === "string" && token.trim().length > 0;
 
   const PREVIEW_SIMILAR_LIMIT = 12;
@@ -750,7 +750,7 @@ export default function SetDetailClient(props: Props) {
   // Reviews: create/update
   async function upsertMyReview(payload: { rating: number | null; text: string | null }) {
     if (!token) {
-      router.push("/login");
+      router.push("/sign-in");
       throw new Error("Login required");
     }
 
@@ -775,7 +775,7 @@ export default function SetDetailClient(props: Props) {
 
   function startEditMyReview() {
     if (!isLoggedIn) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
     setShowReviewForm(true);
@@ -786,7 +786,7 @@ export default function SetDetailClient(props: Props) {
 
   async function deleteMyReview() {
     if (!token) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
 
@@ -817,7 +817,7 @@ export default function SetDetailClient(props: Props) {
 
   async function saveRating(newRating: number) {
     if (!isLoggedIn) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
 
@@ -836,7 +836,7 @@ export default function SetDetailClient(props: Props) {
 
   async function handleStarClick(value: number) {
     if (!isLoggedIn) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
 
@@ -853,7 +853,7 @@ export default function SetDetailClient(props: Props) {
     e.preventDefault();
 
     if (!isLoggedIn) {
-      router.push("/login");
+      router.push("/sign-in");
       return;
     }
 
@@ -1141,7 +1141,7 @@ export default function SetDetailClient(props: Props) {
                 onMouseLeave={() => setHoverRating(null)}
                 onClick={async (e) => {
                   if (!isLoggedIn || savingRating) {
-                    router.push("/login");
+                    router.push("/sign-in");
                     return;
                   }
                   const value = computeStarsFromPointer(e.currentTarget, e.clientX);
@@ -1166,7 +1166,7 @@ export default function SetDetailClient(props: Props) {
                 type="button"
                 onClick={() => {
                   if (!isLoggedIn) {
-                    router.push("/login");
+                    router.push("/sign-in");
                     return;
                   }
                   if (!showReviewForm && myReview) startEditMyReview();
@@ -1608,11 +1608,11 @@ export default function SetDetailClient(props: Props) {
 
           {!similarLoading && !similarError && similarSets.length > 0 ? (
             <div className="relative mt-4">
-              <div ref={similarRowRef} className="overflow-x-auto pb-2">
+              <div ref={similarRowRef} className="overflow-x-auto pb-2 scrollbar-thin">
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
-                      <SetCard set={s} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
+                      <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
                     </li>
                   ))}
                 </ul>

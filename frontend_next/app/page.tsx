@@ -34,7 +34,6 @@ type SetLite = {
   pieces?: number | null;
   theme?: string;
   image_url?: string | null;
-  average_rating?: number | null;
   rating_avg?: number | null;
   rating_count?: number | null;
 };
@@ -58,6 +57,8 @@ function toListArray(raw: unknown): PublicList[] {
   const arr = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray((raw as Record<string, unknown>).results) ? (raw as Record<string, unknown>).results as unknown[] : [];
   return arr.filter((x): x is PublicList => isRecord(x) && ((x as Record<string, unknown>).id != null));
 }
+
+export const revalidate = 60; // ISR: regenerate page at most every 60 seconds
 
 export default async function Page() {
   // Fetch all 3 data sources in parallel on the server

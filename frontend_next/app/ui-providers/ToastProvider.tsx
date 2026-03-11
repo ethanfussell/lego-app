@@ -42,7 +42,7 @@ function ToastSlot({ item, onDone }: { item: ToastItem; onDone: (id: string) => 
 
   useEffect(() => {
     if (!item.visible) {
-      setShow(false);
+      requestAnimationFrame(() => setShow(false));
       const t = setTimeout(() => onDone(item.id), 220);
       return () => clearTimeout(t);
     }

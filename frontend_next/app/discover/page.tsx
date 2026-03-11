@@ -1,20 +1,18 @@
 // frontend_next/app/discover/page.tsx
 
 import type { Metadata } from "next";
-import Link from "next/link";
-import DiscoverClient, { type DiscoverInitial } from "./DiscoverClient";
+import DiscoverHub from "./DiscoverHub";
 import { apiBase } from "@/lib/api";
 import { siteBase } from "@/lib/url";
-import type { SetLite } from "@/lib/types";
-import { first } from "@/lib/searchParams";
-
+import { isRecord, type SetLite } from "@/lib/types";
 
 export const dynamic = "force-static";
-export const revalidate = 3600; // ISR (1 hour)
+export const revalidate = 3600; // ISR — 1 hour
 
 export async function generateMetadata(): Promise<Metadata> {
   const title = "Discover";
-  const description = "Browse a feed of LEGO sets sorted by rating, year, pieces, and more.";
+  const description =
+    "Your LEGO discovery hub — new releases, retiring sets, deals, top-rated builds, featured lists, and more.";
   const canonicalPath = "/discover";
 
   return {
@@ -27,158 +25,237 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-type FeedResponse =
-  | SetLite[]
-  | {
-      results?: SetLite[];
-      total?: number;
-      total_pages?: number;
-      page?: number;
-    };
-
-type SearchParams = Record<string, string | string[] | undefined>;
-type PageProps = {
-  searchParams?: Promise<SearchParams> | SearchParams;
-};
-
-type SortKey = "year" | "rating" | "pieces" | "name" | "relevance";
-type Order = "asc" | "desc";
-
-function errorMessage(e: unknown) {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function toPosInt(v: unknown, fallback: number) {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function normalizeSort(v: unknown): SortKey {
-  const s = String(v ?? "year").trim();
-  const allowed: SortKey[] = ["year", "rating", "pieces", "name", "relevance"];
-  return allowed.includes(s as SortKey) ? (s as SortKey) : "year";
-}
-
-function normalizeOrder(v: unknown): Order {
-  return String(v ?? "desc").trim() === "asc" ? "asc" : "desc";
-}
+/* ── helpers ────────────────────────────────────────────────── */
 
 function isSetLite(x: unknown): x is SetLite {
-  if (typeof x !== "object" || x === null) return false;
-  const sn = (x as { set_num?: unknown }).set_num;
-  return typeof sn === "string" && sn.trim().length > 0;
+  return isRecord(x) && typeof x.set_num === "string" && (x.set_num as string).trim().length > 0;
 }
 
 function toSetLiteArray(x: unknown): SetLite[] {
-  if (!Array.isArray(x)) return [];
-  return x.filter(isSetLite);
+  return Array.isArray(x) ? x.filter(isSetLite) : [];
 }
 
-function asFeedResponse(x: unknown): FeedResponse {
-  if (Array.isArray(x)) return toSetLiteArray(x);
-
-  if (typeof x === "object" && x !== null) {
-    const o = x as { results?: unknown; total?: unknown; total_pages?: unknown; page?: unknown };
-    return {
-      results: Array.isArray(o.results) ? toSetLiteArray(o.results) : undefined,
-      total: typeof o.total === "number" ? o.total : undefined,
-      total_pages: typeof o.total_pages === "number" ? o.total_pages : undefined,
-      page: typeof o.page === "number" ? o.page : undefined,
-    };
-  }
-
+function extractSets(raw: unknown): SetLite[] {
+  if (Array.isArray(raw)) return toSetLiteArray(raw);
+  if (isRecord(raw) && Array.isArray(raw.results)) return toSetLiteArray(raw.results);
   return [];
 }
 
-async function fetchFeed(opts: { sort: SortKey; order: Order; page: number; limit: number }) {
-  const params = new URLSearchParams();
-  params.set("sort", opts.sort);
-  params.set("order", opts.order);
-  params.set("page", String(opts.page));
-  params.set("limit", String(opts.limit));
+type ThemeItem = { theme: string; set_count?: number };
 
-  const url = `${apiBase()}/sets?${params.toString()}`;
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    next: { revalidate },
-  });
-
-  if (!res.ok) {
-    return {
-      results: [] as SetLite[],
-      total: 0,
-      totalPages: 1,
-      page: opts.page,
-      error: `${res.status} ${res.statusText}`,
-    };
-  }
-
-  const raw: unknown = await res.json().catch(() => null);
-  const data = asFeedResponse(raw);
-
-  const results: SetLite[] = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
-  const total = !Array.isArray(data) && typeof data.total === "number" ? data.total : results.length;
-
-  const totalPages =
-    !Array.isArray(data) && typeof data.total_pages === "number"
-      ? data.total_pages
-      : Math.max(1, Math.ceil(Math.max(1, total) / Math.max(1, opts.limit)));
-
-  const page = !Array.isArray(data) && typeof data.page === "number" ? data.page : opts.page;
-
-  return { results, total, totalPages, page, error: null as string | null };
-}
-
-function PopularLinks() {
-  const chip =
-    "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 hover:bg-zinc-100";
-
-  return (
-    <div className="mx-auto w-full max-w-5xl px-6 pt-8">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-zinc-500">Popular:</span>
-        <Link href="/pieces/most" className={chip}>
-          Most pieces →
-        </Link>
-      </div>
-    </div>
+function extractThemes(raw: unknown): ThemeItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (t): t is ThemeItem => isRecord(t) && typeof t.theme === "string",
   );
 }
 
-export default async function Page({ searchParams }: PageProps) {
-  const sp: SearchParams = await Promise.resolve(searchParams ?? {});
+type PublicList = {
+  id: number | string;
+  title?: string | null;
+  name?: string | null;
+  description?: string | null;
+  items_count?: number | null;
+  owner?: string | null;
+  owner_username?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
 
-  const sort: SortKey = normalizeSort(first(sp, "sort"));
-  const order: Order = normalizeOrder(first(sp, "order"));
-  const page = toPosInt(first(sp, "page"), 1);
+function extractLists(raw: unknown): PublicList[] {
+  const arr = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.results) ? raw.results : [];
+  return arr.filter((l): l is PublicList => isRecord(l) && (typeof l.id === "number" || typeof l.id === "string"));
+}
 
-  const pageSize = 50;
+/* ── data fetchers (all run server-side in parallel) ────────── */
 
-  let initial: DiscoverInitial = {
-    q: "",
-    sort,
-    order,
-    page,
-    pageSize,
-    results: [],
-    total: 0,
-    totalPages: 1,
-    error: null,
+const base = () => apiBase();
+const jsonHeaders = { accept: "application/json" };
+const fetchOpts = { headers: jsonHeaders, next: { revalidate } } as const;
+
+async function fetchJSON(path: string): Promise<unknown> {
+  try {
+    const res = await fetch(`${base()}${path}`, fetchOpts);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNewReleases(): Promise<SetLite[]> {
+  const raw = await fetchJSON("/sets/new?limit=30&days=90");
+  return extractSets(raw);
+}
+
+async function fetchRetiringSoon(): Promise<SetLite[]> {
+  const [raw, config] = await Promise.all([
+    fetchJSON("/sets/retiring?limit=50"),
+    fetchJSON("/sets/retiring-page-config"),
+  ]);
+  const items = extractSets(raw);
+
+  // Apply the same admin filters as the retiring-soon page
+  const DEFAULT_EXCLUDED = ["SPIKE", "LEGO Exclusive", "Seasonal"];
+  let excludedThemes: string[] = DEFAULT_EXCLUDED;
+  if (isRecord(config) && typeof config.retiring_excluded_themes === "string") {
+    try {
+      const parsed = JSON.parse(config.retiring_excluded_themes);
+      if (Array.isArray(parsed)) excludedThemes = parsed;
+    } catch { /* use defaults */ }
+  }
+  const excludedThemeSet = new Set(excludedThemes);
+
+  const hiddenSetNums = new Set<string>();
+  if (isRecord(config) && typeof config.retiring_hidden_sets === "string") {
+    try {
+      const parsed = JSON.parse(config.retiring_hidden_sets);
+      if (Array.isArray(parsed)) parsed.forEach((n) => hiddenSetNums.add(String(n)));
+    } catch { /* ignore */ }
+  }
+
+  return items
+    .filter((s) => {
+      if (hiddenSetNums.has(s.set_num)) return false;
+      const theme = typeof s.theme === "string" ? s.theme.trim() : "";
+      if (excludedThemeSet.has(theme)) return false;
+      if (/minifigure/i.test(theme)) return false;
+      return true;
+    })
+    .slice(0, 14);
+}
+
+async function fetchComingSoon(): Promise<SetLite[]> {
+  const raw = await fetchJSON("/sets/coming-soon?limit=30");
+  return extractSets(raw);
+}
+
+async function fetchTopRated(): Promise<SetLite[]> {
+  const raw = await fetchJSON("/sets?sort=rating&order=desc&min_rating=1.0&limit=30");
+  return extractSets(raw);
+}
+
+async function fetchPopular(): Promise<SetLite[]> {
+  const raw = await fetchJSON("/sets?sort=rating&order=desc&limit=30");
+  return extractSets(raw);
+}
+
+async function fetchThemes(): Promise<ThemeItem[]> {
+  const minYear = new Date().getFullYear() - 2;
+  const raw = await fetchJSON(`/themes?limit=30&min_year=${minYear}`);
+  return extractThemes(raw);
+}
+
+async function fetchPublicLists(): Promise<PublicList[]> {
+  const raw = await fetchJSON("/lists/public");
+  return extractLists(raw);
+}
+
+async function fetchSpotlight(): Promise<SetLite | null> {
+  // Try admin-configured spotlight first
+  const config = await fetchJSON("/sets/new-page-config");
+  const spotlightNum =
+    isRecord(config) && typeof config.spotlight_set_num === "string"
+      ? config.spotlight_set_num.trim()
+      : null;
+
+  if (spotlightNum) {
+    const raw = await fetchJSON(`/sets/${encodeURIComponent(spotlightNum)}`);
+    if (isRecord(raw) && typeof raw.set_num === "string") return raw as unknown as SetLite;
+  }
+
+  return null;
+}
+
+/* ── page ───────────────────────────────────────────────────── */
+
+export type SectionConfig = Record<string, { title?: string; subtitle?: string; limit?: number; min_rating?: number }>;
+
+export type QuickExploreCard = {
+  label: string;
+  href: string;
+  icon: string;
+  color: string;
+};
+
+async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectionConfig: SectionConfig; quickExploreCards: QuickExploreCard[] | null }> {
+  const raw = await fetchJSON("/sets/discover-page-config");
+  let hiddenSections: string[] = [];
+  let sectionConfig: SectionConfig = {};
+  let quickExploreCards: QuickExploreCard[] | null = null;
+
+  if (isRecord(raw)) {
+    if (typeof raw.discover_hidden_sections === "string") {
+      try {
+        const parsed = JSON.parse(raw.discover_hidden_sections);
+        if (Array.isArray(parsed)) hiddenSections = parsed;
+      } catch { /* ignore */ }
+    }
+    if (typeof raw.discover_section_config === "string") {
+      try {
+        const parsed = JSON.parse(raw.discover_section_config);
+        if (typeof parsed === "object" && parsed !== null) sectionConfig = parsed;
+      } catch { /* ignore */ }
+    }
+    if (typeof raw.quick_explore_cards === "string") {
+      try {
+        const parsed = JSON.parse(raw.quick_explore_cards);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          quickExploreCards = parsed.filter(
+            (c: unknown) =>
+              typeof c === "object" && c !== null &&
+              typeof (c as QuickExploreCard).label === "string" &&
+              typeof (c as QuickExploreCard).href === "string",
+          );
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  return { hiddenSections, sectionConfig, quickExploreCards };
+}
+
+export type DiscoverData = {
+  newReleases: SetLite[];
+  retiringSoon: SetLite[];
+  comingSoon: SetLite[];
+  topRated: SetLite[];
+  popular: SetLite[];
+  themes: ThemeItem[];
+  lists: PublicList[];
+  spotlight: SetLite | null;
+  hiddenSections: string[];
+  sectionConfig: SectionConfig;
+  quickExploreCards: QuickExploreCard[] | null;
+};
+
+export default async function Page() {
+  const [newReleases, retiringSoon, comingSoon, topRated, popular, themes, lists, spotlight, discoverConfig] =
+    await Promise.all([
+      fetchNewReleases(),
+      fetchRetiringSoon(),
+      fetchComingSoon(),
+      fetchTopRated(),
+      fetchPopular(),
+      fetchThemes(),
+      fetchPublicLists(),
+      fetchSpotlight(),
+      fetchDiscoverConfig(),
+    ]);
+
+  const data: DiscoverData = {
+    newReleases,
+    retiringSoon,
+    comingSoon,
+    topRated,
+    popular,
+    themes,
+    lists,
+    spotlight,
+    hiddenSections: discoverConfig.hiddenSections,
+    sectionConfig: discoverConfig.sectionConfig,
+    quickExploreCards: discoverConfig.quickExploreCards,
   };
 
-  try {
-    const r = await fetchFeed({ sort, order, page, limit: pageSize });
-    initial = { ...initial, results: r.results, total: r.total, totalPages: r.totalPages, page: r.page, error: r.error };
-  } catch (e: unknown) {
-    initial = { ...initial, error: errorMessage(e) };
-  }
-
-  return (
-    <>
-      <PopularLinks />
-      <DiscoverClient initial={initial} />
-    </>
-  );
+  return <DiscoverHub data={data} />;
 }
