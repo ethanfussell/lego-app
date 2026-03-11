@@ -3,6 +3,7 @@ import { siteBase } from "@/lib/url";
 
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const base = siteBase();

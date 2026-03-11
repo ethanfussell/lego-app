@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { siteBase, SITE_NAME } from "@/lib/url";
 import ThemesPageClient from "./ThemesPageClient";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 type ThemeRow = { theme: string; set_count: number; image_url?: string | null };
 
