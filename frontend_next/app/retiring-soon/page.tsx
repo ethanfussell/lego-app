@@ -6,8 +6,7 @@ import { siteBase } from "@/lib/url";
 import { isRecord, type SetLite } from "@/lib/types";
 import { unwrapSearchParams, first, type SP } from "@/lib/searchParams";
 
-export const dynamic = "force-static";
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 type FeedResponse =
   | SetLite[]
