@@ -75,24 +75,12 @@ async function fetchActiveThemes(): Promise<ThemeRow[]> {
 }
 
 export default async function ThemesIndexPage() {
-  const base = apiBase();
   const [allThemes, activeThemes] = await Promise.all([
     fetchAllThemes(),
     fetchActiveThemes(),
   ]);
 
-  const withImg = activeThemes.filter((r) => r.image_url).length;
-  const sample = activeThemes[0];
-
   return (
-    <>
-      {/* TEMPORARY DEBUG — remove after fixing */}
-      <div className="mx-auto max-w-4xl bg-yellow-50 p-3 text-xs font-mono text-yellow-800 border border-yellow-200 rounded m-2">
-        <div>apiBase: {base}</div>
-        <div>active: {activeThemes.length}, withImg: {withImg}, all: {allThemes.length}</div>
-        <div>sample: {sample ? JSON.stringify({ theme: sample.theme, set_count: sample.set_count, image_url: sample.image_url }) : "none"}</div>
-      </div>
-      <ThemesPageClient allThemes={allThemes} activeThemes={activeThemes} />
-    </>
+    <ThemesPageClient allThemes={allThemes} activeThemes={activeThemes} />
   );
 }
