@@ -41,7 +41,12 @@ type ListDetail = {
 };
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
-  return e instanceof Error ? e.message : String(e ?? fallback);
+  const raw = e instanceof Error ? e.message : String(e ?? fallback);
+  // Hide noisy backend details from auth errors
+  if (/401|JWT|JWKS|signing key/i.test(raw)) {
+    return "Please sign out and sign back in, or try again later.";
+  }
+  return raw;
 }
 
 function isSystemList(l: ListSummary): boolean {

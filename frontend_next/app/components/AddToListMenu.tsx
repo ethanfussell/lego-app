@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { notifyCollectionChanged } from "@/lib/useCollectionStatus";
 import { useToast } from "@/app/ui-providers/ToastProvider";
@@ -62,6 +63,7 @@ export default function AddToListMenu({
   fullWidth?: boolean;
   buttonClassName?: string;
 }) {
+  const router = useRouter();
   const toast = useToast();
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -418,6 +420,10 @@ export default function AddToListMenu({
         ref={btnRef}
         type="button"
         onClick={() => {
+          if (!token) {
+            router.push("/sign-in");
+            return;
+          }
           setErr(null);
           setOpen((v) => !v);
         }}
