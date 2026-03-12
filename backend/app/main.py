@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     from app.core.scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
 
-    # Run retirement scraper once on startup (in background thread to not block)
+    # Run startup pipelines in background threads to not block the app
     def _startup_scrape():
         try:
             from app.pipelines.retirement_scraper import run_retirement_scrape
@@ -54,7 +54,20 @@ async def lifespan(app: FastAPI):
             import logging
             logging.getLogger("bricktrack.startup").exception("Startup retirement scrape failed")
 
+    def _startup_brickset_sync():
+        try:
+            from app.pipelines.brickset_sync import run_brickset_sync
+            import logging
+            logger = logging.getLogger("bricktrack.startup")
+            logger.info("Running Brickset sync on startup...")
+            result = run_brickset_sync()
+            logger.info("Startup Brickset sync result: %s", result)
+        except Exception:
+            import logging
+            logging.getLogger("bricktrack.startup").exception("Startup Brickset sync failed")
+
     threading.Thread(target=_startup_scrape, daemon=True).start()
+    threading.Thread(target=_startup_brickset_sync, daemon=True).start()
 
     yield
     shutdown_scheduler()
