@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import socket
 from contextlib import asynccontextmanager
 from urllib.parse import quote
+
+# Configure root logger so all "bricktrack.*" loggers actually output to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+)
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,26 +52,28 @@ async def lifespan(app: FastAPI):
     def _startup_scrape():
         try:
             from app.pipelines.retirement_scraper import run_retirement_scrape
-            import logging
             logger = logging.getLogger("bricktrack.startup")
             logger.info("Running retirement scraper on startup...")
+            print("[STARTUP] Running retirement scraper...", flush=True)
             result = run_retirement_scrape()
             logger.info("Startup retirement scrape result: %s", result)
-        except Exception:
-            import logging
+            print(f"[STARTUP] Retirement scrape done: {result}", flush=True)
+        except Exception as e:
             logging.getLogger("bricktrack.startup").exception("Startup retirement scrape failed")
+            print(f"[STARTUP] Retirement scrape FAILED: {e}", flush=True)
 
     def _startup_brickset_sync():
         try:
             from app.pipelines.brickset_sync import run_brickset_sync
-            import logging
             logger = logging.getLogger("bricktrack.startup")
             logger.info("Running Brickset sync on startup...")
+            print("[STARTUP] Running Brickset sync...", flush=True)
             result = run_brickset_sync()
             logger.info("Startup Brickset sync result: %s", result)
-        except Exception:
-            import logging
+            print(f"[STARTUP] Brickset sync done: {result}", flush=True)
+        except Exception as e:
             logging.getLogger("bricktrack.startup").exception("Startup Brickset sync failed")
+            print(f"[STARTUP] Brickset sync FAILED: {e}", flush=True)
 
     threading.Thread(target=_startup_scrape, daemon=True).start()
     threading.Thread(target=_startup_brickset_sync, daemon=True).start()
