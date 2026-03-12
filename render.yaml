@@ -13,6 +13,13 @@ services:
           name: lego-db
           property: connectionString
 
+  - type: web
+    name: lego-app
+    env: node
+    rootDir: frontend_next
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+
 databases:
   - name: lego-db
-    plan: starter
+    plan: basic-256mb
