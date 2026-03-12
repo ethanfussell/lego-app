@@ -56,8 +56,8 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    // Skip image optimization in dev to avoid timeout errors with remote CDN images
-    unoptimized: process.env.NODE_ENV !== "production",
+    // Skip Next.js image optimization — Render's limited resources cause timeouts
+    unoptimized: true,
     formats: ["image/avif", "image/webp"],
     qualities: [75, 85],
     minimumCacheTTL: 86400, // cache optimized images for 24 hours
