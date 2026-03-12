@@ -46,7 +46,11 @@ function parseRetireDate(raw: string | null | undefined): Date | null {
 function formatMonthYear(raw: string): string {
   try {
     const [y, m] = raw.split("-");
-    const d = new Date(Number(y), Number(m) - 1, 1);
+    const yn = Number(y);
+    const mn = Number(m);
+    if (!Number.isFinite(yn) || !Number.isFinite(mn)) return raw;
+    const d = new Date(yn, mn - 1, 1);
+    if (!Number.isFinite(d.getTime())) return raw;
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   } catch {
     return raw;
