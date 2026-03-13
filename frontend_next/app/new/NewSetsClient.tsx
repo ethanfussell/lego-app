@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
+import CarouselRow from "@/app/components/CarouselRow";
 import { formatPrice } from "@/lib/format";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
@@ -61,7 +62,12 @@ function HeroSpotlight({ set }: { set: SetLite }) {
   const sn = String(set.set_num || "").trim();
   const imgSrc = isSafeNextImageSrc(set.image_url) ? set.image_url!.trim() : null;
   const pieces = typeof set.pieces === "number" ? set.pieces : null;
-  const price = typeof set.original_price === "number" ? set.original_price : typeof set.retail_price === "number" ? set.retail_price : null;
+  const price =
+    typeof set.original_price === "number"
+      ? set.original_price
+      : typeof set.retail_price === "number"
+        ? set.retail_price
+        : null;
 
   return (
     <Link
@@ -69,7 +75,6 @@ function HeroSpotlight({ set }: { set: SetLite }) {
       prefetch={false}
       className="mt-6 flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white shadow-sm transition-colors hover:border-zinc-300 sm:flex-row"
     >
-      {/* Image */}
       <div className="relative aspect-[4/3] w-full shrink-0 bg-white sm:aspect-square sm:w-[280px]">
         {imgSrc ? (
           <Image
@@ -86,7 +91,6 @@ function HeroSpotlight({ set }: { set: SetLite }) {
         )}
       </div>
 
-      {/* Details */}
       <div className="flex flex-1 flex-col justify-center px-6 py-5 sm:py-8">
         <div className="text-xs font-semibold uppercase tracking-wider text-amber-600">Spotlight</div>
         <h2 className="mt-1 text-xl font-semibold text-zinc-900 sm:text-2xl">{set.name}</h2>
@@ -94,7 +98,9 @@ function HeroSpotlight({ set }: { set: SetLite }) {
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
           {set.theme ? <span>{set.theme}</span> : null}
           {pieces ? <span>{pieces.toLocaleString()} pieces</span> : null}
-          {price ? <span className="font-semibold text-zinc-900">{formatPrice(price, "USD")}</span> : null}
+          {price ? (
+            <span className="font-semibold text-zinc-900">{formatPrice(price, "USD")}</span>
+          ) : null}
         </div>
 
         {set.launch_date ? (
@@ -114,15 +120,15 @@ function HeroSpotlight({ set }: { set: SetLite }) {
 function StatsBar({ sets }: { sets: SetLite[] }) {
   const thisMonth = currentMonthKey();
 
-  const thisMonthCount = useMemo(
-    () => sets.filter((s) => (s.launch_date || "").startsWith(thisMonth)).length,
+  const thisMonthSets = useMemo(
+    () => sets.filter((s) => (s.launch_date || "").startsWith(thisMonth)),
     [sets, thisMonth],
   );
 
-  const biggestSet = useMemo(() => {
+  const biggestThisMonth = useMemo(() => {
     let best: SetLite | null = null;
     let bestPieces = -1;
-    for (const s of sets) {
+    for (const s of thisMonthSets) {
       const p = getPieces(s);
       if (p > bestPieces) {
         bestPieces = p;
@@ -130,7 +136,7 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
       }
     }
     return best;
-  }, [sets]);
+  }, [thisMonthSets]);
 
   const themeCount = useMemo(() => {
     const themes = new Set<string>();
@@ -140,16 +146,28 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
     return themes.size;
   }, [sets]);
 
-  const biggestPieces = biggestSet ? getPieces(biggestSet) : 0;
-  const biggestImg = biggestSet && isSafeNextImageSrc(biggestSet.image_url) ? biggestSet.image_url!.trim() : null;
-  const biggestPrice = biggestSet && typeof biggestSet.retail_price === "number" ? biggestSet.retail_price : null;
+  const biggestPieces = biggestThisMonth ? getPieces(biggestThisMonth) : 0;
+  const biggestImg =
+    biggestThisMonth && isSafeNextImageSrc(biggestThisMonth.image_url)
+      ? biggestThisMonth.image_url!.trim()
+      : null;
+  const biggestPrice =
+    biggestThisMonth && typeof biggestThisMonth.retail_price === "number"
+      ? biggestThisMonth.retail_price
+      : biggestThisMonth && typeof biggestThisMonth.original_price === "number"
+        ? biggestThisMonth.original_price
+        : null;
 
   return (
     <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
       {/* Released this month */}
       <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{thisMonthCount}</span>
-        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Released {formatMonthYear(thisMonth)}</div>
+        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">
+          {thisMonthSets.length}
+        </span>
+        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">
+          New in {formatMonthYear(thisMonth)}
+        </div>
       </div>
 
       {/* Theme count */}
@@ -158,10 +176,10 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
         <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Themes</div>
       </div>
 
-      {/* Biggest set — spans 2 columns */}
-      {biggestSet ? (
+      {/* Biggest set this month — spans 2 columns */}
+      {biggestThisMonth ? (
         <Link
-          href={`/sets/${biggestSet.set_num}`}
+          href={`/sets/${biggestThisMonth.set_num}`}
           prefetch={false}
           className="col-span-2 flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-zinc-300"
         >
@@ -169,7 +187,7 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
             <div className="relative h-16 w-16 shrink-0">
               <Image
                 src={biggestImg}
-                alt={biggestSet.name || "Set image"}
+                alt={biggestThisMonth.name || "Set image"}
                 fill
                 sizes="64px"
                 className="object-contain"
@@ -178,17 +196,25 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
             </div>
           ) : null}
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-zinc-500">Biggest new release</div>
-            <div className="mt-0.5 truncate text-sm font-bold text-zinc-900">{biggestSet.name}</div>
+            <div className="text-[11px] font-medium text-zinc-500">
+              Most pieces this month
+            </div>
+            <div className="mt-0.5 truncate text-sm font-bold text-zinc-900">
+              {biggestThisMonth.name}
+            </div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
               <span>{biggestPieces.toLocaleString()} pieces</span>
-              {biggestPrice ? <span className="font-semibold text-zinc-700">{formatPrice(biggestPrice, "USD")}</span> : null}
+              {biggestPrice ? (
+                <span className="font-semibold text-zinc-700">
+                  {formatPrice(biggestPrice, "USD")}
+                </span>
+              ) : null}
             </div>
           </div>
         </Link>
       ) : (
         <div className="col-span-2 flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-          <span className="text-sm text-zinc-400">No set data</span>
+          <span className="text-sm text-zinc-400">No new sets this month yet</span>
         </div>
       )}
     </div>
@@ -196,50 +222,83 @@ function StatsBar({ sets }: { sets: SetLite[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Filter Pills
+// Featured Themes Section
 // ---------------------------------------------------------------------------
 
-function FilterPills<T extends string | number>({
-  items,
-  active,
-  onChange,
-  allLabel = "All",
+function FeaturedThemesSection({
+  themes,
+  sets,
+  owned,
+  wish,
+  token,
+  getUserRating,
 }: {
-  items: T[];
-  active: T | null;
-  onChange: (v: T | null) => void;
-  allLabel?: string;
+  themes: string[];
+  sets: SetLite[];
+  owned: Set<string>;
+  wish: Set<string>;
+  token: string | null;
+  getUserRating: (s: string) => number | null;
 }) {
+  // Group sets by featured theme
+  const themeSets = useMemo(() => {
+    const result: { theme: string; sets: SetLite[] }[] = [];
+    for (const theme of themes) {
+      const matching = sets
+        .filter((s) => s.theme === theme)
+        .sort((a, b) => getPieces(b) - getPieces(a));
+      if (matching.length > 0) {
+        result.push({ theme, sets: matching });
+      }
+    }
+    return result;
+  }, [themes, sets]);
+
+  if (themeSets.length === 0) return null;
+
   return (
-    <div className="overflow-x-auto pb-1 scrollbar-thin">
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className={`shrink-0 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
-            active === null
-              ? "border-amber-500 bg-amber-500 text-black"
-              : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-          }`}
-        >
-          {allLabel}
-        </button>
-        {items.map((item) => (
-          <button
-            key={String(item)}
-            type="button"
-            onClick={() => onChange(item)}
-            className={`shrink-0 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
-              active === item
-                ? "border-amber-500 bg-amber-500 text-black"
-                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-            }`}
+    <section className="mt-10">
+      <h2 className="m-0 mb-4 text-lg font-semibold text-zinc-900">Featured themes</h2>
+
+      <div className="space-y-4">
+        {themeSets.map(({ theme, sets: ts }) => (
+          <CarouselRow
+            key={theme}
+            title={theme}
+            subtitle={`${ts.length} ${ts.length === 1 ? "set" : "sets"}`}
+            emptyText="No sets found."
           >
-            {String(item)}
-          </button>
+            {ts.map((s) => {
+              const sn = String(s.set_num || "").trim();
+              if (!sn) return null;
+              const isOwn = owned.has(sn);
+              const isWish = !isOwn && wish.has(sn);
+
+              return (
+                <div key={sn} className="w-[220px] shrink-0">
+                  <SetCard
+                    set={toSetCardSet(s)}
+                    token={token ?? undefined}
+                    isOwnedByUser={isOwn}
+                    userRatingOverride={getUserRating(sn)}
+                    footer={
+                      token ? (
+                        <SetCardActions
+                          token={token}
+                          setNum={sn}
+                          isOwned={isOwn}
+                          isWishlist={isWish}
+                        />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+          </CarouselRow>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -247,7 +306,14 @@ function FilterPills<T extends string | number>({
 // Sort
 // ---------------------------------------------------------------------------
 
-type SortKey = "default" | "pieces-desc" | "pieces-asc" | "price-desc" | "price-asc" | "name-asc" | "rating-desc";
+type SortKey =
+  | "default"
+  | "pieces-desc"
+  | "pieces-asc"
+  | "price-desc"
+  | "price-asc"
+  | "name-asc"
+  | "rating-desc";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "default", label: "Default" },
@@ -310,12 +376,16 @@ function MonthlyReleaseSection({
       <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-            isCurrentMonth
-              ? "bg-amber-50 text-amber-700"
-              : "bg-zinc-50 text-zinc-600"
-          }`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${isCurrentMonth ? "bg-amber-500" : "bg-zinc-400"}`} />
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              isCurrentMonth ? "bg-amber-50 text-amber-700" : "bg-zinc-50 text-zinc-600"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                isCurrentMonth ? "bg-amber-500" : "bg-zinc-400"
+              }`}
+            />
             {sets.length} {sets.length === 1 ? "set" : "sets"}
           </span>
         </div>
@@ -326,7 +396,9 @@ function MonthlyReleaseSection({
           className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm sm:w-auto"
         >
           {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
       </div>
@@ -348,7 +420,12 @@ function MonthlyReleaseSection({
                 userRatingOverride={getUserRating(sn)}
                 footer={
                   token ? (
-                    <SetCardActions token={token} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
+                    <SetCardActions
+                      token={token}
+                      setNum={sn}
+                      isOwned={isOwn}
+                      isWishlist={isWish}
+                    />
                   ) : undefined
                 }
               />
@@ -378,11 +455,13 @@ export default function NewSetsClient({
   spotlightSetNum?: string | null;
 }) {
   const { token } = useAuth();
-  const { ownedSetNums, wishlistSetNums, isOwned, isWishlist, getUserRating } = useCollectionStatus();
+  const { ownedSetNums, wishlistSetNums, isOwned, isWishlist, getUserRating } =
+    useCollectionStatus();
 
-  const [activeTheme, setActiveTheme] = useState<string | null>(null);
-
-  const allSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
+  const allSets = useMemo(
+    () => (Array.isArray(initialSets) ? initialSets : []),
+    [initialSets],
+  );
 
   // Hero: admin-pinned set, or biggest set from the most recent launch date
   const heroSet = useMemo(() => {
@@ -404,47 +483,10 @@ export default function NewSetsClient({
     return best;
   }, [allSets, spotlightSetNum]);
 
-  // Top themes for pills — prioritize featured themes, then fill with most popular
-  const topThemes = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of allSets) {
-      const t = typeof s.theme === "string" ? s.theme.trim() : "";
-      if (!t) continue;
-      counts.set(t, (counts.get(t) || 0) + 1);
-    }
-
-    // Start with featured themes that actually exist in the data
-    const result: string[] = [];
-    for (const ft of featuredThemes) {
-      if (counts.has(ft) && !result.includes(ft)) {
-        result.push(ft);
-      }
-    }
-
-    // Fill remaining spots with most popular themes
-    const remaining = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name)
-      .filter((name) => !result.includes(name));
-
-    for (const name of remaining) {
-      if (result.length >= 12) break;
-      result.push(name);
-    }
-
-    return result;
-  }, [allSets, featuredThemes]);
-
-  // Filter by theme
-  const filteredSets = useMemo(() => {
-    if (!activeTheme) return allSets;
-    return allSets.filter((s) => s.theme === activeTheme);
-  }, [allSets, activeTheme]);
-
   // Group by launch month (newest first)
   const monthlyGroups = useMemo(() => {
     const map = new Map<string, SetLite[]>();
-    for (const s of filteredSets) {
+    for (const s of allSets) {
       const mk = s.launch_date ? s.launch_date.slice(0, 7) : "Unknown";
       if (!map.has(mk)) map.set(mk, []);
       map.get(mk)!.push(s);
@@ -454,7 +496,7 @@ export default function NewSetsClient({
       if (b[0] === "Unknown") return -1;
       return b[0].localeCompare(a[0]); // newest first
     });
-  }, [filteredSets]);
+  }, [allSets]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
@@ -462,10 +504,12 @@ export default function NewSetsClient({
       <section className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">New LEGO releases</h1>
         <p className="mt-2 max-w-[640px] text-sm text-zinc-500">
-          Browse the latest LEGO sets, organized by release month. Filter by theme to find exactly what you&apos;re looking for.
+          Browse the latest LEGO sets, organized by release month.
         </p>
 
-        {initialError ? <p className="mt-4 text-sm text-red-600">Error loading sets: {initialError}</p> : null}
+        {initialError ? (
+          <p className="mt-4 text-sm text-red-600">Error loading sets: {initialError}</p>
+        ) : null}
       </section>
 
       {!initialError && allSets.length === 0 ? (
@@ -474,43 +518,42 @@ export default function NewSetsClient({
 
       {!initialError && allSets.length > 0 ? (
         <>
-          {/* Stats */}
-          <StatsBar sets={allSets} />
-
-          {/* Hero Spotlight */}
+          {/* 1. Spotlight */}
           {heroSet ? <HeroSpotlight set={heroSet} /> : null}
 
-          {/* Browse Section */}
-          <section className="mt-10">
-            <h2 className="m-0 text-lg font-semibold text-zinc-900">Browse by theme</h2>
+          {/* 2. Stats blocks */}
+          <StatsBar sets={allSets} />
 
-            <div className="mt-3">
-              <FilterPills items={topThemes} active={activeTheme} onChange={setActiveTheme} allLabel="All themes" />
-            </div>
+          {/* 3. Featured themes */}
+          <FeaturedThemesSection
+            themes={featuredThemes}
+            sets={allSets}
+            owned={ownedSetNums}
+            wish={wishlistSetNums}
+            token={token ?? null}
+            getUserRating={getUserRating}
+          />
 
-            {/* Result count */}
-            <div className="mt-4 text-sm text-zinc-500">
-              {filteredSets.length} {filteredSets.length === 1 ? "set" : "sets"}
-              {activeTheme ? ` in ${activeTheme}` : ""}
-            </div>
+          {/* 4. All releases by month */}
+          <section className="mt-12">
+            <h2 className="m-0 text-lg font-semibold text-zinc-900">All new releases by month</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {allSets.length} {allSets.length === 1 ? "set" : "sets"} across{" "}
+              {monthlyGroups.length} {monthlyGroups.length === 1 ? "month" : "months"}
+            </p>
 
-            {/* Monthly groups with per-section sort */}
             <div className="mt-6 space-y-12">
-              {monthlyGroups.length === 0 ? (
-                <div className="py-10 text-center text-sm text-zinc-400">No sets match your filters.</div>
-              ) : (
-                monthlyGroups.map(([mk, monthSets]) => (
-                  <MonthlyReleaseSection
-                    key={mk}
-                    monthKey={mk}
-                    sets={monthSets}
-                    owned={ownedSetNums}
-                    wish={wishlistSetNums}
-                    token={token ?? null}
-                    getUserRating={getUserRating}
-                  />
-                ))
-              )}
+              {monthlyGroups.map(([mk, monthSets]) => (
+                <MonthlyReleaseSection
+                  key={mk}
+                  monthKey={mk}
+                  sets={monthSets}
+                  owned={ownedSetNums}
+                  wish={wishlistSetNums}
+                  token={token ?? null}
+                  getUserRating={getUserRating}
+                />
+              ))}
             </div>
           </section>
         </>
