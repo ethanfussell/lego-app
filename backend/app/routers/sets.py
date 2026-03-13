@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.properties import RelationshipProperty
 
@@ -870,22 +870,38 @@ def list_new_sets(
     db: Session = Depends(get_db),
 ):
     """
-    Recent LEGO releases based on official launch dates (from Brickset).
+    Recent LEGO releases based on official launch dates (from Brickset),
+    with a fallback to first_seen_at for sets missing a launch_date.
 
-    - Without `days`: returns all sets with a known launch_date, newest first.
-    - With `days=N`: returns sets launched within the last N days.
+    - Without `days`: returns all recent sets, newest first.
+    - With `days=N`: returns sets launched/seen within the last N days.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_dt = datetime.now(timezone.utc)
+
+    # Effective launch date: prefer launch_date, fall back to first_seen_at
+    # to_char converts the timestamp to YYYY-MM-DD for string comparison
+    effective_date = case(
+        (SetModel.launch_date.isnot(None), SetModel.launch_date),
+        else_=func.to_char(SetModel.first_seen_at, text("'YYYY-MM-DD'")),
+    )
+
+    # Only include sets that have launched (effective_date <= today)
+    # and exclude very old sets without launch_date (year must be recent)
+    current_year = today_dt.year
     base_q = select(SetModel).where(
-        SetModel.launch_date.isnot(None),
-        SetModel.launch_date <= today,  # Only sets that have actually launched
+        or_(
+            SetModel.launch_date.isnot(None),
+            SetModel.year >= current_year - 1,  # fallback: recent sets without launch_date
+        ),
+        effective_date <= today,
     )
 
     if days is not None:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
-        base_q = base_q.where(SetModel.launch_date >= cutoff)
+        cutoff = (today_dt - timedelta(days=int(days))).strftime("%Y-%m-%d")
+        base_q = base_q.where(effective_date >= cutoff)
 
-    base_q = base_q.order_by(SetModel.launch_date.desc(), SetModel.set_num.asc())
+    base_q = base_q.order_by(effective_date.desc(), SetModel.set_num.asc())
 
     # Total count
     total = db.execute(select(func.count()).select_from(base_q.subquery())).scalar_one()
@@ -905,6 +921,11 @@ def list_new_sets(
         avg, cnt = ratings.get(canonical, (None, 0))
         rev_cnt = int(review_counts.get(canonical, 0))
 
+        # Use launch_date if available, otherwise derive from first_seen_at
+        eff_launch = s.launch_date
+        if not eff_launch and s.first_seen_at:
+            eff_launch = s.first_seen_at.strftime("%Y-%m-%d")
+
         out.append(
             {
                 "set_num": s.set_num,
@@ -917,7 +938,7 @@ def list_new_sets(
                 "rating_count": int(cnt or 0),
                 "review_count": int(rev_cnt or 0),
                 "retail_price": s.retail_price,
-                "launch_date": s.launch_date,
+                "launch_date": eff_launch,
             }
         )
 
