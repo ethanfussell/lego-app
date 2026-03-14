@@ -28,6 +28,8 @@ import SavedListsPage from "./SavedListsPage";
 import MyListsPage from "./MyListsPage";
 import NotFoundPage from "./NotFoundPage";
 import SearchPage from "./SearchPage";
+import SalePage from "./SalePage";
+import RetiringSoonPage from "./RetiringSoonPage";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
 
@@ -72,7 +74,7 @@ function NavBar() {
 /* -------------------------------------------------------
    Reusable horizontal row of SetCards (with scroll arrows)
 -------------------------------------------------------- */
-function SetRow({ title, subtitle, sets, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist }) {
+function SetRow({ title, subtitle, sets, ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist, viewAllLink, showDiscount }) {
   const scrollerRef = useRef(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
@@ -129,6 +131,11 @@ function SetRow({ title, subtitle, sets, ownedSetNums, wishlistSetNums, onMarkOw
             <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.9rem", color: "#6b7280" }}>{subtitle}</p>
           )}
         </div>
+        {viewAllLink && (
+          <Link to={viewAllLink} style={{ fontSize: "0.85rem", color: "#0070f3", textDecoration: "none", whiteSpace: "nowrap" }}>
+            View all →
+          </Link>
+        )}
       </div>
 
       <div style={{ position: "relative" }}>
@@ -235,28 +242,20 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
         setHomeLoading(true);
         setHomeError(null);
 
-        const params = new URLSearchParams();
-        params.set("q", "lego");
-        params.set("sort", "rating");
-        params.set("order", "desc");
-        params.set("page", "1");
-        params.set("limit", "40");
-
-        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+        const resp = await fetch(`${API_BASE}/sets/homepage`);
         if (!resp.ok) {
           const text = await resp.text();
           throw new Error(`Home feed failed (${resp.status}): ${text}`);
         }
 
         const data = await resp.json();
-        const items = Array.isArray(data) ? data : data.results || [];
 
         if (cancelled) return;
 
-        setFeaturedSets(items.slice(0, 8));
-        setDealsSets(items.slice(8, 16));
-        setRetiringSets(items.slice(16, 24));
-        setTrendingSets(items.slice(24, 32));
+        setFeaturedSets(data.featured || []);
+        setDealsSets(data.deals || []);
+        setRetiringSets(data.retiring || []);
+        setTrendingSets(data.trending || []);
       } catch (err) {
         if (!cancelled) setHomeError(err?.message || String(err));
       } finally {
@@ -278,47 +277,48 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
           Log your collection, wishlist, and reviews. Discover deals, sets retiring soon, and what&apos;s trending with
           other fans.
         </p>
-        <p style={{ marginTop: "0.4rem", fontSize: "0.8rem", color: "#9ca3af" }}>
-          Home feed placeholder · later this will be personalized and pull real prices.
-        </p>
       </section>
 
-      {homeLoading && <p>Loading sets…</p>}
+      {homeLoading && <p>Loading sets...</p>}
       {homeError && <p style={{ color: "red" }}>Error loading homepage: {homeError}</p>}
 
       <SetRow
         title="Featured sets"
-        subtitle="Highly-rated sets across all themes."
+        subtitle="Top-rated sets currently available."
         sets={featuredSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        viewAllLink="/search?sort=rating&order=desc"
       />
 
       <SetRow
         title="Deals & price drops"
-        subtitle="Placeholder: likely to become your “best current deal” row."
+        subtitle={dealsSets.length > 0 ? "Sets currently priced below retail." : "No deals found right now \u2014 check back soon."}
         sets={dealsSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        viewAllLink="/deals"
+        showDiscount
       />
 
       <SetRow
         title="Retiring soon"
-        subtitle="Older sets that might not stick around forever."
+        subtitle={retiringSets.length > 0 ? "Get these before they\u2019re gone." : "No sets flagged as retiring yet."}
         sets={retiringSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
         onMarkOwned={onMarkOwned}
         onAddWishlist={onAddWishlist}
+        viewAllLink="/retiring"
       />
 
       <SetRow
         title="Trending right now"
-        subtitle="Another slice of top-rated sets as a stand-in for real trends."
+        subtitle="Most-reviewed sets by the community."
         sets={trendingSets}
         ownedSetNums={ownedSetNums}
         wishlistSetNums={wishlistSetNums}
@@ -956,12 +956,12 @@ function App() {
             New
           </NavLink>
   
-          <NavLink to="/sale" style={getNavLinkStyle}>
-            Sale
+          <NavLink to="/deals" style={getNavLinkStyle}>
+            Deals
           </NavLink>
-  
-          <NavLink to="/retiring-soon" style={getNavLinkStyle}>
-            Retiring soon
+
+          <NavLink to="/retiring" style={getNavLinkStyle}>
+            Retiring
           </NavLink>
   
           <NavLink to="/collection" style={getNavLinkStyle} onClick={() => setPage("collection")}>
@@ -1007,7 +1007,7 @@ function App() {
               >
                 {suggestionsLoading && (
                   <li style={{ padding: "0.45rem 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>
-                    Searching…
+                    Searching...
                   </li>
                 )}
   
@@ -1111,15 +1111,22 @@ function App() {
         <Route
           path="/sale"
           element={
-            <FeedPage
-              title="On sale (placeholder)"
-              description="For now this shows a curated slice of highly-rated sets. Later, this will filter by real discounts and affiliate data."
-              queryParams={{ q: "lego", sort: "rating", order: "desc", page: 1, limit: 50 }}
+            <SalePage
               ownedSetNums={ownedSetNums}
               wishlistSetNums={wishlistSetNums}
               onMarkOwned={handleMarkOwned}
               onAddWishlist={handleAddWishlist}
-              variant="sale"
+            />
+          }
+        />
+        <Route
+          path="/deals"
+          element={
+            <SalePage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
             />
           }
         />
@@ -1127,10 +1134,18 @@ function App() {
         <Route
           path="/retiring-soon"
           element={
-            <FeedPage
-              title="Retiring soon"
-              description="Right now this approximates older sets. Later, we'll plug in real retiring flags."
-              queryParams={{ q: "lego", sort: "year", order: "asc", page: 1, limit: 50 }}
+            <RetiringSoonPage
+              ownedSetNums={ownedSetNums}
+              wishlistSetNums={wishlistSetNums}
+              onMarkOwned={handleMarkOwned}
+              onAddWishlist={handleAddWishlist}
+            />
+          }
+        />
+        <Route
+          path="/retiring"
+          element={
+            <RetiringSoonPage
               ownedSetNums={ownedSetNums}
               wishlistSetNums={wishlistSetNums}
               onMarkOwned={handleMarkOwned}

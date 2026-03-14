@@ -1239,6 +1239,157 @@ def retiring_page_config(db: Session = Depends(get_db)):
     return settings
 
 
+# ===================================================================
+# Homepage aggregated data
+# ===================================================================
+
+@router.get("/homepage")
+def homepage_data(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Single endpoint returning all data the homepage needs:
+    - featured: top-rated available sets (with images)
+    - deals: best current deals (discount_pct > 0)
+    - retiring: sets retiring soon
+    - trending: most-reviewed sets
+    """
+    ratings = _ratings_map(db)
+    review_counts = _review_counts_map(db)
+
+    def _set_to_dict(s, extra: dict | None = None) -> dict:
+        canonical = s.set_num
+        avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = int(review_counts.get(canonical, 0))
+        d = {
+            "set_num": s.set_num,
+            "name": s.name,
+            "year": s.year,
+            "theme": s.theme,
+            "pieces": s.pieces,
+            "image_url": s.image_url,
+            "rating_avg": avg,
+            "rating_count": int(cnt or 0),
+            "review_count": rev_cnt,
+            "retail_price": s.retail_price,
+            "retirement_status": s.retirement_status,
+            "set_tag": s.set_tag,
+        }
+        if extra:
+            d.update(extra)
+        return d
+
+    # --- Featured: top-rated available sets with images ---
+    featured_rows = db.execute(
+        select(SetModel)
+        .where(
+            SetModel.image_url.isnot(None),
+            SetModel.image_url != "",
+            SetModel.retail_price.isnot(None),
+            SetModel.retirement_status.in_(["available", "retiring_soon"]),
+        )
+        .order_by(SetModel.year.desc(), SetModel.pieces.desc())
+        .limit(200)
+    ).scalars().all()
+
+    # Sort by rating, pick top 8
+    featured_with_ratings = []
+    for s in featured_rows:
+        avg, cnt = ratings.get(s.set_num, (None, 0))
+        if avg and cnt >= 1:
+            featured_with_ratings.append((s, avg, cnt))
+    featured_with_ratings.sort(key=lambda x: (-x[1], -x[2]))
+    featured = [_set_to_dict(s) for s, _, _ in featured_with_ratings[:8]]
+
+    # If not enough rated sets, fill with recent available sets
+    if len(featured) < 4:
+        featured_nums = {f["set_num"] for f in featured}
+        for s in featured_rows:
+            if s.set_num not in featured_nums:
+                featured.append(_set_to_dict(s))
+                if len(featured) >= 8:
+                    break
+
+    # --- Deals: best current deals ---
+    best_offer_sq = (
+        select(
+            OfferModel.set_num,
+            func.min(OfferModel.price).label("best_price"),
+        )
+        .where(
+            OfferModel.price.isnot(None),
+            func.coalesce(OfferModel.in_stock, True).is_(True),
+        )
+        .group_by(OfferModel.set_num)
+        .subquery()
+    )
+
+    deal_rows = db.execute(
+        select(SetModel, best_offer_sq.c.best_price)
+        .join(
+            best_offer_sq,
+            SetModel.set_num == func.concat(best_offer_sq.c.set_num, "-1"),
+        )
+        .where(
+            SetModel.retail_price.isnot(None),
+            SetModel.retail_price > 0,
+            best_offer_sq.c.best_price < SetModel.retail_price,
+        )
+        .order_by(
+            (1.0 - best_offer_sq.c.best_price / SetModel.retail_price).desc()
+        )
+        .limit(12)
+    ).all()
+
+    deals = []
+    for s, best_price in deal_rows:
+        retail = float(s.retail_price)
+        sale = float(best_price)
+        savings = round(retail - sale, 2)
+        discount_pct = round((1.0 - sale / retail) * 100)
+        deals.append(_set_to_dict(s, {
+            "original_price": retail,
+            "sale_price": sale,
+            "savings": savings,
+            "discount_pct": discount_pct,
+        }))
+
+    # --- Retiring soon ---
+    retiring_rows = db.execute(
+        select(SetModel)
+        .where(SetModel.retirement_status == "retiring_soon")
+        .order_by(SetModel.retirement_date.asc(), SetModel.name.asc())
+        .limit(12)
+    ).scalars().all()
+
+    retiring = [_set_to_dict(s, {"retirement_date": s.retirement_date, "exit_date": s.exit_date}) for s in retiring_rows]
+    offers_data.enrich_with_best_prices(db, retiring)
+
+    # --- Trending: most-reviewed sets ---
+    trending_rows = db.execute(
+        select(SetModel, func.count(ReviewModel.id).label("rev_count"))
+        .join(ReviewModel, ReviewModel.set_num == SetModel.set_num)
+        .where(ReviewModel.text.isnot(None), ReviewModel.text != "")
+        .group_by(SetModel.set_num)
+        .order_by(func.count(ReviewModel.id).desc())
+        .limit(6)
+    ).all()
+
+    trending = [_set_to_dict(s) for s, _ in trending_rows]
+
+    _enrich_with_tags(db, featured)
+    _enrich_with_tags(db, deals)
+    _enrich_with_tags(db, trending)
+
+    return {
+        "featured": featured,
+        "deals": deals,
+        "retiring": retiring,
+        "trending": trending,
+    }
+
+
 @router.get("/discover-page-config")
 def discover_page_config(db: Session = Depends(get_db)):
     """Return admin settings for the /discover page."""
