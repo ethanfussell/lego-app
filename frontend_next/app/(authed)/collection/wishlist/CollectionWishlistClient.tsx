@@ -8,15 +8,13 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as SetCardSetLite } from "@/app/components/SetCard";
 import AddToListMenu from "@/app/components/AddToListMenu";
-import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
+import CollectionToolbar from "@/app/components/CollectionToolbar";
+import { asFiniteNumber, asTrimmedString, isRecord } from "@/lib/types";
+import { useCollectionFilters, type CollectionSet } from "@/lib/useCollectionFilters";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 import { SetGridSkeleton } from "@/app/components/Skeletons";
 import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
-
-type WishlistDetail = {
-  items_count: number;
-};
 
 function errorMessage(e: unknown, fallback = "Something went wrong") {
   return e instanceof Error ? e.message : String(e ?? fallback);
@@ -26,7 +24,7 @@ function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
 }
 
-function coerceSetLite(raw: unknown): SetCardSetLite | null {
+function coerceCollectionSet(raw: unknown): CollectionSet | null {
   if (!isRecord(raw)) return null;
 
   const set_num = asTrimmedString(raw.set_num);
@@ -35,7 +33,6 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
   const name = asTrimmedString(raw.name) ?? undefined;
   const year = asFiniteNumber(raw.year) ?? undefined;
 
-  // backend might use num_parts OR pieces; accept either
   const num_parts =
     asFiniteNumber(raw.num_parts) ??
     asFiniteNumber(raw.pieces) ??
@@ -44,16 +41,13 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
   const theme = asTrimmedString(raw.theme) ?? undefined;
   const image_url = asTrimmedString(raw.image_url);
 
-  // Note: SetCard supports pieces OR num_parts; we can pass both if present.
-  // Prefer `pieces` when available for UI wording; otherwise fall back to num_parts.
   const pieces =
     asFiniteNumber(raw.pieces) ??
     (num_parts != null ? num_parts : null);
 
-  // Optional pricing/ratings fields (if backend ever sends them)
   const rating_avg = asFiniteNumber(raw.rating_avg);
-  const rating_avg_val = asFiniteNumber(raw.rating_avg);
   const rating_count = asFiniteNumber(raw.rating_count);
+  const collection_created_at = asTrimmedString(raw.collection_created_at);
 
   return {
     set_num,
@@ -64,8 +58,8 @@ function coerceSetLite(raw: unknown): SetCardSetLite | null {
     ...(theme ? { theme } : {}),
     image_url: image_url ?? null,
     ...(typeof rating_avg === "number" ? { rating_avg } : {}),
-    ...(typeof rating_avg_val === "number" ? { rating_avg: rating_avg_val } : {}),
     ...(typeof rating_count === "number" ? { rating_count } : {}),
+    ...(collection_created_at ? { collection_created_at } : {}),
   };
 }
 
@@ -92,6 +86,16 @@ function exportCsv(sets: SetCardSetLite[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/* -- Trash Icon ---------------------------------------------- */
+
+function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
+
 export default function CollectionWishlistClient() {
   const { token } = useAuth();
   const router = useRouter();
@@ -100,13 +104,13 @@ export default function CollectionWishlistClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [wishlistDetail, setWishlistDetail] = useState<WishlistDetail | null>(null);
-  const [sets, setSets] = useState<SetCardSetLite[]>([]);
+  const [sets, setSets] = useState<CollectionSet[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
-  // Selection should be based on what we actually loaded
   const wishlistSetNums = useMemo(() => new Set(sets.map((s) => String(s.set_num).trim())), [sets]);
+
+  const filters = useCollectionFilters(sets);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -114,10 +118,9 @@ export default function CollectionWishlistClient() {
     const data = await apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" });
     const rows = Array.isArray(data) ? data : [];
 
-    const parsed = rows.map(coerceSetLite).filter((x): x is SetCardSetLite => x != null);
+    const parsed = rows.map(coerceCollectionSet).filter((x): x is CollectionSet => x != null);
 
     setSets(parsed);
-    setWishlistDetail({ items_count: parsed.length });
   }, [token]);
 
   const removeWishlist = useCallback(
@@ -152,7 +155,7 @@ export default function CollectionWishlistClient() {
         });
       }
     },
-    [token, refresh]
+    [token, refresh, toast]
   );
 
   useEffect(() => {
@@ -182,54 +185,51 @@ export default function CollectionWishlistClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="flex flex-wrap items-baseline justify-between gap-4 pt-10">
+      {/* Header with back arrow */}
+      <div className="flex items-center gap-3 pt-8">
+        <Link
+          href="/collection"
+          className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
+          aria-label="Back to collection"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          </svg>
+        </Link>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Wishlist</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            {wishlistDetail?.items_count ? `${wishlistDetail.items_count} sets` : "Sets you want to get."}
+          <p className="mt-0.5 text-sm text-zinc-500">
+            {sets.length ? `${sets.length} set${sets.length === 1 ? "" : "s"} you want` : "Sets you want to get."}
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setViewMode("grid")}
-            className={`rounded-lg p-1.5 transition-colors ${viewMode === "grid" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
-            aria-label="Grid view"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("list")}
-            className={`rounded-lg p-1.5 transition-colors ${viewMode === "list" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
-            aria-label="List view"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-          </button>
-
-          {sets.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => exportCsv(sets, `bricktrack-wishlist-${new Date().toISOString().slice(0, 10)}.csv`)}
-              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-            >
-              Export CSV
-            </button>
-          ) : null}
-
-          <Link
-            href="/collection"
-            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
-          >
-            Back
-          </Link>
-        </div>
       </div>
+
+      {/* Toolbar */}
+      {!loading && sets.length > 0 && (
+        <div className="mt-4">
+          <CollectionToolbar
+            search={filters.search}
+            onSearchChange={filters.setSearch}
+            sortKey={filters.sortKey}
+            sortDir={filters.sortDir}
+            onSortChange={(key, dir) => { filters.setSortKey(key); filters.setSortDir(dir); }}
+            availableThemes={filters.availableThemes}
+            selectedThemes={filters.selectedThemes}
+            onToggleTheme={filters.toggleTheme}
+            hasActiveFilters={filters.hasActiveFilters}
+            activeFilterCount={filters.activeFilterCount}
+            onClearFilters={filters.clearFilters}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            totalCount={filters.totalCount}
+            filteredCount={filters.filteredCount}
+            onExportCsv={() => {
+              exportCsv(sets, `bricktrack-wishlist-${new Date().toISOString().slice(0, 10)}.csv`);
+              toast.push("CSV downloaded", { type: "success" });
+            }}
+          />
+        </div>
+      )}
 
       {loading ? <SetGridSkeleton count={8} /> : null}
       {err ? <ErrorState message={err} onRetry={() => void refresh()} /> : null}
@@ -240,36 +240,47 @@ export default function CollectionWishlistClient() {
           description="Save sets you want to buy"
           action={{ href: "/search", label: "Browse sets" }}
         />
+      ) : filters.filtered.length === 0 && !loading && sets.length > 0 ? (
+        <div className="mt-12 text-center">
+          <p className="text-sm text-zinc-500">No sets match your filters.</p>
+          <button
+            type="button"
+            onClick={() => { filters.clearFilters(); filters.setSearch(""); }}
+            className="mt-2 text-sm font-medium text-amber-600 hover:text-amber-700"
+          >
+            Clear all filters
+          </button>
+        </div>
       ) : viewMode === "list" ? (
         <div className="mt-6 space-y-2">
-          {sets.map((s) => {
+          {filters.filtered.map((s) => {
             const plain = toPlain(s.set_num);
             const pcs = s.num_parts ?? s.pieces;
             return (
               <div key={s.set_num} className="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-3">
-                <div className="h-16 w-16 shrink-0 rounded-lg bg-zinc-100 overflow-hidden">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
                   {s.image_url ? (
                     <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-1" loading="lazy" />
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="text-sm font-semibold text-zinc-900 hover:text-amber-600 truncate block">
+                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold text-zinc-900 hover:text-amber-600">
                     {s.name || s.set_num}
                   </Link>
                   <div className="text-xs text-zinc-500">
                     {s.set_num}
-                    {s.year ? ` · ${s.year}` : ""}
-                    {pcs ? ` · ${pcs} pcs` : ""}
-                    {s.theme ? ` · ${s.theme}` : ""}
+                    {s.year ? ` \u00b7 ${s.year}` : ""}
+                    {pcs ? ` \u00b7 ${pcs} pcs` : ""}
+                    {s.theme ? ` \u00b7 ${s.theme}` : ""}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void removeWishlist(s.set_num)}
                   disabled={!!removing[plain]}
-                  className="shrink-0 rounded-full border border-red-200 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
                 >
-                  {removing[plain] ? "Removing…" : "Remove"}
+                  {removing[plain] ? "Removing\u2026" : "Remove"}
                 </button>
               </div>
             );
@@ -277,10 +288,10 @@ export default function CollectionWishlistClient() {
         </div>
       ) : (
         <ul className="mt-6 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
-          {sets.map((s) => {
+          {filters.filtered.map((s) => {
             const plain = toPlain(s.set_num);
             return (
-              <li key={s.set_num} className="space-y-2">
+              <li key={s.set_num} className="group relative">
                 <SetCard
                   set={s}
                   variant="wishlist"
@@ -295,13 +306,15 @@ export default function CollectionWishlistClient() {
                   }
                 />
 
+                {/* Hover-reveal trash button */}
                 <button
                   type="button"
                   onClick={() => void removeWishlist(s.set_num)}
                   disabled={!!removing[plain]}
-                  className="w-full rounded-full border border-red-200 bg-transparent px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-zinc-400 opacity-0 shadow-sm backdrop-blur transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-60"
+                  aria-label="Remove from wishlist"
                 >
-                  {removing[plain] ? "Removing…" : "Remove from wishlist"}
+                  <TrashIcon />
                 </button>
               </li>
             );

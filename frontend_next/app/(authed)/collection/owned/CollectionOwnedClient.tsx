@@ -1,60 +1,20 @@
 // frontend_next/app/(authed)/collection/owned/CollectionOwnedClient.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
+import CollectionToolbar from "@/app/components/CollectionToolbar";
 import { isRecord, type SetLite } from "@/lib/types";
+import { useCollectionFilters, type CollectionSet } from "@/lib/useCollectionFilters";
 import { useToast } from "@/app/ui-providers/ToastProvider";
 import { SetGridSkeleton } from "@/app/components/Skeletons";
 import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
-
-/* -- Collection Stats ---------------------------------------- */
-
-function CollectionStats({ sets }: { sets: SetLite[] }) {
-  const stats = useMemo(() => {
-    const totalPieces = sets.reduce((sum, s) => sum + (s.num_parts ?? 0), 0);
-    const themeCounts = new Map<string, number>();
-    for (const s of sets) {
-      const t = s.theme || "Unknown";
-      themeCounts.set(t, (themeCounts.get(t) ?? 0) + 1);
-    }
-    const topThemes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-    return { totalPieces, topThemes };
-  }, [sets]);
-
-  if (sets.length === 0) return null;
-
-  return (
-    <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-        <div className="text-2xl font-bold text-amber-600">{sets.length}</div>
-        <div className="mt-1 text-xs text-zinc-500">Total sets</div>
-      </div>
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-        <div className="text-2xl font-bold text-amber-600">{stats.totalPieces.toLocaleString()}</div>
-        <div className="mt-1 text-xs text-zinc-500">Total pieces</div>
-      </div>
-      <div className="col-span-2 rounded-xl border border-zinc-200 bg-white p-4">
-        <div className="text-sm font-semibold text-zinc-700 mb-2">Top themes</div>
-        <div className="space-y-1">
-          {stats.topThemes.map(([theme, count]) => (
-            <div key={theme} className="flex items-center justify-between text-sm">
-              <span className="truncate text-zinc-600">{theme}</span>
-              <span className="shrink-0 font-semibold text-zinc-900">{count}</span>
-            </div>
-          ))}
-          {stats.topThemes.length === 0 && <div className="text-sm text-zinc-500">No themes yet</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* -- CSV Export helper --------------------------------------- */
 
@@ -81,11 +41,18 @@ function exportCsv(sets: SetLite[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-/* -- Bulk Import --------------------------------------------- */
+/* -- Bulk Import Modal --------------------------------------- */
 
-function BulkImport({ token, onComplete }: { token: string; onComplete: () => Promise<void> }) {
+function BulkImportModal({
+  token,
+  onComplete,
+  onClose,
+}: {
+  token: string;
+  onComplete: () => Promise<void>;
+  onClose: () => void;
+}) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<{ added: string[]; failed: string[] } | null>(null);
@@ -120,65 +87,66 @@ function BulkImport({ token, onComplete }: { token: string; onComplete: () => Pr
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-      >
-        Bulk import
-      </button>
-    );
-  }
-
   return (
-    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-      <div className="text-sm font-semibold text-zinc-700">Bulk Import</div>
-      <p className="mt-1 text-xs text-zinc-500">
-        Enter set numbers separated by commas or new lines (e.g., 10305-1, 42143-1)
-      </p>
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="10305-1, 42143-1, 75192-1"
-        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
-        rows={4}
-        disabled={importing}
-      />
-      <div className="mt-3 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void handleImport()}
-          disabled={importing || !input.trim()}
-          className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-60 transition-colors"
-        >
-          {importing ? "Importing…" : "Import sets"}
-        </button>
-        <button
-          type="button"
-          onClick={() => { setOpen(false); setResults(null); }}
-          className="text-sm text-zinc-500 hover:text-zinc-700"
-        >
-          Cancel
-        </button>
-      </div>
-      {results ? (
-        <div className="mt-3 text-sm">
-          {results.added.length > 0 ? (
-            <p className="text-emerald-700">
-              Added {results.added.length} set{results.added.length === 1 ? "" : "s"}.
-            </p>
-          ) : null}
-          {results.failed.length > 0 ? (
-            <p className="text-red-600">Failed: {results.failed.join(", ")}</p>
-          ) : null}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onMouseDown={() => !importing && onClose()}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-zinc-50 p-5 shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="text-base font-semibold">Bulk Import</div>
+        <p className="mt-1 text-sm text-zinc-500">
+          Enter set numbers separated by commas or new lines (e.g., 10305-1, 42143-1)
+        </p>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="10305-1, 42143-1, 75192-1"
+          className="mt-3 w-full rounded-xl border border-zinc-300 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
+          rows={4}
+          disabled={importing}
+          autoFocus
+        />
+
+        {results ? (
+          <div className="mt-3 text-sm">
+            {results.added.length > 0 ? (
+              <p className="text-emerald-700">
+                Added {results.added.length} set{results.added.length === 1 ? "" : "s"}.
+              </p>
+            ) : null}
+            {results.failed.length > 0 ? (
+              <p className="text-red-600">Failed: {results.failed.join(", ")}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={importing}
+            onClick={onClose}
+            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleImport()}
+            disabled={importing || !input.trim()}
+            className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-60 transition-colors"
+          >
+            {importing ? "Importing\u2026" : "Import sets"}
+          </button>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
 
+/* -- Helpers ------------------------------------------------- */
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   return e instanceof Error ? e.message : String(e ?? fallback);
@@ -188,9 +156,9 @@ function toPlain(n: string): string {
   return n.replace(/-\d+$/, "");
 }
 
-function asSetLiteArray(v: unknown): SetLite[] {
+function asCollectionSetArray(v: unknown): CollectionSet[] {
   if (!Array.isArray(v)) return [];
-  const out: SetLite[] = [];
+  const out: CollectionSet[] = [];
 
   for (const raw of v) {
     if (!isRecord(raw)) continue;
@@ -200,12 +168,10 @@ function asSetLiteArray(v: unknown): SetLite[] {
 
     const maybeName = raw.name;
     const maybeYear = raw.year;
-
-    // backend might use num_parts OR pieces; accept either
     const maybeNumParts = raw.num_parts;
     const maybePieces = raw.pieces;
-
     const maybeTheme = raw.theme;
+    const maybeCollectionCreatedAt = raw.collection_created_at;
 
     const num_parts =
       typeof maybeNumParts === "number"
@@ -214,7 +180,6 @@ function asSetLiteArray(v: unknown): SetLite[] {
           ? maybePieces
           : undefined;
 
-    // IMPORTANT: with exactOptionalPropertyTypes, do not assign undefined; omit instead
     out.push({
       set_num,
       ...(typeof maybeName === "string" ? { name: maybeName } : {}),
@@ -222,11 +187,24 @@ function asSetLiteArray(v: unknown): SetLite[] {
       ...(typeof num_parts === "number" ? { num_parts } : {}),
       image_url: typeof raw.image_url === "string" ? raw.image_url : null,
       ...(typeof maybeTheme === "string" ? { theme: maybeTheme } : {}),
+      ...(typeof maybeCollectionCreatedAt === "string" ? { collection_created_at: maybeCollectionCreatedAt } : {}),
     });
   }
 
   return out;
 }
+
+/* -- Trash Icon ---------------------------------------------- */
+
+function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
+
+/* -- Main Component ------------------------------------------ */
 
 export default function CollectionOwnedClient() {
   const { token } = useAuth();
@@ -236,15 +214,18 @@ export default function CollectionOwnedClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [sets, setSets] = useState<SetLite[]>([]);
+  const [sets, setSets] = useState<CollectionSet[]>([]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [showBulkImport, setShowBulkImport] = useState(false);
+
+  const filters = useCollectionFilters(sets);
 
   const refresh = useCallback(async () => {
     if (!token) return;
 
     const data = await apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" });
-    const arr = asSetLiteArray(data);
+    const arr = asCollectionSetArray(data);
     setSets(arr);
   }, [token]);
 
@@ -280,7 +261,7 @@ export default function CollectionOwnedClient() {
         });
       }
     },
-    [token, refresh]
+    [token, refresh, toast]
   );
 
   useEffect(() => {
@@ -308,66 +289,63 @@ export default function CollectionOwnedClient() {
     };
   }, [token, router, refresh]);
 
-  const count = sets.length;
-
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
-      <div className="pt-10 flex flex-wrap items-baseline justify-between gap-4">
+      {/* Header with back arrow */}
+      <div className="flex items-center gap-3 pt-8">
+        <Link
+          href="/collection"
+          className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
+          aria-label="Back to collection"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          </svg>
+        </Link>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Owned</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            {count ? `${count} set${count === 1 ? "" : "s"}` : "Your owned LEGO sets."}
+          <p className="mt-0.5 text-sm text-zinc-500">
+            {sets.length ? `${sets.length} set${sets.length === 1 ? "" : "s"} in your collection` : "Your owned LEGO sets."}
           </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Grid/List toggle */}
-          <button
-            type="button"
-            onClick={() => setViewMode("grid")}
-            className={`rounded-lg p-1.5 transition-colors ${viewMode === "grid" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
-            aria-label="Grid view"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("list")}
-            className={`rounded-lg p-1.5 transition-colors ${viewMode === "list" ? "bg-amber-100 text-amber-600" : "text-zinc-400 hover:bg-zinc-100"}`}
-            aria-label="List view"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-          </button>
-
-          {/* CSV export */}
-          {sets.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => { exportCsv(sets, `bricktrack-owned-${new Date().toISOString().slice(0, 10)}.csv`); toast.push("CSV downloaded", { type: "success" }); }}
-              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-            >
-              Export CSV
-            </button>
-          ) : null}
-
-          <Link
-            href="/collection"
-            className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
-          >
-            Back
-          </Link>
         </div>
       </div>
 
-      {/* Bulk import */}
-      {token ? <BulkImport token={token} onComplete={refresh} /> : null}
+      {/* Toolbar */}
+      {!loading && sets.length > 0 && (
+        <div className="mt-4">
+          <CollectionToolbar
+            search={filters.search}
+            onSearchChange={filters.setSearch}
+            sortKey={filters.sortKey}
+            sortDir={filters.sortDir}
+            onSortChange={(key, dir) => { filters.setSortKey(key); filters.setSortDir(dir); }}
+            availableThemes={filters.availableThemes}
+            selectedThemes={filters.selectedThemes}
+            onToggleTheme={filters.toggleTheme}
+            hasActiveFilters={filters.hasActiveFilters}
+            activeFilterCount={filters.activeFilterCount}
+            onClearFilters={filters.clearFilters}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            totalCount={filters.totalCount}
+            filteredCount={filters.filteredCount}
+            onExportCsv={() => {
+              exportCsv(sets, `bricktrack-owned-${new Date().toISOString().slice(0, 10)}.csv`);
+              toast.push("CSV downloaded", { type: "success" });
+            }}
+            onBulkImport={() => setShowBulkImport(true)}
+          />
+        </div>
+      )}
 
-      {/* Stats dashboard */}
-      <CollectionStats sets={sets} />
+      {/* Bulk import modal */}
+      {showBulkImport && token && (
+        <BulkImportModal
+          token={token}
+          onComplete={refresh}
+          onClose={() => setShowBulkImport(false)}
+        />
+      )}
 
       {loading ? <SetGridSkeleton count={8} /> : null}
       {err ? <ErrorState message={err} onRetry={() => void refresh()} /> : null}
@@ -378,55 +356,68 @@ export default function CollectionOwnedClient() {
           description="Start tracking the LEGO sets you own"
           action={{ href: "/search", label: "Find sets" }}
         />
+      ) : filters.filtered.length === 0 && !loading && sets.length > 0 ? (
+        <div className="mt-12 text-center">
+          <p className="text-sm text-zinc-500">No sets match your filters.</p>
+          <button
+            type="button"
+            onClick={() => { filters.clearFilters(); filters.setSearch(""); }}
+            className="mt-2 text-sm font-medium text-amber-600 hover:text-amber-700"
+          >
+            Clear all filters
+          </button>
+        </div>
       ) : viewMode === "list" ? (
         <div className="mt-6 space-y-2">
-          {sets.map((s) => {
+          {filters.filtered.map((s) => {
             const plain = toPlain(s.set_num);
             return (
               <div key={s.set_num} className="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-3">
-                <div className="h-16 w-16 shrink-0 rounded-lg bg-zinc-100 overflow-hidden">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
                   {s.image_url ? (
                     <img src={s.image_url} alt={s.name || s.set_num} className="h-full w-full object-contain p-1" loading="lazy" />
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="text-sm font-semibold text-zinc-900 hover:text-amber-600 truncate block">
+                  <Link href={`/sets/${encodeURIComponent(s.set_num)}`} className="block truncate text-sm font-semibold text-zinc-900 hover:text-amber-600">
                     {s.name || s.set_num}
                   </Link>
                   <div className="text-xs text-zinc-500">
                     {s.set_num}
-                    {s.year ? ` · ${s.year}` : ""}
-                    {s.num_parts ? ` · ${s.num_parts} pcs` : ""}
-                    {s.theme ? ` · ${s.theme}` : ""}
+                    {s.year ? ` \u00b7 ${s.year}` : ""}
+                    {s.num_parts ? ` \u00b7 ${s.num_parts} pcs` : ""}
+                    {s.theme ? ` \u00b7 ${s.theme}` : ""}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void removeOwned(s.set_num)}
                   disabled={!!removing[plain]}
-                  className="shrink-0 rounded-full border border-red-200 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
                 >
-                  {removing[plain] ? "Removing…" : "Remove"}
+                  {removing[plain] ? "Removing\u2026" : "Remove"}
                 </button>
               </div>
             );
           })}
         </div>
       ) : (
-        <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 list-none p-0">
-          {sets.map((s) => {
+        <ul className="mt-6 grid list-none grid-cols-2 gap-4 p-0 sm:grid-cols-3 lg:grid-cols-4">
+          {filters.filtered.map((s) => {
             const plain = toPlain(s.set_num);
             return (
-              <li key={s.set_num} className="space-y-2">
+              <li key={s.set_num} className="group relative">
                 <SetCard set={s} variant="owned" footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned /> : null} />
 
+                {/* Hover-reveal trash button */}
                 <button
                   type="button"
                   onClick={() => void removeOwned(s.set_num)}
                   disabled={!!removing[plain]}
-                  className="w-full rounded-full border border-red-200 bg-transparent px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-zinc-400 opacity-0 shadow-sm backdrop-blur transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-60"
+                  aria-label="Remove from collection"
                 >
-                  {removing[plain] ? "Removing…" : "Remove from owned"}
+                  <TrashIcon />
                 </button>
               </li>
             );

@@ -3,15 +3,15 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { apiFetch, type ApiFetchOptions } from "@/lib/api";
 import { useAuth } from "@/app/providers";
 import SetCard, { type SetLite as CardSetLite } from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import CarouselRow from "@/app/components/CarouselRow";
 import CreateListButton from "./CreateListButton";
-import { asFiniteNumber, asTrimmedString, isRecord, type UnknownRecord } from "@/lib/types";
+import { asFiniteNumber, asTrimmedString, isRecord } from "@/lib/types";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
-import { formatPrice } from "@/lib/format";
 
 const PREVIEW_COUNT = 10;
 
@@ -42,7 +42,6 @@ type ListDetail = {
 
 function errorMessage(e: unknown, fallback = "Something went wrong"): string {
   const raw = e instanceof Error ? e.message : String(e ?? fallback);
-  // Hide noisy backend details from auth errors
   if (/401|JWT|JWKS|signing key/i.test(raw)) {
     return "Please sign out and sign back in, or try again later.";
   }
@@ -91,9 +90,26 @@ async function fetchSetsBulk(setNums: string[], token: string): Promise<CardSetL
   return results.filter((x): x is CardSetLite => Boolean(x));
 }
 
+/* ------------------------------------------------------------------ */
+/* Section Header                                                      */
+/* ------------------------------------------------------------------ */
+
+function SectionHeader({ label, count, action }: { label: string; count?: number; action?: React.ReactNode }) {
+  return (
+    <div className="mt-10 mb-4 flex items-center gap-3">
+      <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">{label}</h2>
+      <div className="h-px flex-1 bg-zinc-100" />
+      {count != null && <span className="text-xs tabular-nums text-zinc-400">{count}</span>}
+      {action}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Carousel Row                                                        */
+/* ------------------------------------------------------------------ */
+
 function Row({
-  title,
-  subtitle,
   sets,
   href,
   emptyText = "No sets yet.",
@@ -101,8 +117,6 @@ function Row({
   variant,
   token,
 }: {
-  title: string;
-  subtitle?: string;
   sets: CardSetLite[];
   href?: string;
   emptyText?: string;
@@ -113,22 +127,20 @@ function Row({
   const hasItems = sets.length > 0;
 
   return (
-    <div className="mt-8">
-      <CarouselRow title={title} viewHref={href} emptyText={emptyText} {...(subtitle ? { subtitle } : {})}>
-        {hasItems
-          ? sets.map((set) => {
-              const setNum = String(set.set_num ?? "").trim();
-              if (!setNum) return null;
+    <CarouselRow title="" viewHref={href} emptyText={emptyText}>
+      {hasItems
+        ? sets.map((set) => {
+            const setNum = String(set.set_num ?? "").trim();
+            if (!setNum) return null;
 
-              return (
-                <div key={setNum} className="w-[220px] shrink-0">
-                  <SetCard set={set} variant={variant} token={token} footer={renderFooter ? renderFooter(set) : null} />
-                </div>
-              );
-            })
-          : null}
-      </CarouselRow>
-    </div>
+            return (
+              <div key={setNum} className="w-[220px] shrink-0">
+                <SetCard set={set} variant={variant} token={token} footer={renderFooter ? renderFooter(set) : null} />
+              </div>
+            );
+          })
+        : null}
+    </CarouselRow>
   );
 }
 
@@ -168,69 +180,66 @@ function coerceCollectionRow(raw: unknown): CollectionSet | null {
   };
 }
 
-// Keep backward compat alias
-function coerceCollectionRowToCardSetLite(raw: unknown): CardSetLite | null {
-  return coerceCollectionRow(raw);
-}
-
 /* ------------------------------------------------------------------ */
-/* Feature 1: Collection Stats Dashboard                               */
+/* Stats Hero                                                          */
 /* ------------------------------------------------------------------ */
 
-function CollectionStatsDashboard({ sets }: { sets: CollectionSet[] }) {
+function CollectionStatsHero({ sets, wishlistCount }: { sets: CollectionSet[]; wishlistCount: number }) {
   const stats = useMemo(() => {
     const totalPieces = sets.reduce((sum, s) => sum + (s.num_parts ?? 0), 0);
-    const totalValue = sets.reduce((sum, s) => sum + (s.original_price ?? 0), 0);
     const themeCounts = new Map<string, number>();
     for (const s of sets) {
       const t = s.theme || "Unknown";
       themeCounts.set(t, (themeCounts.get(t) ?? 0) + 1);
     }
     const topThemes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
-    return { totalPieces, totalValue, topThemes };
+    return { totalPieces, topThemes };
   }, [sets]);
 
   if (sets.length === 0) return null;
 
   return (
-    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-        <div className="text-2xl font-bold text-amber-600">{sets.length}</div>
-        <div className="mt-1 text-xs text-zinc-500">Sets owned</div>
-      </div>
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-        <div className="text-2xl font-bold text-amber-600">{stats.totalPieces.toLocaleString()}</div>
-        <div className="mt-1 text-xs text-zinc-500">Total pieces</div>
-      </div>
-      {stats.totalValue > 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-          <div className="text-2xl font-bold text-amber-600">{formatPrice(stats.totalValue) ?? "$0"}</div>
-          <div className="mt-1 text-xs text-zinc-500">Est. value</div>
+    <div className="mt-6 rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-center gap-6 sm:gap-10">
+        {/* Sets */}
+        <div>
+          <div className="text-3xl font-bold tracking-tight text-zinc-900">{sets.length}</div>
+          <div className="mt-0.5 text-xs font-medium text-zinc-500">Sets owned</div>
         </div>
-      ) : (
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center">
-          <div className="text-2xl font-bold text-zinc-300">&mdash;</div>
-          <div className="mt-1 text-xs text-zinc-500">Est. value</div>
+
+        <div className="hidden sm:block h-10 w-px bg-zinc-200" />
+
+        {/* Pieces */}
+        <div>
+          <div className="text-3xl font-bold tracking-tight text-zinc-900">{stats.totalPieces.toLocaleString()}</div>
+          <div className="mt-0.5 text-xs font-medium text-zinc-500">Total pieces</div>
         </div>
-      )}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-1.5">Top themes</div>
-        <div className="space-y-0.5">
-          {stats.topThemes.map(([theme, count]) => (
-            <div key={theme} className="flex items-center justify-between text-xs">
-              <span className="truncate text-zinc-600">{theme}</span>
-              <span className="shrink-0 font-semibold text-zinc-900">{count}</span>
-            </div>
-          ))}
-          {stats.topThemes.length === 0 && <div className="text-xs text-zinc-400">No themes yet</div>}
+
+        <div className="hidden sm:block h-10 w-px bg-zinc-200" />
+
+        {/* Wishlist */}
+        <div>
+          <div className="text-3xl font-bold tracking-tight text-zinc-900">{wishlistCount}</div>
+          <div className="mt-0.5 text-xs font-medium text-zinc-500">In wishlist</div>
         </div>
+
+        {/* Top themes as pills */}
+        {stats.topThemes.length > 0 && (
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            {stats.topThemes.map(([theme, count]) => (
+              <span key={theme} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600">
+                {theme} <span className="text-zinc-400">{count}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Feature 2: Retiring Soon Alert                                      */
+/* Retiring Soon Alert                                                 */
 /* ------------------------------------------------------------------ */
 
 function RetiringSoonAlert({ sets }: { sets: CollectionSet[] }) {
@@ -242,9 +251,9 @@ function RetiringSoonAlert({ sets }: { sets: CollectionSet[] }) {
   if (retiring.length === 0) return null;
 
   return (
-    <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
       <div className="flex items-center gap-2">
-        <span className="text-amber-600 text-sm">&#9888;</span>
+        <span className="text-sm text-amber-600">&#9888;</span>
         <span className="text-sm font-semibold text-amber-800">
           {retiring.length === 1
             ? "1 wishlist set is retiring soon"
@@ -266,7 +275,7 @@ function RetiringSoonAlert({ sets }: { sets: CollectionSet[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Feature 4: List Cover Mosaic                                        */
+/* List Cover Mosaic (larger)                                          */
 /* ------------------------------------------------------------------ */
 
 function isSafeNextImageSrc(url: string | null | undefined): boolean {
@@ -280,23 +289,38 @@ function ListCoverMosaic({ images }: { images: (string | null | undefined)[] }) 
   if (urls.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-0.5 rounded-lg overflow-hidden w-14 h-14 shrink-0 bg-zinc-100">
+    <div className="grid grid-cols-2 gap-0.5 overflow-hidden rounded-xl w-16 h-16 shrink-0 bg-zinc-100">
       {urls.map((src, i) => (
-        <div key={i} className="relative w-full aspect-square bg-white">
-          <Image src={src} alt="" fill className="object-contain" sizes="28px" />
+        <div key={i} className="relative aspect-square w-full bg-white">
+          <Image src={src} alt="" fill className="object-contain" sizes="32px" />
         </div>
       ))}
-      {/* Fill empty slots with gray */}
       {Array.from({ length: Math.max(0, 4 - urls.length) }).map((_, i) => (
-        <div key={`empty-${i}`} className="w-full aspect-square bg-zinc-100" />
+        <div key={`empty-${i}`} className="aspect-square w-full bg-zinc-100" />
       ))}
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Chevron Right Icon                                                  */
+/* ------------------------------------------------------------------ */
+
+function ChevronRightIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Main Component                                                      */
+/* ------------------------------------------------------------------ */
+
 export default function CollectionClient() {
   const { token } = useAuth();
-  const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
+  const { isOwned, isWishlist } = useCollectionStatus();
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -329,19 +353,16 @@ export default function CollectionClient() {
     setErr(null);
 
     try {
-      // Custom lists
       const mine = await apiFetch<ListSummary[]>("/lists/me", withToken(token, { cache: "no-store" }));
       const mineArr = Array.isArray(mine) ? mine : [];
       setLists(mineArr);
 
-      // System collections
       const [ownedRowsU, wishRowsU, reviewsU] = await Promise.all([
         apiFetch<unknown>("/collections/me/owned", withToken(token, { cache: "no-store" })),
         apiFetch<unknown>("/collections/me/wishlist", withToken(token, { cache: "no-store" })),
         apiFetch<unknown>("/sets/reviews/me?limit=500", withToken(token, { cache: "no-store" })).catch(() => []),
       ]);
 
-      // Build user ratings map from reviews
       const ratingsMap: Record<string, number> = {};
       if (Array.isArray(reviewsU)) {
         for (const r of reviewsU) {
@@ -382,7 +403,6 @@ export default function CollectionClient() {
         items_count: wishSetsAll.length,
       });
 
-      // Custom list previews via list detail → set nums → fetch sets
       const customOnly = mineArr.filter((l) => !isSystemList(l));
 
       const entries = await Promise.all(
@@ -429,7 +449,6 @@ export default function CollectionClient() {
     void refreshAll();
   }, [token, refreshAll]);
 
-  // Owned sets enriched with user ratings
   const ownedWithRatings = useMemo(() => {
     if (ownedPreview.length === 0) return ownedPreview;
     return ownedPreview.map((s) => ({
@@ -440,82 +459,93 @@ export default function CollectionClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
+      {/* Header */}
       <div className="pt-10">
-        <h1 className="text-2xl font-semibold tracking-tight">My Collection</h1>
-
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">My lists</h2>
-
-          {token ? (
-            <CreateListButton
-              token={token}
-              onCreated={async () => {
-                await refreshAll();
-              }}
-            />
-          ) : null}
-        </div>
-
-        <p className="mt-2 text-sm text-zinc-500">Owned, Wishlist, and your custom lists.</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">My Collection</h1>
+        <p className="mt-1 text-sm text-zinc-500">Track your sets, wishlist, and custom lists.</p>
       </div>
 
-      {loading ? <div className="mt-6 animate-pulse space-y-3"><div className="h-4 w-32 rounded bg-zinc-200" /><div className="h-3 w-24 rounded bg-zinc-100" /></div> : null}
+      {loading ? (
+        <div className="mt-6 animate-pulse space-y-3">
+          <div className="h-4 w-32 rounded bg-zinc-200" />
+          <div className="h-3 w-24 rounded bg-zinc-100" />
+        </div>
+      ) : null}
       {err ? <p className="mt-6 text-sm text-red-600">Error: {err}</p> : null}
 
-      {/* Feature 1: Stats Dashboard */}
-      {!loading && <CollectionStatsDashboard sets={ownedAll} />}
+      {/* Stats Hero */}
+      {!loading && <CollectionStatsHero sets={ownedAll} wishlistCount={wishlistAll.length} />}
 
+      {/* Owned Section */}
+      <SectionHeader label="Owned" count={ownedDetail?.items_count ?? undefined} />
       <Row
-        title="Owned"
         sets={ownedWithRatings}
         href="/collection/owned"
         variant="owned"
         token={token ?? undefined}
-        {...(ownedDetail?.items_count ? { subtitle: `${ownedDetail.items_count} sets` } : {})}
       />
 
-      {/* Feature 2: Retiring Soon Alert */}
+      {/* Retiring Soon Alert */}
       <RetiringSoonAlert sets={wishlistAll} />
 
+      {/* Wishlist Section */}
+      <SectionHeader label="Wishlist" count={wishlistDetail?.items_count ?? undefined} />
       <Row
-        title="Wishlist"
         sets={wishlistPreview}
         href="/collection/wishlist"
         renderFooter={renderFooterForSet}
-        {...(wishlistDetail?.items_count ? { subtitle: `${wishlistDetail.items_count} sets` } : {})}
       />
 
-      {customLists.map((l) => {
-        const id = String(l.id);
-        const sets = customPreviewById[id] ?? [];
-        const count = l.items_count ?? 0;
+      {/* Custom Lists Section */}
+      {(customLists.length > 0 || !loading) && (
+        <>
+          <SectionHeader
+            label="Your Lists"
+            count={customLists.length > 0 ? customLists.length : undefined}
+            action={
+              token ? (
+                <CreateListButton
+                  token={token}
+                  onCreated={async () => {
+                    await refreshAll();
+                  }}
+                />
+              ) : null
+            }
+          />
 
-        return (
-          <div key={id} className="mt-8">
-            {/* Feature 4: List Cover Mosaic */}
-            <div className="flex items-center gap-3 mb-1">
-              <ListCoverMosaic images={sets.map((s) => s.image_url)} />
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900 truncate">{l.title ?? `List ${id}`}</div>
-                <div className="text-xs text-zinc-500">{l.is_public ? "Public" : "Private"} &middot; {count} sets</div>
-              </div>
-            </div>
-            <CarouselRow title="" viewHref={`/lists/${encodeURIComponent(id)}`} emptyText="No sets yet.">
-              {sets.length > 0
-                ? sets.map((set) => {
-                    const setNum = String(set.set_num ?? "").trim();
-                    if (!setNum) return null;
-                    return (
-                      <div key={setNum} className="w-[220px] shrink-0">
-                        <SetCard set={set} footer={renderFooterForSet(set)} />
+          {customLists.length === 0 && !loading ? (
+            <p className="text-sm text-zinc-400">No custom lists yet. Create one to organize your sets.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {customLists.map((l) => {
+                const id = String(l.id);
+                const sets = customPreviewById[id] ?? [];
+                const count = l.items_count ?? 0;
+
+                return (
+                  <Link
+                    key={id}
+                    href={`/lists/${encodeURIComponent(id)}`}
+                    className="group flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition-all hover:border-zinc-300 hover:shadow-md"
+                  >
+                    <ListCoverMosaic images={sets.map((s) => s.image_url)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-zinc-900 transition-colors group-hover:text-amber-600">
+                        {l.title ?? `List ${id}`}
                       </div>
-                    );
-                  })
-                : null}
-            </CarouselRow>
-          </div>
-        );
-      })}
+                      <div className="mt-0.5 text-xs text-zinc-500">
+                        {l.is_public ? "Public" : "Private"} &middot; {count} sets
+                      </div>
+                    </div>
+                    <ChevronRightIcon className="h-4 w-4 shrink-0 text-zinc-300 transition-colors group-hover:text-zinc-500" />
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

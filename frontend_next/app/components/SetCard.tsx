@@ -308,7 +308,7 @@ export default function SetCard({ set, variant = "default", footer, token, isOwn
   const imgSrc = safeImageSrc(set.image_url);
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-md">
+    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
       <Link href={`/sets/${encodeURIComponent(set.set_num)}`} className="block flex-1">
         {/* Image */}
         <div className="relative aspect-square w-full overflow-hidden rounded-t-2xl bg-white">
