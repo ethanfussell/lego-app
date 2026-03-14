@@ -29,7 +29,6 @@ def register_jobs() -> None:
     from app.pipelines.brickset_sync import run_brickset_sync
     from app.pipelines.retirement_scraper import run_retirement_scrape
     from app.pipelines.price_scraper import run_price_scrape
-    from app.pipelines.new_sets_scraper import run_new_sets_scrape
 
     # Rebrickable sync: daily at 3 AM UTC
     scheduler.add_job(
@@ -63,15 +62,6 @@ def register_jobs() -> None:
         run_price_scrape,
         CronTrigger(hour="*/6", minute=30),
         id="price_scrape",
-        replace_existing=True,
-        misfire_grace_time=3600,
-    )
-
-    # New sets discovery from LEGO.com: daily at 5 AM UTC
-    scheduler.add_job(
-        run_new_sets_scrape,
-        CronTrigger(hour=5, minute=0),
-        id="new_sets_scrape",
         replace_existing=True,
         misfire_grace_time=3600,
     )
