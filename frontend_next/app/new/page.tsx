@@ -7,7 +7,7 @@ import { siteBase } from "@/lib/url";
 import type { SetLite } from "@/lib/types";
 
 
-export const revalidate = 3600; // ISR (1 hour)
+export const dynamic = "force-dynamic";
 
 function isSetLite(x: unknown): x is SetLite {
   return typeof x === "object" && x !== null && typeof (x as { set_num?: unknown }).set_num === "string";
@@ -34,7 +34,7 @@ async function fetchNewSets(): Promise<SetLite[]> {
 
   const res = await fetch(url, {
     headers: { accept: "application/json" },
-    next: { revalidate },
+    cache: "no-store",
   });
 
   if (!res.ok) return [];
