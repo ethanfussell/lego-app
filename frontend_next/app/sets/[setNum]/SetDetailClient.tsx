@@ -366,6 +366,10 @@ export default function SetDetailClient(props: Props) {
   const [similarError, setSimilarError] = useState<string | null>(null);
   const similarRowRef = useRef<HTMLDivElement | null>(null);
 
+  // Social stats (following owners)
+  const [followingOwnersCount, setFollowingOwnersCount] = useState(0);
+  const [followingOwnersSample, setFollowingOwnersSample] = useState<string[]>([]);
+
   const myReview = useMemo(() => {
     if (!isLoggedIn || !meUsername) return null;
     return reviews.find((r) => r.user === meUsername) || null;
@@ -451,6 +455,27 @@ export default function SetDetailClient(props: Props) {
       cancelled = true;
     };
   }, [token, hydrated]);
+
+  // Load social stats (how many followed users own this set)
+  useEffect(() => {
+    if (!token || !setNum) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await apiFetch<{ following_owners_count: number; following_owners_sample: string[] }>(
+          `/sets/${encodeURIComponent(setNum)}/social-stats`,
+          { token },
+        );
+        if (!cancelled && data) {
+          setFollowingOwnersCount(data.following_owners_count ?? 0);
+          setFollowingOwnersSample(Array.isArray(data.following_owners_sample) ? data.following_owners_sample : []);
+        }
+      } catch { /* non-critical */ }
+    })();
+
+    return () => { cancelled = true; };
+  }, [token, setNum]);
 
   // Scroll to shop when URL has ?focus=shop OR #shop
   useEffect(() => {
@@ -1160,6 +1185,28 @@ export default function SetDetailClient(props: Props) {
             )}
           </p>
 
+          {followingOwnersCount > 0 && (
+            <p className="mt-2 text-sm text-amber-700">
+              {followingOwnersSample.length > 0 ? (
+                <>
+                  {followingOwnersSample.slice(0, 2).map((u, i) => (
+                    <span key={u}>
+                      {i > 0 && ", "}
+                      <Link href={`/users/${encodeURIComponent(u)}`} className="font-semibold hover:underline">{u}</Link>
+                    </span>
+                  ))}
+                  {followingOwnersCount > 2
+                    ? ` and ${followingOwnersCount - 2} other${followingOwnersCount - 2 === 1 ? "" : "s"} you follow own this set`
+                    : followingOwnersCount === 2
+                      ? " you follow own this set"
+                      : " you follow owns this set"}
+                </>
+              ) : (
+                `${followingOwnersCount} ${followingOwnersCount === 1 ? "person" : "people"} you follow own${followingOwnersCount === 1 ? "s" : ""} this set`
+              )}
+            </p>
+          )}
+
           <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-[220px]">
@@ -1244,6 +1291,15 @@ export default function SetDetailClient(props: Props) {
               >
                 {shareCopied ? "Copied!" : "Share"}
               </button>
+
+              {isLoggedIn && (
+                <Link
+                  href={`/feed?share=${encodeURIComponent(setNum)}`}
+                  className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+                >
+                  Post to feed
+                </Link>
+              )}
 
               {/* Deal alert bell */}
               {isLoggedIn ? (

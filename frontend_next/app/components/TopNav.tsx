@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 
 import { useAuth } from "@/app/providers";
+import NotificationBell from "@/app/components/NotificationBell";
 import {
   trackLoginCta,
   trackNavClick,
@@ -60,6 +61,7 @@ export default function TopNav() {
       { href: "/sale", label: "Sale", active: pathname.startsWith("/sale") },
       { href: "/retiring-soon", label: "Retiring soon", active: pathname.startsWith("/retiring-soon") },
       { href: "/blog", label: "Blog", active: pathname.startsWith("/blog") },
+      ...(isAuthed ? [{ href: "/feed", label: "Feed", active: pathname.startsWith("/feed") }] : []),
       { href: "/collection", label: "My Collection", active: pathname.startsWith("/collection") },
       ...(isAdmin ? [{ href: "/admin", label: "Admin", active: pathname.startsWith("/admin") }] : []),
     ],
@@ -253,13 +255,16 @@ export default function TopNav() {
                 Sign in
               </Link>
             ) : (
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: "w-8 h-8",
-                  },
-                }}
-              />
+              <>
+                <NotificationBell />
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-8 h-8",
+                    },
+                  }}
+                />
+              </>
             )}
           </div>
 

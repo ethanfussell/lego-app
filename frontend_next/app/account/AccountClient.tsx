@@ -308,6 +308,20 @@ export default function AccountClient() {
 
   const username = useMemo(() => me?.username || "Account", [me?.username]);
 
+  // Profile state
+  type ProfileData = {
+    display_name?: string | null;
+    bio?: string | null;
+    avatar_url?: string | null;
+    location?: string | null;
+    followers_count?: number;
+    following_count?: number;
+  };
+  const [profile, setProfile] = useState<ProfileData>({});
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState<ProfileData>({});
+  const [profileSaving, setProfileSaving] = useState(false);
+
   const [owned, setOwned] = useState<OwnedSet[]>([]);
   const [wishlist, setWishlist] = useState<WishlistSet[]>([]);
   const [customLists, setCustomLists] = useState<ListLite[]>([]);
@@ -405,14 +419,26 @@ export default function AccountClient() {
       setReviewStatsErr("");
 
       try {
-        const [ownedData, wishlistData, custom, stats] = await Promise.all([
+        const [ownedData, wishlistData, custom, stats, meData] = await Promise.all([
           apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" }),
           apiFetch<unknown>("/collections/me/wishlist", { token, cache: "no-store" }),
           apiFetch<unknown>("/lists/me?include_system=false", { token, cache: "no-store" }),
           apiFetch<unknown>("/reviews/me/stats", { token, cache: "no-store" }),
+          apiFetch<unknown>("/users/me", { token, cache: "no-store" }),
         ]);
 
         if (cancelled) return;
+
+        if (isRecord(meData)) {
+          setProfile({
+            display_name: typeof meData.display_name === "string" ? meData.display_name : null,
+            bio: typeof meData.bio === "string" ? meData.bio : null,
+            avatar_url: typeof meData.avatar_url === "string" ? meData.avatar_url : null,
+            location: typeof meData.location === "string" ? meData.location : null,
+            followers_count: typeof meData.followers_count === "number" ? meData.followers_count : 0,
+            following_count: typeof meData.following_count === "number" ? meData.following_count : 0,
+          });
+        }
 
         setOwned(asOwnedSetArray(ownedData));
         setWishlist(asOwnedSetArray(wishlistData));
@@ -541,26 +567,97 @@ export default function AccountClient() {
 
   const REVIEW_TILE_H = "h-[96px]";
 
+  function startEditProfile() {
+    setProfileForm({
+      display_name: profile.display_name || "",
+      bio: profile.bio || "",
+      avatar_url: profile.avatar_url || "",
+      location: profile.location || "",
+    });
+    setEditingProfile(true);
+  }
+
+  async function saveProfile() {
+    setProfileSaving(true);
+    try {
+      const result = await apiFetch<unknown>("/users/me/profile", {
+        method: "PATCH",
+        token,
+        body: {
+          display_name: profileForm.display_name?.trim() || null,
+          bio: profileForm.bio?.trim() || null,
+          avatar_url: profileForm.avatar_url?.trim() || null,
+          location: profileForm.location?.trim() || null,
+        },
+      });
+
+      if (isRecord(result)) {
+        setProfile({
+          display_name: typeof result.display_name === "string" ? result.display_name : null,
+          bio: typeof result.bio === "string" ? result.bio : null,
+          avatar_url: typeof result.avatar_url === "string" ? result.avatar_url : null,
+          location: typeof result.location === "string" ? result.location : null,
+        });
+      }
+      setEditingProfile(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  const displayName = profile.display_name || username;
+
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
       <div className="mt-10 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="m-0 text-2xl font-semibold">Account</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            {isLoggedIn ? (
-              <>
-                Signed in as{" "}
-                <span className="font-semibold text-zinc-800">{username}</span>
-              </>
-            ) : hydrated ? (
-              "Log in to see your stats."
-            ) : (
-              <span className="inline-block h-3 w-28 animate-pulse rounded bg-zinc-200" />
-            )}
-          </p>
+        <div className="flex items-center gap-4">
+          {/* Avatar */}
+          {isLoggedIn && (
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-amber-100 text-2xl font-bold text-amber-700">
+              {profile.avatar_url ? (
+                <Image src={profile.avatar_url} alt="" width={64} height={64} className="h-full w-full object-cover" />
+              ) : (
+                (displayName[0] || "?").toUpperCase()
+              )}
+            </div>
+          )}
+
+          <div>
+            <h1 className="m-0 text-2xl font-semibold">
+              {isLoggedIn ? displayName : "Account"}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              {isLoggedIn ? (
+                <>
+                  @{username}
+                  {profile.location ? <> &middot; {profile.location}</> : null}
+                </>
+              ) : hydrated ? (
+                "Log in to see your stats."
+              ) : (
+                <span className="inline-block h-3 w-28 animate-pulse rounded bg-zinc-200" />
+              )}
+            </p>
+            {isLoggedIn && profile.bio ? (
+              <p className="mt-1 max-w-md text-sm text-zinc-600">{profile.bio}</p>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {isLoggedIn ? (
+            <button
+              type="button"
+              onClick={startEditProfile}
+              className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Edit profile
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => router.push("/collection")}
@@ -583,6 +680,85 @@ export default function AccountClient() {
           ) : null}
         </div>
       </div>
+
+      {/* Profile edit modal */}
+      {editingProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-bold text-zinc-900">Edit profile</h2>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700">Display name</label>
+                <input
+                  type="text"
+                  maxLength={100}
+                  value={profileForm.display_name || ""}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, display_name: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder={username}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700">Bio</label>
+                <textarea
+                  maxLength={500}
+                  rows={3}
+                  value={profileForm.bio || ""}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, bio: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder="Tell us about yourself..."
+                />
+                <div className="mt-1 text-right text-xs text-zinc-400">{(profileForm.bio || "").length}/500</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700">Location</label>
+                <input
+                  type="text"
+                  maxLength={100}
+                  value={profileForm.location || ""}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, location: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder="City, Country"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700">Avatar URL</label>
+                <input
+                  type="url"
+                  value={profileForm.avatar_url || ""}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, avatar_url: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder="https://..."
+                />
+                <p className="mt-1 text-xs text-zinc-400">Paste a link to your avatar image</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingProfile(false)}
+                className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+                disabled={profileSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveProfile}
+                disabled={profileSaving}
+                className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {profileSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!hydrated ? (
         <div className="mt-6">
@@ -616,8 +792,8 @@ export default function AccountClient() {
             <StatCard label="Custom lists" value={customLists.length} href="/account/lists" />
             <StatCard label="Saved lists" value={savedCount} href="/account/saved-lists" />
             <StatCard label="Reviews" value={totalReviews == null ? "—" : totalReviews} href="/account/reviews" />
-            <StatCard label="Followers" value="0" sub="Coming soon" />
-            <StatCard label="Following" value="0" sub="Coming soon" />
+            <StatCard label="Followers" value={profile.followers_count ?? 0} href={`/users/${encodeURIComponent(username)}/followers`} />
+            <StatCard label="Following" value={profile.following_count ?? 0} href={`/users/${encodeURIComponent(username)}/following`} />
           </section>
 
           <section className="mt-10">

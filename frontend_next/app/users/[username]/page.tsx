@@ -1,14 +1,23 @@
 // frontend_next/app/users/[username]/page.tsx
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { siteBase, SITE_NAME } from "@/lib/url";
 import { isRecord, type UnknownRecord } from "@/lib/types";
+import FollowButton from "@/app/components/FollowButton";
 
 type PublicUser = {
   id: number;
   username: string;
+  display_name: string | null;
+  bio: string | null;
+  avatar_url: string | null;
+  location: string | null;
+  created_at: string | null;
+  followers_count: number;
+  following_count: number;
 };
 
 type PublicListRow = {
@@ -46,7 +55,17 @@ function coerceUser(x: unknown): PublicUser | null {
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (typeof username !== "string" || !username.trim()) return null;
 
-  return { id, username: username.trim() };
+  return {
+    id,
+    username: username.trim(),
+    display_name: typeof x.display_name === "string" ? x.display_name : null,
+    bio: typeof x.bio === "string" ? x.bio : null,
+    avatar_url: typeof x.avatar_url === "string" ? x.avatar_url : null,
+    location: typeof x.location === "string" ? x.location : null,
+    created_at: typeof x.created_at === "string" ? x.created_at : null,
+    followers_count: typeof x.followers_count === "number" ? x.followers_count : 0,
+    following_count: typeof x.following_count === "number" ? x.following_count : 0,
+  };
 }
 
 function coercePublicLists(x: unknown): PublicListRow[] {
@@ -152,8 +171,8 @@ export async function generateMetadata({ params }: { params: Params | Promise<Pa
     };
   }
 
-  const title = `@${user.username}`;
-  const description = `Public profile for @${user.username}.`;
+  const title = user.display_name ? `${user.display_name} (@${user.username})` : `@${user.username}`;
+  const description = user.bio || `Public profile for @${user.username}.`;
 
   return {
     title,
@@ -173,16 +192,50 @@ export default async function Page({ params }: { params: Params | Promise<Params
   const [user, lists] = await Promise.all([fetchUserSSR(username), fetchPublicListsByOwnerSSR(username)]);
   if (!user) notFound();
 
+  const memberSince = user.created_at
+    ? new Date(user.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : null;
+
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       <div className="pt-10">
-        <div className="text-sm font-semibold tracking-tight text-zinc-600">{SITE_NAME}</div>
+        <div className="flex items-start gap-4">
+          {/* Avatar */}
+          <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full bg-amber-100 text-3xl font-bold text-amber-700">
+            {user.avatar_url ? (
+              <Image src={user.avatar_url} alt="" width={80} height={80} className="h-full w-full object-cover" />
+            ) : (
+              (user.display_name?.[0] || user.username[0] || "?").toUpperCase()
+            )}
+          </div>
 
-        <h1 className="mt-2 text-3xl font-bold">@{user.username}</h1>
+          <div className="min-w-0">
+            <h1 className="m-0 text-2xl font-bold text-zinc-900">
+              {user.display_name || user.username}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              @{user.username}
+              {user.location ? <> &middot; {user.location}</> : null}
+              {memberSince ? <> &middot; Joined {memberSince}</> : null}
+            </p>
 
-        <p className="mt-2 text-sm text-zinc-500">Public lists by this user</p>
+            <div className="mt-2 flex items-center gap-4 text-sm">
+              <Link href={`/users/${encodeURIComponent(user.username)}/followers`} className="text-zinc-600 hover:text-zinc-900">
+                <span className="font-bold text-zinc-900">{user.followers_count}</span> follower{user.followers_count === 1 ? "" : "s"}
+              </Link>
+              <Link href={`/users/${encodeURIComponent(user.username)}/following`} className="text-zinc-600 hover:text-zinc-900">
+                <span className="font-bold text-zinc-900">{user.following_count}</span> following
+              </Link>
+            </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+            {user.bio ? (
+              <p className="mt-2 max-w-lg text-sm text-zinc-600">{user.bio}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-2">
+          <FollowButton username={user.username} />
           <Link
             href="/lists/public"
             className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
@@ -191,6 +244,8 @@ export default async function Page({ params }: { params: Params | Promise<Params
           </Link>
         </div>
       </div>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900">Public lists</h2>
 
       {lists.length === 0 ? (
         <p className="mt-8 text-sm text-zinc-500">No public lists yet.</p>

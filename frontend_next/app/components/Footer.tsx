@@ -33,6 +33,10 @@ export default function Footer() {
             </Link>
           </div>
         </div>
+
+        <p className="mt-4 text-xs text-zinc-400">
+          LEGO&reg; is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this site.
+        </p>
       </div>
     </footer>
   );

@@ -1459,4 +1459,20 @@ def get_set(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Public site stats (for home page)
+# ---------------------------------------------------------------------------
+
+@router.get("/site-stats")
+def site_stats(db: Session = Depends(get_db)):
+    """Lightweight public stats for the home page."""
+    set_count = db.execute(select(func.count()).select_from(SetModel)).scalar() or 0
+    user_count = db.execute(select(func.count()).select_from(UserModel)).scalar() or 0
+    review_count = db.execute(select(func.count()).select_from(ReviewModel)).scalar() or 0
+    return {
+        "set_count": set_count,
+        "user_count": user_count,
+        "review_count": review_count,
+    }
+
 

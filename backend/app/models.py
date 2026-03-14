@@ -40,6 +40,12 @@ class User(Base):
 
     is_admin = Column(Boolean, nullable=False, server_default="false")
 
+    # Profile fields
+    display_name = Column(String(100), nullable=True)
+    bio = Column(String(500), nullable=True)
+    avatar_url = Column(String, nullable=True)
+    location = Column(String(100), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     reviews = relationship(
@@ -54,6 +60,23 @@ class User(Base):
         back_populates="owner",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+
+
+class Follower(Base):
+    __tablename__ = "followers"
+
+    follower_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    following_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    follower = relationship("User", foreign_keys=[follower_id])
+    following = relationship("User", foreign_keys=[following_id])
+
+    __table_args__ = (
+        CheckConstraint("follower_id != following_id", name="followers_no_self_follow"),
+        Index("idx_followers_follower_id", "follower_id"),
+        Index("idx_followers_following_id", "following_id"),
     )
 
 
@@ -300,6 +323,94 @@ class DealAlert(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "set_num", "alert_type", name="deal_alerts_user_set_type_unique"),
         CheckConstraint("alert_type IN ('price_drop', 'retiring')", name="deal_alerts_type_check"),
+    )
+
+
+class Post(Base):
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    text = Column(Text, nullable=True)
+    image_url = Column(String, nullable=True)
+    linked_set_num = Column(String, ForeignKey("sets.set_num", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")
+    linked_set = relationship("Set")
+    comments = relationship(
+        "Comment",
+        back_populates="post",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    likes = relationship(
+        "PostLike",
+        back_populates="post",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        Index("idx_posts_user_id", "user_id"),
+        Index("idx_posts_created_at", "created_at"),
+    )
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    post = relationship("Post", back_populates="comments")
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("idx_comments_post_id", "post_id"),
+    )
+
+
+class PostLike(Base):
+    __tablename__ = "post_likes"
+
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    post = relationship("Post", back_populates="likes")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="post_likes_post_user_unique"),
+    )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    type = Column(String, nullable=False)  # "new_follower", "post_liked", "post_commented"
+    actor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    target_id = Column(Integer, nullable=True)  # post_id, comment_id, etc.
+    read = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    actor = relationship("User", foreign_keys=[actor_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('new_follower', 'post_liked', 'post_commented', 'review_voted')",
+            name="notifications_type_check",
+        ),
+        Index("idx_notifications_user_read", "user_id", "read"),
+        Index("idx_notifications_created_at", "created_at"),
     )
 
 

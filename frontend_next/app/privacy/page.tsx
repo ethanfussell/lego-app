@@ -26,7 +26,7 @@ export default function Page() {
         Privacy Policy
       </h1>
 
-      <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-02-01</p>
+      <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-03-14</p>
 
       <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-600">
         <p>
@@ -103,10 +103,7 @@ export default function Page() {
       <Section title="Contact">
         <p>
           If you have questions about this policy, contact us at:{" "}
-          <span className="font-semibold">support@example.com</span>
-        </p>
-        <p className="text-xs text-zinc-500">
-          Replace this email address with a real support inbox before launch.
+          <a href="mailto:support@bricktrack.com" className="font-semibold hover:text-amber-600 transition-colors">support@bricktrack.com</a>
         </p>
       </Section>
     </div>

@@ -41,6 +41,9 @@ from app.routers import affiliate_clicks
 from app.routers import admin as admin_router
 from app.routers import reports as reports_router
 from app.routers import alerts as alerts_router
+from app.routers import follows as follows_router
+from app.routers import posts as posts_router
+from app.routers import notifications as notifications_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -312,3 +315,6 @@ app.include_router(affiliate_clicks.router)
 app.include_router(admin_router.router)
 app.include_router(reports_router.router)
 app.include_router(alerts_router.router)
+app.include_router(follows_router.router, tags=["follows"])
+app.include_router(posts_router.router, tags=["posts"])
+app.include_router(notifications_router.router)

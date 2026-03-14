@@ -43,8 +43,6 @@ async function fetchAllThemes(): Promise<ThemeRow[]> {
     }
     const data: unknown = await res.json();
     const rows = Array.isArray(data) ? (data as ThemeRow[]) : [];
-    const withImg = rows.filter((r) => r.image_url).length;
-    console.log(`[themes] fetchAllThemes: ${rows.length} themes, ${withImg} with images, url=${url}`);
     return rows;
   } catch (e) {
     console.error(`[themes] fetchAllThemes error:`, e);
@@ -65,8 +63,6 @@ async function fetchActiveThemes(): Promise<ThemeRow[]> {
     }
     const data: unknown = await res.json();
     const rows = Array.isArray(data) ? (data as ThemeRow[]) : [];
-    const withImg = rows.filter((r) => r.image_url).length;
-    console.log(`[themes] fetchActiveThemes: ${rows.length} themes, ${withImg} with images, url=${url}`);
     return rows;
   } catch (e) {
     console.error(`[themes] fetchActiveThemes error:`, e);

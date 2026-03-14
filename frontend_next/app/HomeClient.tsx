@@ -1,8 +1,9 @@
 // frontend_next/app/HomeClient.tsx
 "use client";
 
-import React, { useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 import { isRecord } from "@/lib/types";
 import SetCard, { type SetLite } from "./components/SetCard";
@@ -12,6 +13,8 @@ import SetCardActions from "@/app/components/SetCardActions";
 import WelcomeBanner from "@/app/components/WelcomeBanner";
 import AdSlot from "@/app/components/AdSlot";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
+import { apiFetch } from "@/lib/api";
+import type { SiteStats } from "./page";
 
 type PublicList = {
   id: number | string;
@@ -26,13 +29,12 @@ type PublicList = {
   created_at?: string | null;
 };
 
-
-
-
 type Props = {
   newSets: SetLite[];
   popularSets: SetLite[];
   lists: PublicList[];
+  stats?: SiteStats;
+  formattedStats?: { sets: string; users: string; reviews: string };
 };
 
 /* -- helpers ------------------------------------------------- */
@@ -77,12 +79,162 @@ function SectionHeader({
   );
 }
 
+/* -- collection summary (logged in) -------------------------- */
+
+type CollectionSummary = {
+  owned_count: number;
+  wishlist_count: number;
+  total_pieces: number;
+};
+
+function CollectionWidget({ token }: { token: string }) {
+  const [data, setData] = useState<CollectionSummary | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await apiFetch<Record<string, unknown>>("/users/me", { token });
+        if (me) {
+          setData({
+            owned_count: typeof me.owned_count === "number" ? me.owned_count : 0,
+            wishlist_count: typeof me.wishlist_count === "number" ? me.wishlist_count : 0,
+            total_pieces: typeof me.total_pieces === "number" ? me.total_pieces : 0,
+          });
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [token]);
+
+  if (!data) return null;
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-900">Your Collection</h3>
+        <Link href="/collection" className="text-sm font-medium text-amber-600 hover:text-amber-500">
+          View all &rarr;
+        </Link>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        <Link href="/collection" className="rounded-xl bg-amber-50 p-3 text-center hover:bg-amber-100 transition-colors">
+          <div className="text-2xl font-bold text-amber-600">{data.owned_count}</div>
+          <div className="mt-0.5 text-xs text-zinc-500">Owned</div>
+        </Link>
+        <Link href="/collection?tab=wishlist" className="rounded-xl bg-orange-50 p-3 text-center hover:bg-orange-100 transition-colors">
+          <div className="text-2xl font-bold text-orange-500">{data.wishlist_count}</div>
+          <div className="mt-0.5 text-xs text-zinc-500">Wishlist</div>
+        </Link>
+        <div className="rounded-xl bg-zinc-50 p-3 text-center">
+          <div className="text-2xl font-bold text-zinc-700">{data.total_pieces.toLocaleString()}</div>
+          <div className="mt-0.5 text-xs text-zinc-500">Pieces</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -- recent feed preview (logged in) ------------------------- */
+
+type FeedPost = {
+  id: number;
+  text: string | null;
+  user: { username: string; display_name: string | null; avatar_url: string | null };
+  created_at: string | null;
+  likes_count: number;
+  comments_count: number;
+};
+
+function FeedPreview({ token }: { token: string }) {
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiFetch<{ posts: unknown[] }>("/feed?limit=3", { token });
+        if (data?.posts && Array.isArray(data.posts)) {
+          const parsed: FeedPost[] = [];
+          for (const p of data.posts) {
+            if (!isRecord(p) || typeof p.id !== "number") continue;
+            const user = isRecord(p.user) ? p.user as Record<string, unknown> : null;
+            if (!user) continue;
+            parsed.push({
+              id: p.id,
+              text: typeof p.text === "string" ? p.text : null,
+              user: {
+                username: String(user.username ?? ""),
+                display_name: typeof user.display_name === "string" ? user.display_name : null,
+                avatar_url: typeof user.avatar_url === "string" ? user.avatar_url : null,
+              },
+              created_at: typeof p.created_at === "string" ? p.created_at : null,
+              likes_count: typeof p.likes_count === "number" ? p.likes_count : 0,
+              comments_count: typeof p.comments_count === "number" ? p.comments_count : 0,
+            });
+          }
+          setPosts(parsed);
+        }
+      } catch { /* ignore */ }
+      setLoaded(true);
+    })();
+  }, [token]);
+
+  if (!loaded) return null;
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-900">Recent Feed</h3>
+        <Link href="/feed" className="text-sm font-medium text-amber-600 hover:text-amber-500">
+          View feed &rarr;
+        </Link>
+      </div>
+
+      {posts.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">
+          No posts yet.{" "}
+          <Link href="/feed" className="font-semibold text-amber-600 hover:underline">
+            Follow people
+          </Link>{" "}
+          to see their posts here.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {posts.map((p) => {
+            const initial = (p.user.display_name?.[0] || p.user.username[0] || "?").toUpperCase();
+            return (
+              <Link key={p.id} href="/feed" className="flex items-start gap-3 rounded-lg p-2 hover:bg-zinc-50 transition-colors">
+                <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-amber-100 text-xs font-bold text-amber-700">
+                  {p.user.avatar_url ? (
+                    <Image src={p.user.avatar_url} alt="" width={32} height={32} className="h-full w-full object-cover" />
+                  ) : initial}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-800 line-clamp-2">
+                    <span className="font-semibold">{p.user.display_name || p.user.username}</span>{" "}
+                    {p.text || "shared something"}
+                  </p>
+                  <div className="mt-0.5 flex items-center gap-3 text-xs text-zinc-400">
+                    {p.likes_count > 0 && <span>{p.likes_count} like{p.likes_count !== 1 ? "s" : ""}</span>}
+                    {p.comments_count > 0 && <span>{p.comments_count} comment{p.comments_count !== 1 ? "s" : ""}</span>}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* -- main component ------------------------------------------ */
 
-export default function HomeClient({ newSets, popularSets, lists }: Props) {
+export default function HomeClient({ newSets, popularSets, lists, formattedStats }: Props) {
   const { token, me, isAuthed } = useAuth();
   const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const statsDisplay = useMemo(() => formattedStats ?? { sets: "19,000+", users: "500+", reviews: "2,000+" }, [formattedStats]);
 
   /* resolve featured lists from the public lists data */
   const featuredLists = useMemo(() => {
@@ -122,7 +274,7 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
               Your LEGO collection,<br className="hidden sm:inline" /> organized
             </h1>
             <p className="mt-4 max-w-xl text-lg leading-relaxed text-zinc-500">
-              Browse 19,000+ sets, rate and review your builds, compare prices
+              Browse {statsDisplay.sets.replace("+", "")}+ sets, rate and review your builds, compare prices
               across retailers, and keep track of everything you own and want.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -144,9 +296,9 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
           {/* -- Stats ---------------------------------------------- */}
           <div className="mt-6 grid grid-cols-3 gap-4">
             {[
-              { value: "19,000+", label: "Sets tracked" },
-              { value: "500+", label: "Active collectors" },
-              { value: "2,000+", label: "Reviews & ratings" },
+              { value: statsDisplay.sets, label: "Sets tracked" },
+              { value: statsDisplay.users, label: "Active collectors" },
+              { value: statsDisplay.reviews, label: "Reviews & ratings" },
             ].map((s) => (
               <div
                 key={s.label}
@@ -184,6 +336,44 @@ export default function HomeClient({ newSets, popularSets, lists }: Props) {
             </div>
           </div>
         </>
+      )}
+
+      {/* -- Logged-in dashboard widgets --------------------------- */}
+      {isAuthed && token && (
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <CollectionWidget token={token} />
+          <FeedPreview token={token} />
+        </div>
+      )}
+
+      {/* -- Quick Actions (logged in) ----------------------------- */}
+      {isAuthed && (
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            href="/discover"
+            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+          >
+            Discover sets
+          </Link>
+          <Link
+            href="/feed"
+            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+          >
+            Go to feed
+          </Link>
+          <Link
+            href="/new"
+            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+          >
+            New releases
+          </Link>
+          <Link
+            href="/sale"
+            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+          >
+            On sale
+          </Link>
+        </div>
       )}
 
       {/* -- New Releases ---------------------------------------- */}

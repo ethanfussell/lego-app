@@ -25,7 +25,7 @@ export default function Page() {
         Terms of Service
       </h1>
 
-      <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-02-01</p>
+      <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-03-14</p>
 
       <div className="mt-6 space-y-3 text-sm leading-relaxed text-zinc-600">
         <p>
@@ -38,9 +38,6 @@ export default function Page() {
         <p>
           {SITE_NAME} is a LEGO set discovery and tracking app. We provide browsing, search, and
           optional account features like lists, ratings, and reviews.
-        </p>
-        <p className="text-xs text-zinc-500">
-          This is a template. If you operate under a company name, add it here before launch.
         </p>
       </Section>
 
@@ -123,9 +120,8 @@ export default function Page() {
       <Section title="Contact">
         <p>
           Questions about these Terms? Contact us at:{" "}
-          <span className="font-semibold">support@example.com</span>
+          <a href="mailto:support@bricktrack.com" className="font-semibold hover:text-amber-600 transition-colors">support@bricktrack.com</a>
         </p>
-        <p className="text-xs text-zinc-500">Replace with a real support inbox before launch.</p>
       </Section>
     </div>
   );
