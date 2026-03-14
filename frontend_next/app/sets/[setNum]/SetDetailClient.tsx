@@ -64,6 +64,8 @@ type SetDetail = {
   status?: string | null;
   is_retired?: boolean;
   retired?: boolean;
+  retail_price?: number | null;
+  retail_currency?: string | null;
 };
 
 
@@ -1029,9 +1031,28 @@ export default function SetDetailClient(props: Props) {
     );
   }
 
-  const { name, year, theme, pieces, num_parts, image_url, description } = setDetail;
+  const { name, year, theme, pieces, num_parts, image_url, description, retail_price, retail_currency } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
   const heroImgSrc = asTrimmedString(image_url);
+
+  // Deal computation: compare best offer price to MSRP
+  const dealInfo = useMemo(() => {
+    if (!bestPrice || typeof bestPrice.price !== "number") return null;
+    if (typeof retail_price !== "number" || retail_price <= 0) return null;
+    if (bestPrice.price >= retail_price) return null;
+
+    const savings = Math.round((retail_price - bestPrice.price) * 100) / 100;
+    const discountPct = Math.round((1 - bestPrice.price / retail_price) * 100);
+    if (discountPct < 1) return null;
+
+    return {
+      retailPrice: retail_price,
+      salePrice: bestPrice.price,
+      currency: bestPrice.currency || retail_currency || "USD",
+      savings,
+      discountPct,
+    };
+  }, [bestPrice, retail_price, retail_currency]);
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
@@ -1049,7 +1070,12 @@ export default function SetDetailClient(props: Props) {
       {/* HERO */}
       <section className="mt-8 grid gap-8 md:grid-cols-[360px_1fr]">
         <div className="max-w-[360px]">
-          <div className="grid min-h-[260px] place-items-center rounded-2xl border border-zinc-200 bg-white p-5">
+          <div className="relative grid min-h-[260px] place-items-center rounded-2xl border border-zinc-200 bg-white p-5">
+            {dealInfo ? (
+              <div className="absolute left-3 top-3 z-10 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+                SALE &minus;{dealInfo.discountPct}%
+              </div>
+            ) : null}
             {heroImgSrc ? (
               <HeroImage src={heroImgSrc} alt={name || setNum} sizes={heroImageSizes()} quality={IMAGE_QUALITY} />
             ) : (
@@ -1063,10 +1089,29 @@ export default function SetDetailClient(props: Props) {
         <div>
           <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
 
-          {bestPrice ? (
+          {dealInfo ? (
+            <a href="#shop" className="mt-2 inline-flex flex-wrap items-center gap-2 hover:underline">
+              <span className="text-xl font-bold text-emerald-600">
+                {formatPrice(dealInfo.salePrice, dealInfo.currency)}
+              </span>
+              <span className="text-base text-zinc-400 line-through">
+                {formatPrice(dealInfo.retailPrice, dealInfo.currency)}
+              </span>
+              <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                {dealInfo.discountPct}% OFF
+              </span>
+              <span className="text-sm font-medium text-emerald-700">
+                Save {formatPrice(dealInfo.savings, dealInfo.currency)}
+              </span>
+            </a>
+          ) : bestPrice ? (
             <a href="#shop" className="mt-1 inline-block text-xl font-bold text-amber-600 hover:underline">
               From {formatPrice(bestPrice.price, bestPrice.currency)}
             </a>
+          ) : typeof retail_price === "number" && retail_price > 0 ? (
+            <div className="mt-1 text-lg font-semibold text-zinc-700">
+              MSRP {formatPrice(retail_price, retail_currency || "USD")}
+            </div>
           ) : null}
 
           <p className="mt-2 text-sm text-zinc-500">
@@ -1236,8 +1281,41 @@ export default function SetDetailClient(props: Props) {
             <h2 className="text-lg font-semibold">Offers &amp; availability</h2>
             <p className="mt-1 text-sm text-zinc-500">Compare retailers and find the best price.</p>
           </div>
-
         </div>
+
+        {/* Deal banner */}
+        {dealInfo ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">
+                  {dealInfo.discountPct}% OFF
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                      {formatPrice(dealInfo.salePrice, dealInfo.currency)}
+                    </span>
+                    <span className="text-sm text-zinc-500 line-through">
+                      MSRP {formatPrice(dealInfo.retailPrice, dealInfo.currency)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-sm text-emerald-700 dark:text-emerald-400">
+                    You save {formatPrice(dealInfo.savings, dealInfo.currency)} on this set
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : typeof retail_price === "number" && retail_price > 0 && bestPrice ? (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="font-medium">MSRP {formatPrice(retail_price, retail_currency || "USD")}</span>
+              <span>·</span>
+              <span>Best price matches retail</span>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

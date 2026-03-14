@@ -24,6 +24,8 @@ type LegoSet = {
   rating_count?: number | null;
   description?: string | null;
   review_count?: number | null;
+  retail_price?: number | null;
+  retail_currency?: string | null;
 };
 
 type ReviewLite = {
