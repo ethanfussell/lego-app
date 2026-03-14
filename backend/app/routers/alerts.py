@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -37,7 +37,7 @@ class AlertCreate(BaseModel):
 @limiter.limit("30/minute")
 def create_alert(
     request: Request,
-    payload: AlertCreate,
+    payload: AlertCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:

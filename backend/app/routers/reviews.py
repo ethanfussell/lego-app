@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func, case
 from sqlalchemy.exc import IntegrityError
@@ -238,7 +238,7 @@ def list_reviews_for_set(
 def create_or_update_review(
     request: Request,
     set_num: str,
-    payload: ReviewCreate,
+    payload: ReviewCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -338,7 +338,7 @@ def vote_on_review(
     request: Request,
     set_num: str,
     review_id: int,
-    payload: VoteCreate,
+    payload: VoteCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:

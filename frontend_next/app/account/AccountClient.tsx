@@ -792,8 +792,7 @@ export default function AccountClient() {
             <StatCard label="Custom lists" value={customLists.length} href="/account/lists" />
             <StatCard label="Saved lists" value={savedCount} href="/account/saved-lists" />
             <StatCard label="Reviews" value={totalReviews == null ? "—" : totalReviews} href="/account/reviews" />
-            <StatCard label="Followers" value={profile.followers_count ?? 0} href={`/users/${encodeURIComponent(username)}/followers`} />
-            <StatCard label="Following" value={profile.following_count ?? 0} href={`/users/${encodeURIComponent(username)}/following`} />
+            {/* Followers/Following disabled (social features deferred) */}
           </section>
 
           <section className="mt-10">

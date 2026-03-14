@@ -1,12 +1,7 @@
 // frontend_next/app/notifications/page.tsx
-import type { Metadata } from "next";
-import NotificationsClient from "./NotificationsClient";
-
-export const metadata: Metadata = {
-  title: "Notifications",
-  description: "Your notifications on BrickTrack.",
-};
+// Social features are disabled for now — redirect to home
+import { redirect } from "next/navigation";
 
 export default function NotificationsPage() {
-  return <NotificationsClient />;
+  redirect("/");
 }

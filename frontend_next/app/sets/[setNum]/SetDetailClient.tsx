@@ -366,9 +366,7 @@ export default function SetDetailClient(props: Props) {
   const [similarError, setSimilarError] = useState<string | null>(null);
   const similarRowRef = useRef<HTMLDivElement | null>(null);
 
-  // Social stats (following owners)
-  const [followingOwnersCount, setFollowingOwnersCount] = useState(0);
-  const [followingOwnersSample, setFollowingOwnersSample] = useState<string[]>([]);
+  // Social stats disabled (social features deferred)
 
   const myReview = useMemo(() => {
     if (!isLoggedIn || !meUsername) return null;
@@ -456,26 +454,7 @@ export default function SetDetailClient(props: Props) {
     };
   }, [token, hydrated]);
 
-  // Load social stats (how many followed users own this set)
-  useEffect(() => {
-    if (!token || !setNum) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const data = await apiFetch<{ following_owners_count: number; following_owners_sample: string[] }>(
-          `/sets/${encodeURIComponent(setNum)}/social-stats`,
-          { token },
-        );
-        if (!cancelled && data) {
-          setFollowingOwnersCount(data.following_owners_count ?? 0);
-          setFollowingOwnersSample(Array.isArray(data.following_owners_sample) ? data.following_owners_sample : []);
-        }
-      } catch { /* non-critical */ }
-    })();
-
-    return () => { cancelled = true; };
-  }, [token, setNum]);
+  // Social stats fetch disabled (social features deferred)
 
   // Scroll to shop when URL has ?focus=shop OR #shop
   useEffect(() => {
@@ -1185,27 +1164,7 @@ export default function SetDetailClient(props: Props) {
             )}
           </p>
 
-          {followingOwnersCount > 0 && (
-            <p className="mt-2 text-sm text-amber-700">
-              {followingOwnersSample.length > 0 ? (
-                <>
-                  {followingOwnersSample.slice(0, 2).map((u, i) => (
-                    <span key={u}>
-                      {i > 0 && ", "}
-                      <Link href={`/users/${encodeURIComponent(u)}`} className="font-semibold hover:underline">{u}</Link>
-                    </span>
-                  ))}
-                  {followingOwnersCount > 2
-                    ? ` and ${followingOwnersCount - 2} other${followingOwnersCount - 2 === 1 ? "" : "s"} you follow own this set`
-                    : followingOwnersCount === 2
-                      ? " you follow own this set"
-                      : " you follow owns this set"}
-                </>
-              ) : (
-                `${followingOwnersCount} ${followingOwnersCount === 1 ? "person" : "people"} you follow own${followingOwnersCount === 1 ? "s" : ""} this set`
-              )}
-            </p>
-          )}
+          {/* Social stats display disabled (social features deferred) */}
 
           <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center gap-3">
@@ -1292,38 +1251,48 @@ export default function SetDetailClient(props: Props) {
                 {shareCopied ? "Copied!" : "Share"}
               </button>
 
-              {isLoggedIn && (
-                <Link
-                  href={`/feed?share=${encodeURIComponent(setNum)}`}
-                  className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-                >
-                  Post to feed
-                </Link>
-              )}
-
-              {/* Deal alert bell */}
-              {isLoggedIn ? (
-                <button
-                  type="button"
-                  onClick={toggleAlert}
-                  disabled={alertLoading}
-                  className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                    hasAlert
-                      ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                      : "border-zinc-200 text-zinc-700 hover:bg-zinc-100"
-                  }`}
-                  title={hasAlert ? "Remove price drop alert" : "Get notified of price drops"}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <svg className="h-4 w-4" fill={hasAlert ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={hasAlert ? 0 : 2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
-                    </svg>
-                    {alertLoading ? "…" : hasAlert ? "Alerts on" : "Notify me"}
-                  </span>
-                </button>
-              ) : null}
               {!isLoggedIn ? <span className="text-sm text-zinc-500">Log in to rate or review this set.</span> : null}
             </div>
+
+            {/* Review form — inline right under the button */}
+            {showReviewForm ? (
+              <form
+                onSubmit={handleReviewSubmit}
+                className="mt-3"
+              >
+                <textarea
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  placeholder="What did you think of this set?"
+                  className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
+                  rows={4}
+                  disabled={reviewSubmitting}
+                />
+
+                {reviewSubmitError ? <p className="mt-2 text-sm text-red-600">{reviewSubmitError}</p> : null}
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={reviewSubmitting}
+                    className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {reviewSubmitting ? "Saving…" : myReview ? "Save changes" : "Post review"}
+                  </button>
+
+                  {myReview ? (
+                    <button
+                      type="button"
+                      onClick={deleteMyReview}
+                      disabled={reviewSubmitting || savingRating}
+                      className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
+                    >
+                      Delete review
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            ) : null}
 
             {ratingError ? <p className="mt-2 text-sm text-red-600">{ratingError}</p> : null}
           </section>
@@ -1341,7 +1310,7 @@ export default function SetDetailClient(props: Props) {
 
         {/* Deal banner */}
         {dealInfo ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">
@@ -1349,14 +1318,14 @@ export default function SetDetailClient(props: Props) {
                 </span>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                    <span className="text-lg font-bold text-emerald-700">
                       {formatPrice(dealInfo.salePrice, dealInfo.currency)}
                     </span>
                     <span className="text-sm text-zinc-500 line-through">
                       MSRP {formatPrice(dealInfo.retailPrice, dealInfo.currency)}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-sm text-emerald-700 dark:text-emerald-400">
+                  <p className="mt-0.5 text-sm text-emerald-700">
                     You save {formatPrice(dealInfo.savings, dealInfo.currency)} on this set
                   </p>
                 </div>
@@ -1364,8 +1333,8 @@ export default function SetDetailClient(props: Props) {
             </div>
           </div>
         ) : typeof retail_price === "number" && retail_price > 0 && bestPrice ? (
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
-            <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-center gap-2 text-sm text-zinc-600">
               <span className="font-medium">MSRP {formatPrice(retail_price, retail_currency || "USD")}</span>
               <span>·</span>
               <span>Best price matches retail</span>
@@ -1494,45 +1463,6 @@ export default function SetDetailClient(props: Props) {
             </div>
             <RatingHistogram histogram={ratingHistogram} height={100} barWidth={36} gap={8} />
           </div>
-        ) : null}
-
-        {showReviewForm ? (
-          <form
-            onSubmit={handleReviewSubmit}
-            className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4"
-          >
-            <textarea
-              value={reviewText}
-              onChange={(e) => setReviewText(e.target.value)}
-              placeholder="What did you think of this set?"
-              className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
-              rows={4}
-              disabled={reviewSubmitting}
-            />
-
-            {reviewSubmitError ? <p className="mt-2 text-sm text-red-600">{reviewSubmitError}</p> : null}
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="submit"
-                disabled={reviewSubmitting}
-                className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {reviewSubmitting ? "Saving…" : myReview ? "Save changes" : "Post review"}
-              </button>
-
-              {myReview ? (
-                <button
-                  type="button"
-                  onClick={deleteMyReview}
-                  disabled={reviewSubmitting || savingRating}
-                  className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
-                >
-                  Delete review
-                </button>
-              ) : null}
-            </div>
-          </form>
         ) : null}
 
         {reviewsLoading ? <div className="mt-3"><ReviewListSkeleton count={2} /></div> : null}

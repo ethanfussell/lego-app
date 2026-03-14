@@ -44,16 +44,13 @@ const tabs = [
       </svg>
     ),
   },
-  {
-    href: "/feed",
-    label: "Feed",
-    match: (p: string) => p.startsWith("/feed"),
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-  },
+  // Feed tab disabled (social features deferred)
+  // {
+  //   href: "/feed",
+  //   label: "Feed",
+  //   match: (p: string) => p.startsWith("/feed"),
+  //   icon: ( ... ),
+  // },
   {
     href: "/account",
     label: "Profile",
@@ -71,7 +68,7 @@ export default function BottomTabBar() {
   const pathname = usePathname() || "/";
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-[998] sm:hidden border-t border-zinc-200 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed bottom-0 left-0 right-0 z-[998] sm:hidden border-t border-zinc-200 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)]" aria-label="Mobile navigation">
       <div className="flex items-center justify-around h-14">
         {tabs.map((tab) => {
           const active = tab.match(pathname);
@@ -79,6 +76,7 @@ export default function BottomTabBar() {
             <Link
               key={tab.href}
               href={tab.href}
+              aria-current={active ? "page" : undefined}
               className={cx(
                 "flex flex-col items-center justify-center gap-0.5 w-full h-full transition-colors",
                 active ? "text-amber-600" : "text-zinc-500"

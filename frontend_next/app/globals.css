@@ -14,20 +14,6 @@
   --text-secondary: #a1a1aa;
 }
 
-/* Optional future dark mode via class toggle */
-:root:where(.dark) {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --accent: #f59e0b;
-  --accent-hover: #d97706;
-  --surface: #141414;
-  --surface-raised: #1a1a1a;
-  --border: rgba(255, 255, 255, 0.10);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --text-muted: #a1a1aa;
-  --text-secondary: #71717a;
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -39,9 +25,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   height: 100%;
+}
+
+/* Consistent focus ring for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
 }
 
 body {

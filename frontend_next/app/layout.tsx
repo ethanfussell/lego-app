@@ -73,10 +73,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AuthBridge>
             <ToastProvider>
               <div className="min-h-screen bg-white text-zinc-900">
+                {/* Skip to content link for keyboard/screen reader users */}
+                <a
+                  href="#main-content"
+                  className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[99999] focus:rounded-lg focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-black focus:shadow-lg"
+                >
+                  Skip to content
+                </a>
                 <TopNav />
                 <AnalyticsClient />
                 <WebVitals />
-                <main className="mx-auto w-full max-w-5xl px-6 pb-20 md:pb-16">{children}</main>
+                <main id="main-content" className="mx-auto w-full max-w-5xl px-6 pb-20 md:pb-16">{children}</main>
                 <Footer />
                 <BottomTabBar />
                 <CookieConsent />

@@ -27,15 +27,23 @@ type PushOpts = {
 
 type ToastAPI = {
   push: (message: string, opts?: PushOpts) => string;
+  dismiss: (id: string) => void;
 };
 
 const ToastCtx = createContext<ToastAPI | null>(null);
 
-function ToastSlot({ item, onDone }: { item: ToastItem; onDone: (id: string) => void }) {
+function ToastSlot({
+  item,
+  onDone,
+  onDismiss,
+}: {
+  item: ToastItem;
+  onDone: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    // trigger entrance animation on next frame
     const raf = requestAnimationFrame(() => setShow(true));
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -58,12 +66,22 @@ function ToastSlot({ item, onDone }: { item: ToastItem; onDone: (id: string) => 
   return (
     <div
       className={[
-        "pointer-events-auto rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 shadow-lg transition-all duration-200",
+        "pointer-events-auto flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 shadow-lg transition-all duration-200",
         accent,
         show ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       ].join(" ")}
     >
-      {item.message}
+      <span className="flex-1">{item.message}</span>
+      <button
+        type="button"
+        onClick={() => onDismiss(item.id)}
+        className="shrink-0 rounded p-0.5 text-zinc-400 hover:text-zinc-600 transition-colors"
+        aria-label="Dismiss notification"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -76,6 +94,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
+  const dismiss = useCallback((id: string) => {
+    const t = timers.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      timers.current.delete(id);
+    }
+    setToasts((prev) => prev.map((x) => (x.id === id ? { ...x, visible: false } : x)));
+  }, []);
+
   const push = useCallback((message: string, opts: PushOpts = {}) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const duration = typeof opts.duration === "number" ? opts.duration : 2500;
@@ -84,7 +111,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => [...prev, { id, message, type, visible: true }]);
 
     const t = window.setTimeout(() => {
-      // trigger exit animation
       setToasts((prev) => prev.map((x) => (x.id === id ? { ...x, visible: false } : x)));
       timers.current.delete(id);
     }, duration);
@@ -93,16 +119,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     return id;
   }, []);
 
-  const api = useMemo(() => ({ push }), [push]);
+  const api = useMemo(() => ({ push, dismiss }), [push, dismiss]);
 
   return (
     <ToastCtx.Provider value={api}>
       {children}
 
       {/* Toast container — sits above BottomTabBar on mobile */}
-      <div className="pointer-events-none fixed bottom-20 left-1/2 z-[20000] grid w-[min(420px,calc(100vw-24px))] -translate-x-1/2 gap-2 sm:bottom-6">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
+        className="pointer-events-none fixed bottom-20 left-1/2 z-[20000] grid w-[min(420px,calc(100vw-24px))] -translate-x-1/2 gap-2 sm:bottom-6"
+      >
         {toasts.map((t) => (
-          <ToastSlot key={t.id} item={t} onDone={removeToast} />
+          <ToastSlot key={t.id} item={t} onDone={removeToast} onDismiss={dismiss} />
         ))}
       </div>
     </ToastCtx.Provider>

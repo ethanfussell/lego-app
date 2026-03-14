@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List as TypingList, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -389,7 +389,7 @@ def api_get_list_detail(
 @limiter.limit("20/minute")
 def api_create_list(
     request: Request,
-    payload: ListCreate,
+    payload: ListCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ListDetail:
@@ -424,7 +424,7 @@ def api_create_list(
 def api_add_list_item(
     request: Request,
     list_id: int,
-    payload: ListItemCreate,
+    payload: ListItemCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:

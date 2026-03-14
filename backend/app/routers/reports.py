@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
@@ -67,7 +67,7 @@ class ReportUpdate(BaseModel):
 @limiter.limit("10/hour")
 def create_report(
     request: Request,
-    payload: ReportCreate,
+    payload: ReportCreate = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:

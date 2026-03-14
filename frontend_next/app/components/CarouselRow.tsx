@@ -87,7 +87,13 @@ export default function CarouselRow({
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="m-0 text-base font-semibold text-zinc-900">{title}</h2>
+            {viewHref ? (
+              <Link href={viewHref} className="m-0 text-base font-semibold text-zinc-900 hover:text-amber-600 transition-colors">
+                {title}
+              </Link>
+            ) : (
+              <h2 className="m-0 text-base font-semibold text-zinc-900">{title}</h2>
+            )}
             {subtitle ? <span className="text-sm text-zinc-500">{subtitle}</span> : null}
           </div>
         </div>
@@ -113,7 +119,7 @@ export default function CarouselRow({
 
           {viewHref ? (
             <Link href={viewHref} className="text-sm font-extrabold text-amber-600 hover:text-amber-500 transition-colors">
-              View &rarr;
+              View all &rarr;
             </Link>
           ) : null}
         </div>

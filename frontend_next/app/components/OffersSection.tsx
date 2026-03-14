@@ -151,12 +151,12 @@ function Badge({
 }) {
   const cls =
     tone === "in"
-      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      ? "bg-emerald-500/10 text-emerald-700"
       : tone === "out"
-      ? "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+      ? "bg-zinc-500/10 text-zinc-700"
       : tone === "best"
-      ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300"
-      : "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
+      ? "bg-indigo-500/10 text-indigo-700"
+      : "bg-zinc-500/10 text-zinc-700";
 
   return (
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${cls}`}>
@@ -269,11 +269,11 @@ export default function OffersSection({
           return (
             <li
               key={`${o.href}-${o.rank}`}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3 dark:border-white/[.14] dark:bg-zinc-950"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/[.08] bg-white p-3"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  <div className="text-sm font-semibold text-zinc-900">
                     {o.storeLabel}
                   </div>
 
@@ -318,7 +318,7 @@ export default function OffersSection({
                     conversion: isAffiliate,
                   });
                 }}
-                className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors dark:bg-amber-400 dark:text-black"
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
               >
                 {hasPrice ? "View offer" : `Search ${o.storeLabel}`} →
               </a>
@@ -328,7 +328,7 @@ export default function OffersSection({
       </ul>
 
       {anyAffiliateLinks ? (
-        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="text-[11px] text-zinc-500">
           Some links may be affiliate links. If you buy through them, we may earn a commission at no extra cost to you.
         </div>
       ) : null}

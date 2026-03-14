@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, RelationshipProperty
@@ -23,10 +23,6 @@ router = APIRouter(prefix="/ratings", tags=["ratings"])
 
 class RatingIn(BaseModel):
   rating: float = Field(..., ge=0.5, le=5.0)
-
-  @classmethod
-  def __get_validators__(cls):
-    yield from super().__get_validators__()
 
   def model_post_init(self, __context: object) -> None:
     # Snap to nearest 0.5
@@ -59,7 +55,7 @@ def _assign_review_user(review: ReviewModel, user: UserModel) -> None:
 def put_rating(
   request: Request,
   set_num: str,
-  payload: RatingIn,
+  payload: RatingIn = Body(...),
   db: Session = Depends(get_db),
   user: UserModel = Depends(get_current_user),
 ):

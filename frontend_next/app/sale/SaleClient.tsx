@@ -21,10 +21,10 @@ type Props = {
 function DealBadge({ pct }: { pct: number }) {
   const tone =
     pct >= 30
-      ? "bg-red-500/10 text-red-700 dark:text-red-300"
+      ? "bg-red-500/10 text-red-700"
       : pct >= 15
-        ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-        : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+        ? "bg-amber-500/10 text-amber-700"
+        : "bg-emerald-500/10 text-emerald-700";
 
   return (
     <span
@@ -37,19 +37,19 @@ function DealBadge({ pct }: { pct: number }) {
 
 function DealSummaryBar({ total, maxDiscount }: { total: number; maxDiscount: number }) {
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
       <div className="flex items-center gap-2">
-        <span className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{total}</span>
+        <span className="text-2xl font-bold text-zinc-900">{total}</span>
         <span className="text-sm text-zinc-500">
           {total === 1 ? "deal" : "deals"} found
         </span>
       </div>
       {maxDiscount > 0 ? (
         <>
-          <span className="text-zinc-300 dark:text-zinc-600" aria-hidden>|</span>
+          <span className="text-zinc-300" aria-hidden>|</span>
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-zinc-500">Up to</span>
-            <span className="text-sm font-bold text-red-600 dark:text-red-400">
+            <span className="text-sm font-bold text-red-600">
               {maxDiscount}% off
             </span>
           </div>
@@ -70,7 +70,7 @@ function SortSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as SortOption)}
-      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700"
     >
       <option value="discount">Biggest discount</option>
       <option value="savings">Most savings ($)</option>
@@ -95,7 +95,7 @@ function ThemeFilter({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700"
     >
       <option value="">All themes</option>
       {themes.map((t) => (
@@ -238,7 +238,7 @@ export default function SaleClient({ initialSets, totalDeals, themes }: Props) {
                     <div>
                       {/* Savings line */}
                       {savings ? (
-                        <div className="mb-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        <div className="mb-2 text-xs font-medium text-emerald-600">
                           Save {savings}
                         </div>
                       ) : null}

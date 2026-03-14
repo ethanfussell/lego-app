@@ -363,7 +363,7 @@ export default function SetCard({ set, variant = "default", footer, token, isOwn
                   Number.isFinite(price.original) &&
                   price.sale < price.original ? (
                     <>
-                      <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">{formatPrice(price.sale)}</span>
+                      <span className="text-sm font-bold text-emerald-700">{formatPrice(price.sale)}</span>
                       <span className="text-[10px] text-zinc-400 line-through">{formatPrice(price.original)}</span>
                     </>
                   ) : typeof price.original === "number" && Number.isFinite(price.original) ? (

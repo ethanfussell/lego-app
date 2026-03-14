@@ -3,7 +3,7 @@
 import importlib
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -209,8 +209,8 @@ def admin_get_set(
 @limiter.limit("30/minute")
 def admin_update_set(
     set_num: str,
-    payload: AdminSetUpdate,
     request: Request,
+    payload: AdminSetUpdate = Body(...),
     admin: UserModel = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ):
@@ -251,8 +251,8 @@ def admin_update_set(
 @limiter.limit("30/minute")
 def admin_unlock_fields(
     set_num: str,
-    payload: AdminSetUnlock,
     request: Request,
+    payload: AdminSetUnlock = Body(...),
     admin: UserModel = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ):
@@ -353,8 +353,8 @@ def admin_list_settings(
 @limiter.limit("30/minute")
 def admin_update_setting(
     key: str,
-    payload: AdminSettingUpdate,
     request: Request,
+    payload: AdminSettingUpdate = Body(...),
     admin: UserModel = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ):

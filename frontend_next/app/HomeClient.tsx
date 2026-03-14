@@ -342,7 +342,7 @@ export default function HomeClient({ newSets, popularSets, lists, formattedStats
       {isAuthed && token && (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <CollectionWidget token={token} />
-          <FeedPreview token={token} />
+          {/* <FeedPreview token={token} /> social feature disabled */}
         </div>
       )}
 
@@ -355,12 +355,7 @@ export default function HomeClient({ newSets, popularSets, lists, formattedStats
           >
             Discover sets
           </Link>
-          <Link
-            href="/feed"
-            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-          >
-            Go to feed
-          </Link>
+          {/* Go to feed link disabled (social features deferred) */}
           <Link
             href="/new"
             className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"

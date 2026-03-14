@@ -1,12 +1,7 @@
 // frontend_next/app/feed/page.tsx
-import type { Metadata } from "next";
-import SocialFeedClient from "./SocialFeedClient";
-
-export const metadata: Metadata = {
-  title: "Feed",
-  description: "See posts from people you follow on BrickTrack.",
-};
+// Social features are disabled for now — redirect to home
+import { redirect } from "next/navigation";
 
 export default function FeedPage() {
-  return <SocialFeedClient />;
+  redirect("/");
 }

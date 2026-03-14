@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/events", tags=["events"])
 @limiter.limit("30/minute")
 def track_affiliate_click(
     request: Request,
-    body: AffiliateClickIn,
+    body: AffiliateClickIn = Body(...),
     db: Session = Depends(get_db),
     current_user: UserModel | None = Depends(get_current_user_optional),
 ):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -277,7 +277,7 @@ def _reorder_list_items_exact(db: Session, *, list_id: int, set_nums: TypingList
 @limiter.limit("30/minute")
 def add_owned(
     request: Request,
-    payload: Dict[str, str],
+    payload: Dict[str, str] = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -320,7 +320,7 @@ def list_my_owned(
 @limiter.limit("30/minute")
 def add_wishlist(
     request: Request,
-    payload: Dict[str, str],
+    payload: Dict[str, str] = Body(...),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

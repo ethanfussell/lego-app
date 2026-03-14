@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { siteBase, SITE_NAME } from "@/lib/url";
 import { isRecord, type UnknownRecord } from "@/lib/types";
-import FollowButton from "@/app/components/FollowButton";
+// import FollowButton from "@/app/components/FollowButton"; // social feature disabled
 
 type PublicUser = {
   id: number;
@@ -219,14 +219,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
               {memberSince ? <> &middot; Joined {memberSince}</> : null}
             </p>
 
-            <div className="mt-2 flex items-center gap-4 text-sm">
-              <Link href={`/users/${encodeURIComponent(user.username)}/followers`} className="text-zinc-600 hover:text-zinc-900">
-                <span className="font-bold text-zinc-900">{user.followers_count}</span> follower{user.followers_count === 1 ? "" : "s"}
-              </Link>
-              <Link href={`/users/${encodeURIComponent(user.username)}/following`} className="text-zinc-600 hover:text-zinc-900">
-                <span className="font-bold text-zinc-900">{user.following_count}</span> following
-              </Link>
-            </div>
+            {/* Follower/following counts disabled (social features deferred) */}
 
             {user.bio ? (
               <p className="mt-2 max-w-lg text-sm text-zinc-600">{user.bio}</p>
@@ -235,7 +228,7 @@ export default async function Page({ params }: { params: Params | Promise<Params
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <FollowButton username={user.username} />
+          {/* <FollowButton username={user.username} /> social feature disabled */}
           <Link
             href="/lists/public"
             className="rounded-full border border-zinc-200 bg-transparent px-4 py-2 text-sm font-semibold hover:bg-zinc-100"
