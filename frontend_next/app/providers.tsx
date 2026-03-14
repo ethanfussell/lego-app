@@ -1,18 +1,20 @@
 // frontend_next/app/providers.tsx
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   useAuth as useClerkAuth,
   useUser as useClerkUser,
   useClerk,
 } from "@clerk/nextjs";
+import { apiFetch } from "@/lib/api";
 
 // ---------- Types ----------
 
 type Me = {
   id: number | string;
   username: string;
+  is_admin?: boolean;
 };
 
 type AuthContextValue = {
@@ -21,6 +23,7 @@ type AuthContextValue = {
   loadingMe: boolean;
   hydrated: boolean;
   isAuthed: boolean;
+  isAdmin: boolean;
   loginWithToken: (t: string) => void;
   logout: () => void;
 };
@@ -81,6 +84,37 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
     };
   }, [isLoaded, isSignedIn, getToken]);
 
+  // Fetch is_admin from backend once when token is available
+  const [isAdmin, setIsAdmin] = useState(false);
+  const adminFetched = useRef(false);
+
+  useEffect(() => {
+    if (!token || adminFetched.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch<{ is_admin?: boolean }>("/auth/me", { token, cache: "no-store" });
+        if (!cancelled) {
+          setIsAdmin(!!data.is_admin);
+          adminFetched.current = true;
+        }
+      } catch {
+        // non-critical — default to false
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Reset admin state on sign-out
+  useEffect(() => {
+    if (!isSignedIn) {
+      setIsAdmin(false);
+      adminFetched.current = false;
+    }
+  }, [isSignedIn]);
+
   // Derive `me` from Clerk user
   const me = useMemo<Me | null>(() => {
     if (!isLoaded || !isSignedIn || !user) return null;
@@ -92,8 +126,9 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
         user.firstName ||
         user.primaryEmailAddress?.emailAddress?.split("@")[0] ||
         "user",
+      is_admin: isAdmin,
     };
-  }, [isLoaded, isSignedIn, user]);
+  }, [isLoaded, isSignedIn, user, isAdmin]);
 
   // loginWithToken is a no-op — Clerk manages sign-in
   const loginWithToken = useCallback((_t: string) => {
@@ -112,10 +147,11 @@ export function AuthBridge({ children }: { children: React.ReactNode }) {
       loadingMe: !isLoaded,
       hydrated: isLoaded ?? false,
       isAuthed: !!(isLoaded && isSignedIn),
+      isAdmin,
       loginWithToken,
       logout,
     }),
-    [token, me, isLoaded, isSignedIn, loginWithToken, logout]
+    [token, me, isLoaded, isSignedIn, isAdmin, loginWithToken, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

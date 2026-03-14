@@ -301,7 +301,7 @@ function makeRecentKey(r: ReviewRecent, idx: number): string {
 
 export default function AccountClient() {
   const router = useRouter();
-  const { token, me, logout, hydrated } = useAuth();
+  const { token, me, logout, hydrated, isAdmin } = useAuth();
 
   // ✅ single source of truth for “can hit authed endpoints”
   const isLoggedIn = hydrated && token.trim().length > 0;
@@ -732,6 +732,9 @@ export default function AccountClient() {
               />
               <ActionTile title="Find sets" desc="Search and explore new sets to add." href="/search" />
               <ActionTile title="My reviews" desc="See every set you reviewed (rating + text)." href="/account/reviews" />
+              {isAdmin ? (
+                <ActionTile title="Admin Dashboard" desc="Manage sets, users, and site settings." href="/admin" />
+              ) : null}
             </div>
           </section>
         </>

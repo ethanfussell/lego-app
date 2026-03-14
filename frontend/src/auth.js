@@ -1,24 +1,51 @@
 // src/auth.js
+// Auth context powered by Clerk.
+// Exposes the same { token, me, loadingMe, isAuthed, logout } shape
+// that every consumer already depends on.
+
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { apiFetch, getToken as loadToken, setToken as persistToken } from "./lib/api";
+import { useAuth as useClerkAuth, useUser as useClerkUser } from "@clerk/clerk-react";
+import { apiFetch } from "./lib/api";
 
 const AuthContext = createContext(null);
 
-function isHttpStatus(err, code) {
-  return String(err?.message || "").startsWith(String(code));
-}
-
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => loadToken());
+  const { isLoaded: authLoaded, isSignedIn, getToken, signOut } = useClerkAuth();
+  const { isLoaded: userLoaded, user: clerkUser } = useClerkUser();
+
+  const [token, setToken] = useState("");
   const [me, setMe] = useState(null);
-  const [loadingMe, setLoadingMe] = useState(false);
+  const [loadingMe, setLoadingMe] = useState(true);
 
-  // Keep localStorage in sync with our single source of truth
+  // Refresh the session token whenever Clerk auth state changes
   useEffect(() => {
-    persistToken(token);
-  }, [token]);
+    let cancelled = false;
 
-  // Load /auth/me whenever token changes
+    async function syncToken() {
+      if (!authLoaded) return;
+
+      if (!isSignedIn) {
+        if (!cancelled) {
+          setToken("");
+          setMe(null);
+          setLoadingMe(false);
+        }
+        return;
+      }
+
+      try {
+        const jwt = await getToken();
+        if (!cancelled) setToken(jwt || "");
+      } catch {
+        if (!cancelled) setToken("");
+      }
+    }
+
+    syncToken();
+    return () => { cancelled = true; };
+  }, [authLoaded, isSignedIn, getToken]);
+
+  // Load /auth/me from our backend whenever we get a fresh token
   useEffect(() => {
     let cancelled = false;
 
@@ -36,36 +63,25 @@ export function AuthProvider({ children }) {
       try {
         const data = await apiFetch("/auth/me", { token });
         if (!cancelled) setMe(data || null);
-      } catch (e) {
-        // Only clear token if truly unauthorized
-        const unauthorized = isHttpStatus(e, 401) || isHttpStatus(e, 403);
-
-        if (!cancelled) {
-          setMe(null);
-          if (unauthorized) setToken("");
-        }
+      } catch {
+        if (!cancelled) setMe(null);
       } finally {
         if (!cancelled) setLoadingMe(false);
       }
     }
 
     loadMe();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token]);
 
-  const value = useMemo(
-    () => ({
-      token,
-      me,
-      loadingMe,
-      isAuthed: !!token,
-      loginWithToken: (t) => setToken(t || ""),
-      logout: () => setToken(""),
-    }),
-    [token, me, loadingMe]
-  );
+  const value = useMemo(() => ({
+    token,
+    me,
+    loadingMe: !authLoaded || !userLoaded || loadingMe,
+    isAuthed: !!token && isSignedIn,
+    clerkUser: clerkUser || null,
+    logout: () => signOut(),
+  }), [token, me, loadingMe, authLoaded, userLoaded, isSignedIn, clerkUser, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

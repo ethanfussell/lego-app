@@ -93,6 +93,10 @@ export type SetLite = {
   retirement_date?: string | null;
   retirement_status?: string | null;
 
+  // deal-specific fields
+  savings?: number | null;
+  discount_pct?: number | null;
+
   // custom tag (e.g. "GWP", "Insider Reward")
   set_tag?: string | null;
 };

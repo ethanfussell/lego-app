@@ -13,6 +13,7 @@ function RetiringSoonPage({
   const [sets, setSets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,15 +23,7 @@ function RetiringSoonPage({
         setLoading(true);
         setError(null);
 
-        const params = new URLSearchParams();
-        // 🔧 Placeholder: later we can support a real "status=retiring" filter
-        params.set("q", "retiring");
-        params.set("sort", "rating");
-        params.set("order", "desc");
-        params.set("page", "1");
-        params.set("limit", "60");
-
-        const resp = await fetch(`${API_BASE}/sets?${params.toString()}`);
+        const resp = await fetch(`${API_BASE}/sets/retiring?limit=100`);
 
         if (!resp.ok) {
           const text = await resp.text();
@@ -39,9 +32,11 @@ function RetiringSoonPage({
 
         const data = await resp.json();
         const items = Array.isArray(data) ? data : data.results || [];
+        const totalCount = parseInt(resp.headers.get("X-Total-Count") || "0", 10);
 
         if (!cancelled) {
           setSets(items);
+          setTotal(totalCount || items.length);
         }
       } catch (err) {
         if (!cancelled) {
@@ -66,15 +61,18 @@ function RetiringSoonPage({
     <div>
       <h1>Retiring soon</h1>
       <p style={{ color: "#666", maxWidth: "540px" }}>
-        Last-chance sets. Later this page will show sets that are officially
-        marked as retiring soon so you can grab them before they disappear.
+        These sets are expected to retire soon. Grab them before they disappear from store shelves.
+        {total > 0 && <> Currently <strong>{total}</strong> sets retiring soon.</>}
       </p>
 
       {loading && <p>Loading retiring sets…</p>}
       {error && <p style={{ color: "red" }}>Error: {error}</p>}
 
       {!loading && !error && sets.length === 0 && (
-        <p style={{ color: "#666" }}>No &quot;retiring soon&quot; sets yet.</p>
+        <p style={{ color: "#666" }}>
+          No sets flagged as retiring yet. Retirement data comes from Brickset
+          and is updated regularly.
+        </p>
       )}
 
       {!loading && !error && sets.length > 0 && (
