@@ -75,22 +75,8 @@ async def lifespan(app: FastAPI):
             logging.getLogger("bricktrack.startup").exception("Startup Brickset sync failed")
             print(f"[STARTUP] Brickset sync FAILED: {e}", flush=True)
 
-    def _startup_new_sets_scrape():
-        try:
-            from app.pipelines.new_sets_scraper import run_new_sets_scrape
-            logger = logging.getLogger("bricktrack.startup")
-            logger.info("Running new-sets scraper on startup...")
-            print("[STARTUP] Running new-sets scraper...", flush=True)
-            result = run_new_sets_scrape()
-            logger.info("Startup new-sets scrape result: %s", result)
-            print(f"[STARTUP] New-sets scrape done: {result}", flush=True)
-        except Exception as e:
-            logging.getLogger("bricktrack.startup").exception("Startup new-sets scrape failed")
-            print(f"[STARTUP] New-sets scrape FAILED: {e}", flush=True)
-
     threading.Thread(target=_startup_scrape, daemon=True).start()
     threading.Thread(target=_startup_brickset_sync, daemon=True).start()
-    threading.Thread(target=_startup_new_sets_scrape, daemon=True).start()
 
     yield
     shutdown_scheduler()
