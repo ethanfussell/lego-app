@@ -9,6 +9,8 @@ import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import { apiFetch } from "@/lib/api";
 import type { SetLite } from "@/lib/types";
 import { formatPrice } from "@/lib/format";
+import AdSlot from "@/app/components/AdSlot";
+import AffiliateBanner, { type AffiliateDeal } from "@/app/components/AffiliateBanner";
 
 type SortOption = "discount" | "price" | "savings" | "name";
 
@@ -117,6 +119,23 @@ export default function SaleClient({ initialSets, totalDeals, themes }: Props) {
   const [themeFilter, setThemeFilter] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const featuredDeal: AffiliateDeal | null = useMemo(() => {
+    const topDeal = initialSets[0];
+    if (!topDeal) return null;
+    const salePrice = topDeal.sale_price ?? topDeal.price_from ?? topDeal.price;
+    if (typeof salePrice !== "number") return null;
+    const pct = topDeal.discount_pct ? `${Math.round(topDeal.discount_pct)}% off` : "On sale";
+    return {
+      set_num: topDeal.set_num,
+      name: topDeal.name || topDeal.set_num,
+      image_url: topDeal.image_url ?? null,
+      headline: `${pct} — best deal right now`,
+      price: salePrice,
+      original_price: topDeal.retail_price ?? topDeal.original_price ?? undefined,
+      currency: "USD",
+    };
+  }, [initialSets]);
+
   const maxDiscount = useMemo(() => {
     let max = 0;
     for (const s of sets) {
@@ -168,11 +187,17 @@ export default function SaleClient({ initialSets, totalDeals, themes }: Props) {
     <div>
       <DealSummaryBar total={total} maxDiscount={maxDiscount} />
 
+      {featuredDeal ? (
+        <AffiliateBanner placement="sale_featured_deal" deal={featuredDeal} className="mt-6" />
+      ) : null}
+
       {/* Controls */}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <SortSelect value={sortBy} onChange={handleSortChange} />
         <ThemeFilter themes={themes} value={themeFilter} onChange={handleThemeChange} />
       </div>
+
+      <AdSlot slot="sale_mid" format="horizontal" className="mt-8" />
 
       {/* Loading overlay */}
       {loading ? (

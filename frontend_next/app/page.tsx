@@ -83,17 +83,19 @@ function formatStatNumber(n: number): string {
 export const revalidate = 60; // ISR: regenerate page at most every 60 seconds
 
 export default async function Page() {
-  const [newSetsRaw, popularSetsRaw, listsRaw, statsRaw] = await Promise.all([
+  const [newSetsRaw, popularSetsRaw, listsRaw, statsRaw, dealsRaw] = await Promise.all([
     apiFetch<unknown>("/sets/new?days=60&limit=12").catch(() => []),
     apiFetch<unknown>("/sets?sort=rating&order=desc&limit=12").catch(() => []),
     apiFetch<unknown>("/lists/public").catch(() => []),
     apiFetch<unknown>("/site-stats").catch(() => ({})),
+    apiFetch<unknown>("/sets/deals?limit=1&sort=discount&order=desc").catch(() => ({ results: [] })),
   ]);
 
   const newSets = toSetArray(newSetsRaw);
   const popularSets = toSetArray(popularSetsRaw);
   const lists = toListArray(listsRaw);
   const stats = toStats(statsRaw);
+  const topDeal = toSetArray(dealsRaw)[0] ?? null;
 
   return (
     <>
@@ -103,6 +105,7 @@ export default async function Page() {
         popularSets={popularSets}
         lists={lists}
         stats={stats}
+        topDeal={topDeal}
         formattedStats={{
           sets: stats.set_count > 0 ? formatStatNumber(stats.set_count) : "19,000+",
           users: stats.user_count > 0 ? formatStatNumber(stats.user_count) : "500+",

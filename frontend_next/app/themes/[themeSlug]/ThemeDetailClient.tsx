@@ -11,6 +11,7 @@ import Pagination from "@/app/components/Pagination";
 import { SetGridSkeleton } from "@/app/components/Skeletons";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
+import AdSlot from "@/app/components/AdSlot";
 
 type SetSummary = {
   set_num: string;
@@ -226,31 +227,35 @@ export default function ThemeDetailClient(props: {
 
       {/* Results grid */}
       {!loading && sets.length > 0 && (
-        <div className="mt-6 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
-          {cardSets.map((setForCard, idx) => {
-            const original = sets[idx];
-            return (
-              <div key={original.set_num} className="h-full">
-                <SetCard
-                  set={setForCard}
-                  token={token ?? undefined}
-                  isOwnedByUser={isOwned(original.set_num)}
-                  userRatingOverride={getUserRating(original.set_num)}
-                  footer={
-                    token ? (
-                      <SetCardActions
-                        token={token}
-                        setNum={original.set_num}
-                        isOwned={isOwned(original.set_num)}
-                        isWishlist={isWishlist(original.set_num)}
-                      />
-                    ) : undefined
-                  }
-                />
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <div className="mt-6 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+            {cardSets.map((setForCard, idx) => {
+              const original = sets[idx];
+              return (
+                <div key={original.set_num} className="h-full">
+                  <SetCard
+                    set={setForCard}
+                    token={token ?? undefined}
+                    isOwnedByUser={isOwned(original.set_num)}
+                    userRatingOverride={getUserRating(original.set_num)}
+                    footer={
+                      token ? (
+                        <SetCardActions
+                          token={token}
+                          setNum={original.set_num}
+                          isOwned={isOwned(original.set_num)}
+                          isWishlist={isWishlist(original.set_num)}
+                        />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <AdSlot slot="theme_detail_mid" format="horizontal" className="mt-8" />
+        </>
       )}
 
       {/* Empty state */}

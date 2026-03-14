@@ -45,6 +45,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const GA_ID = process.env.NEXT_PUBLIC_GA4_ID;
+  const ADSENSE_PUB_ID = process.env.NEXT_PUBLIC_ADSENSE_PUB_ID;
 
   return (
     <ClerkProvider>
@@ -68,6 +69,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 `}
               </Script>
             </>
+          ) : null}
+
+          {ADSENSE_PUB_ID ? (
+            <Script
+              src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_PUB_ID)}`}
+              strategy="afterInteractive"
+              crossOrigin="anonymous"
+            />
           ) : null}
 
           <AuthBridge>

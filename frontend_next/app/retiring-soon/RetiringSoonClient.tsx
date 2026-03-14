@@ -10,6 +10,7 @@ import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import { formatPrice } from "@/lib/format";
 import type { SetLite } from "@/lib/types";
+import AdSlot from "@/app/components/AdSlot";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -437,6 +438,8 @@ export default function RetiringSoonClient({
         <>
           {/* Stats */}
           <StatsBar sets={allSets} />
+
+          <AdSlot slot="retiring_mid" format="horizontal" className="mt-8" />
 
           {/* Browse Section */}
           <section className="mt-10">

@@ -69,8 +69,8 @@ def _norm_lower(s: str) -> str:
 
 
 def _theme_key(theme: str) -> str:
-    # stable key for comparisons / grouping (accent-insensitive)
-    return _norm_lower(theme)
+    # stable key for comparisons / grouping (accent-insensitive, slug-safe)
+    return _norm_lower(theme).replace("-", " ")
 
 
 def _set_count_by_theme(

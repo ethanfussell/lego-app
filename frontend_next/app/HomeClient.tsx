@@ -12,6 +12,7 @@ import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import SetCardActions from "@/app/components/SetCardActions";
 import WelcomeBanner from "@/app/components/WelcomeBanner";
 import AdSlot from "@/app/components/AdSlot";
+import AffiliateBanner, { type AffiliateDeal } from "@/app/components/AffiliateBanner";
 import { FEATURED_LISTS } from "@/lib/featuredLists";
 import { apiFetch } from "@/lib/api";
 import type { SiteStats } from "./page";
@@ -34,6 +35,7 @@ type Props = {
   popularSets: SetLite[];
   lists: PublicList[];
   stats?: SiteStats;
+  topDeal?: SetLite | null;
   formattedStats?: { sets: string; users: string; reviews: string };
 };
 
@@ -229,12 +231,28 @@ function FeedPreview({ token }: { token: string }) {
 
 /* -- main component ------------------------------------------ */
 
-export default function HomeClient({ newSets, popularSets, lists, formattedStats }: Props) {
+export default function HomeClient({ newSets, popularSets, lists, topDeal, formattedStats }: Props) {
   const { token, me, isAuthed } = useAuth();
   const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const statsDisplay = useMemo(() => formattedStats ?? { sets: "19,000+", users: "500+", reviews: "2,000+" }, [formattedStats]);
+
+  const featuredDeal: AffiliateDeal | null = useMemo(() => {
+    if (!topDeal) return null;
+    const salePrice = topDeal.sale_price ?? topDeal.price_from ?? topDeal.price;
+    if (typeof salePrice !== "number") return null;
+    const pct = topDeal.discount_pct ? `${Math.round(topDeal.discount_pct)}% off` : "On sale";
+    return {
+      set_num: topDeal.set_num,
+      name: topDeal.name || topDeal.set_num,
+      image_url: topDeal.image_url ?? null,
+      headline: `${pct} — check current prices`,
+      price: salePrice,
+      original_price: topDeal.retail_price ?? topDeal.original_price ?? undefined,
+      currency: "USD",
+    };
+  }, [topDeal]);
 
   /* resolve featured lists from the public lists data */
   const featuredLists = useMemo(() => {
@@ -422,6 +440,10 @@ export default function HomeClient({ newSets, popularSets, lists, formattedStats
 
       {/* -- Ad: between sections -------------------------------- */}
       <AdSlot slot="home_mid" format="horizontal" className="mt-10" />
+
+      {featuredDeal ? (
+        <AffiliateBanner placement="home_featured_deal" deal={featuredDeal} className="mt-8" />
+      ) : null}
 
       {/* -- Popular Among Collectors ----------------------------- */}
       {popularSets.length > 0 && (

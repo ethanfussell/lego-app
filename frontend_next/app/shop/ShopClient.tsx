@@ -1,7 +1,7 @@
 // frontend_next/app/shop/ShopClient.tsx
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import Link from "next/link";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
@@ -9,6 +9,8 @@ import CarouselRow from "@/app/components/CarouselRow";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
 import type { SetLite } from "@/lib/types";
+import AdSlot from "@/app/components/AdSlot";
+import AffiliateBanner, { type AffiliateDeal } from "@/app/components/AffiliateBanner";
 
 type Props = {
   newSets: SetLite[];
@@ -71,6 +73,23 @@ const categories = [
 export default function ShopClient({ newSets, saleSets, retiringSets }: Props) {
   const { token } = useAuth();
   const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
+
+  const featuredDeal: AffiliateDeal | null = useMemo(() => {
+    const topDeal = saleSets[0];
+    if (!topDeal) return null;
+    const salePrice = topDeal.sale_price ?? topDeal.price_from ?? topDeal.price;
+    if (typeof salePrice !== "number") return null;
+    const pct = topDeal.discount_pct ? `${Math.round(topDeal.discount_pct)}% off` : "On sale";
+    return {
+      set_num: topDeal.set_num,
+      name: topDeal.name || topDeal.set_num,
+      image_url: topDeal.image_url ?? null,
+      headline: `${pct} — check current prices`,
+      price: salePrice,
+      original_price: topDeal.retail_price ?? topDeal.original_price ?? undefined,
+      currency: "USD",
+    };
+  }, [saleSets]);
 
   function renderCards(sets: SetLite[]) {
     return sets.map((s) => (
@@ -140,6 +159,12 @@ export default function ShopClient({ newSets, saleSets, retiringSets }: Props) {
           ),
         )}
       </div>
+
+      <AdSlot slot="shop_mid" format="horizontal" className="mt-8" />
+
+      {featuredDeal ? (
+        <AffiliateBanner placement="shop_featured_deal" deal={featuredDeal} className="mt-8" />
+      ) : null}
 
       {/* ── Carousels ────────────────────────────────────── */}
 

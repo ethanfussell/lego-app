@@ -10,6 +10,7 @@ import CarouselRow from "@/app/components/CarouselRow";
 import { formatPrice } from "@/lib/format";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
+import AdSlot from "@/app/components/AdSlot";
 import type { MonthKey } from "./featuredThemes";
 import type { SetLite } from "@/lib/types";
 
@@ -246,7 +247,7 @@ function FeaturedThemesSection({
     for (const theme of themes) {
       const matching = sets
         .filter((s) => s.theme === theme)
-        .sort((a, b) => getPieces(b) - getPieces(a));
+        .sort((a, b) => (b.launch_date || "").localeCompare(a.launch_date || ""));
       if (matching.length > 0) {
         result.push({ theme, sets: matching });
       }
@@ -533,6 +534,8 @@ export default function NewSetsClient({
             token={token ?? null}
             getUserRating={getUserRating}
           />
+
+          <AdSlot slot="new_mid" format="horizontal" className="mt-8" />
 
           {/* 4. All releases by month */}
           <section className="mt-12">
