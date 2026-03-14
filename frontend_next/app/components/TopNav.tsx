@@ -49,7 +49,7 @@ function isSuggestionArray(x: unknown): x is Suggestion[] {
 export default function TopNav() {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const { isAuthed } = useAuth();
+  const { isAuthed, isAdmin } = useAuth();
 
   const links = useMemo(
     () => [
@@ -61,8 +61,9 @@ export default function TopNav() {
       { href: "/retiring-soon", label: "Retiring soon", active: pathname.startsWith("/retiring-soon") },
       { href: "/blog", label: "Blog", active: pathname.startsWith("/blog") },
       { href: "/collection", label: "My Collection", active: pathname.startsWith("/collection") },
+      ...(isAdmin ? [{ href: "/admin", label: "Admin", active: pathname.startsWith("/admin") }] : []),
     ],
-    [pathname]
+    [pathname, isAdmin]
   );
 
   // -------------------------
