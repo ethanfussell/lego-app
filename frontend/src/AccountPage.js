@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth";
 import { apiFetch } from "./lib/api";
-import Login from "./Login";
 import RatingHistogram from "./RatingHistogram";
 
 /* ---------- utils ---------- */
@@ -507,8 +506,10 @@ export default function AccountPage() {
 
       {!token && (
         <div style={{ marginTop: 14 }}>
-          <p style={{ color: "#666" }}>Log in with your fake user (ethan / lego123).</p>
-          <Login />
+          <p style={{ color: "#666" }}>
+            <a href="/login" style={{ fontWeight: 700, color: "#111827" }}>Log in</a> or{" "}
+            <a href="/signup" style={{ fontWeight: 700, color: "#111827" }}>sign up</a> to see your stats.
+          </p>
         </div>
       )}
 

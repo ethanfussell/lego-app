@@ -26,13 +26,17 @@ function useIsMobile(breakpointPx = 640) {
   return isMobile;
 }
 
-export default function ProfileMenu({ me, onLogout }) {
+export default function ProfileMenu({ me, clerkUser, onLogout }) {
   const navigate = useNavigate();
   const isMobile = useIsMobile(640);
 
   const username = useMemo(() => {
-    return me?.username || me?.email || "Account";
-  }, [me]);
+    return me?.username || clerkUser?.username || clerkUser?.firstName || me?.email || "Account";
+  }, [me, clerkUser]);
+
+  const avatarUrl = useMemo(() => {
+    return clerkUser?.imageUrl || null;
+  }, [clerkUser]);
 
   const initials = useMemo(() => {
     const u = (username || "U").trim();
@@ -96,22 +100,30 @@ export default function ProfileMenu({ me, onLogout }) {
           cursor: "pointer",
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: "999px",
-            background: "#111827",
-            color: "white",
-            display: "grid",
-            placeItems: "center",
-            fontWeight: 700,
-            fontSize: "0.9rem",
-          }}
-        >
-          {initials}
-        </div>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt=""
+            style={{ width: 30, height: 30, borderRadius: "999px", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            aria-hidden
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: "999px",
+              background: "#111827",
+              color: "white",
+              display: "grid",
+              placeItems: "center",
+              fontWeight: 700,
+              fontSize: "0.9rem",
+            }}
+          >
+            {initials}
+          </div>
+        )}
 
         <div style={{ display: "grid", lineHeight: 1.1 }}>
           <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{username}</span>
@@ -187,22 +199,30 @@ export default function ProfileMenu({ me, onLogout }) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <div
-                aria-hidden
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 999,
-                  background: "#111827",
-                  color: "white",
-                  display: "grid",
-                  placeItems: "center",
-                  fontWeight: 800,
-                  fontSize: "1rem",
-                }}
-              >
-                {initials}
-              </div>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  style={{ width: 42, height: 42, borderRadius: 999, objectFit: "cover" }}
+                />
+              ) : (
+                <div
+                  aria-hidden
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 999,
+                    background: "#111827",
+                    color: "white",
+                    display: "grid",
+                    placeItems: "center",
+                    fontWeight: 800,
+                    fontSize: "1rem",
+                  }}
+                >
+                  {initials}
+                </div>
+              )}
 
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{username}</div>

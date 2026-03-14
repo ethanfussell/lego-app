@@ -20,6 +20,7 @@ import CollectionsPage from "./CollectionsPage";
 import OwnedPage from "./OwnedPage";
 import WishlistPage from "./WishlistPage";
 import ProfileMenu from "./ProfileMenu";
+import SignUpPage from "./SignUpPage";
 import DiscoverPage from "./DiscoverPage";
 import PublicListsPage from "./PublicListsPage";
 import AccountPage from "./AccountPage";
@@ -349,7 +350,7 @@ function App() {
   const [page, setPage] = useState("home");
 
   // Auth token
-  const { token, me, logout } = useAuth();
+  const { token, me, clerkUser, logout } = useAuth();
 
   // Search bar + suggestions
   const [searchText, setSearchText] = useState("");
@@ -1070,11 +1071,28 @@ function App() {
           </form>
   
           {!token ? (
-            <Link to="/login" style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none" }}>
-              🔐 Login
-            </Link>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Link to="/login" style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none", fontWeight: 600 }}>
+                Log in
+              </Link>
+              <Link
+                to="/signup"
+                style={{
+                  padding: "0.5rem 0.9rem",
+                  cursor: "pointer",
+                  textDecoration: "none",
+                  fontWeight: 700,
+                  background: "#111827",
+                  color: "white",
+                  borderRadius: 999,
+                  fontSize: "0.9rem",
+                }}
+              >
+                Sign up
+              </Link>
+            </div>
           ) : (
-            <ProfileMenu me={me} onLogout={handleLogout} />
+            <ProfileMenu me={me} clerkUser={clerkUser} onLogout={handleLogout} />
           )}
         </div>
       </nav>
@@ -1172,9 +1190,12 @@ function App() {
         <Route path="/discover" element={<DiscoverPage />} />
         <Route path="/discover/lists" element={<PublicListsPage />} />
 
-        {/* Account / Login */}
+        {/* Account / Login / Signup */}
         <Route path="/account" element={<AccountPage />} />
-        <Route path="/login" element={<AccountPage />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/login/*" element={<Login />} />
+        <Route path="/signup" element={<SignUpPage />} />
+        <Route path="/signup/*" element={<SignUpPage />} />
         <Route path="/account/reviews" element={<MyReviewsPage />} />
 
         {/* ✅ Lists pages (protected) */}
