@@ -926,6 +926,167 @@ def list_new_sets(
     return out
 
 
+@router.get("/deals")
+@limiter.limit("30/minute")
+def list_deals(
+    request: Request,
+    response: Response,
+    sort: str = Query("discount", description="Sort by: discount, price, savings, name"),
+    order: Optional[str] = Query(None),
+    theme: Optional[str] = Query(None),
+    min_discount: Optional[int] = Query(None, ge=1, le=99, description="Minimum discount percentage"),
+    max_price: Optional[float] = Query(None, ge=0, description="Maximum sale price"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(60, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """
+    Sets currently on sale — where the best in-stock offer is below retail price.
+    Returns sets enriched with discount_pct, savings, sale_price, original_price.
+    """
+    # Subquery: best (cheapest) in-stock offer per set
+    best_offer_sq = (
+        select(
+            OfferModel.set_num,
+            func.min(OfferModel.price).label("best_price"),
+        )
+        .where(
+            OfferModel.price.isnot(None),
+            func.coalesce(OfferModel.in_stock, True).is_(True),
+        )
+        .group_by(OfferModel.set_num)
+        .subquery()
+    )
+
+    # Join sets with their best offer, filter where best_price < retail_price
+    q = (
+        select(
+            SetModel,
+            best_offer_sq.c.best_price,
+        )
+        .join(
+            best_offer_sq,
+            SetModel.set_num == func.concat(best_offer_sq.c.set_num, "-1"),
+        )
+        .where(
+            SetModel.retail_price.isnot(None),
+            SetModel.retail_price > 0,
+            best_offer_sq.c.best_price < SetModel.retail_price,
+        )
+    )
+
+    # Theme filter
+    theme_clean = (theme or "").strip()
+    if theme_clean:
+        q = q.where(func.lower(SetModel.theme) == theme_clean.lower())
+
+    # Min discount filter
+    if min_discount is not None:
+        q = q.where(
+            (1.0 - best_offer_sq.c.best_price / SetModel.retail_price) * 100 >= min_discount
+        )
+
+    # Max price filter
+    if max_price is not None:
+        q = q.where(best_offer_sq.c.best_price <= max_price)
+
+    # Sorting
+    discount_expr = (1.0 - best_offer_sq.c.best_price / SetModel.retail_price)
+    savings_expr = SetModel.retail_price - best_offer_sq.c.best_price
+
+    allowed_sorts = {"discount", "price", "savings", "name"}
+    if sort not in allowed_sorts:
+        raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
+
+    if order is None:
+        order = "asc" if sort == "name" else "desc"
+    reverse = (order == "desc")
+
+    if sort == "discount":
+        order_col = discount_expr.desc() if reverse else discount_expr.asc()
+    elif sort == "price":
+        order_col = best_offer_sq.c.best_price.asc() if not reverse else best_offer_sq.c.best_price.desc()
+    elif sort == "savings":
+        order_col = savings_expr.desc() if reverse else savings_expr.asc()
+    else:  # name
+        order_col = SetModel.name.asc() if not reverse else SetModel.name.desc()
+
+    q = q.order_by(order_col, SetModel.name.asc())
+
+    # Total count
+    total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one()
+    response.headers["X-Total-Count"] = str(total)
+
+    # Pagination
+    offset = (page - 1) * limit
+    rows = db.execute(q.offset(offset).limit(limit)).all()
+
+    # Enrich with ratings
+    ratings = _ratings_map(db)
+    review_counts = _review_counts_map(db)
+
+    # Collect themes for the filter dropdown
+    theme_q = (
+        select(func.distinct(SetModel.theme))
+        .join(
+            best_offer_sq,
+            SetModel.set_num == func.concat(best_offer_sq.c.set_num, "-1"),
+        )
+        .where(
+            SetModel.retail_price.isnot(None),
+            SetModel.retail_price > 0,
+            best_offer_sq.c.best_price < SetModel.retail_price,
+            SetModel.theme.isnot(None),
+        )
+    )
+    deal_themes = sorted(
+        [r[0] for r in db.execute(theme_q).all() if r[0]],
+        key=str.lower,
+    )
+
+    out: List[Dict[str, Any]] = []
+    for s, best_price in rows:
+        canonical = s.set_num
+        avg, cnt = ratings.get(canonical, (None, 0))
+        rev_cnt = int(review_counts.get(canonical, 0))
+
+        retail = float(s.retail_price)
+        sale = float(best_price)
+        savings = round(retail - sale, 2)
+        discount_pct = round((1.0 - sale / retail) * 100)
+
+        out.append(
+            {
+                "set_num": s.set_num,
+                "name": s.name,
+                "year": s.year,
+                "theme": s.theme,
+                "pieces": s.pieces,
+                "image_url": s.image_url,
+                "rating_avg": avg,
+                "rating_count": int(cnt or 0),
+                "review_count": int(rev_cnt or 0),
+                "retail_price": retail,
+                "original_price": retail,
+                "sale_price": sale,
+                "savings": savings,
+                "discount_pct": discount_pct,
+                "retirement_status": s.retirement_status,
+                "set_tag": s.set_tag,
+            }
+        )
+
+    _enrich_with_tags(db, out)
+
+    return {
+        "results": out,
+        "total": total,
+        "total_pages": max(1, -(-total // limit)),
+        "page": page,
+        "themes": deal_themes,
+    }
+
+
 @router.get("/retiring")
 def list_retiring_sets(
     response: Response,
