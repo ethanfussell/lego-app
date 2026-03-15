@@ -234,6 +234,8 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
       const n = Number(sp.get("minRating") || 0);
       return Number.isFinite(n) && n >= 1 && n <= 5 ? Math.round(n) : 0;
     })(),
+    minPrice: (sp.get("minPrice") || "").trim(),
+    maxPrice: (sp.get("maxPrice") || "").trim(),
   }), [sp]);
 
   const filterCount = activeFilterCount(filters);
@@ -285,17 +287,21 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         setOrDel("maxYear", f.maxYear.trim());
         setOrDel("minPieces", f.minPieces.trim());
         setOrDel("maxPieces", f.maxPieces.trim());
+        setOrDel("minPrice", f.minPrice.trim());
+        setOrDel("maxPrice", f.maxPrice.trim());
         if (f.minRating > 0) params.set("minRating", String(f.minRating));
         else params.delete("minRating");
       }
 
-      // If q missing -> keep /search clean
-      if (!(params.get("q") || "").trim()) {
+      // If q missing and no filters -> keep /search clean
+      const hasQ = !!(params.get("q") || "").trim();
+      const filterKeys = ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating", "minPrice", "maxPrice"];
+      const hasFilters = filterKeys.some((k) => !!(params.get(k) || "").trim());
+      if (!hasQ && !hasFilters) {
         params.delete("sort");
         params.delete("order");
         params.delete("page");
-        // Also clear filters when no query
-        for (const k of ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating"]) params.delete(k);
+        for (const k of filterKeys) params.delete(k);
       } else {
         // If sort is relevance -> drop order (clean)
         const s = sanitizeSort(params.get("sort"));
@@ -332,8 +338,17 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
 
     const next = new URLSearchParams();
 
-    if (q0) {
-      next.set("q", q0);
+    // Preserve filter params regardless of query
+    const filterParamKeys = ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating", "minPrice", "maxPrice"] as const;
+    for (const k of filterParamKeys) {
+      const v = (cur.get(k) || "").trim();
+      if (v) next.set(k, v);
+    }
+
+    const hasAnyFilters = filterParamKeys.some((k) => !!(cur.get(k) || "").trim());
+
+    if (q0 || hasAnyFilters) {
+      if (q0) next.set("q", q0);
 
       if (sort0 !== "relevance") next.set("sort", sort0);
 
@@ -342,12 +357,6 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
       if (sort0 !== "relevance" && useOrder && useOrder !== def) next.set("order", useOrder);
 
       if (page0 > 1) next.set("page", String(page0));
-
-      // Preserve filter params
-      for (const k of ["theme", "minYear", "maxYear", "minPieces", "maxPieces", "minRating"] as const) {
-        const v = (cur.get(k) || "").trim();
-        if (v) next.set(k, v);
-      }
     }
 
     const normalizedUrl = buildCleanSearchUrl(next);
@@ -420,10 +429,9 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
 
   const changeFilters = useCallback(
     (next: FilterValues) => {
-      if (!q) return;
       pushUrl({ filters: next, page: 1 });
     },
-    [q, pushUrl],
+    [pushUrl],
   );
 
   // --- Fetch whenever URL-derived state changes ---
@@ -431,7 +439,8 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
     let cancelled = false;
 
     async function load() {
-      if (!q) {
+      const hasAnyFilter = filterCount > 0;
+      if (!q && !hasAnyFilter) {
         setResults([]);
         setTotal(null);
         setTotalPages(1);
@@ -439,8 +448,8 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         return;
       }
 
-      const filterKey = `${filters.theme}|${filters.minYear}|${filters.maxYear}|${filters.minPieces}|${filters.maxPieces}|${filters.minRating}`;
-      const reqKey = `${q}__${sortParam}__${orderParam}__${page}__${filterKey}`;
+      const filterKey = `${filters.theme}|${filters.minYear}|${filters.maxYear}|${filters.minPieces}|${filters.maxPieces}|${filters.minRating}|${filters.minPrice}|${filters.maxPrice}`;
+      const reqKey = `${q || ""}__${sortParam}__${orderParam}__${page}__${filterKey}`;
       lastReqKeyRef.current = reqKey;
 
       try {
@@ -448,7 +457,7 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         setErr("");
 
         const params = new URLSearchParams();
-        params.set("q", q);
+        if (q) params.set("q", q);
         params.set("sort", sortParam || "relevance");
 
         if (sortParam !== "relevance") {
@@ -466,6 +475,8 @@ export default function SearchClient({ initialQ, initialSort, initialOrder, init
         if (filters.minPieces) params.set("min_pieces", filters.minPieces);
         if (filters.maxPieces) params.set("max_pieces", filters.maxPieces);
         if (filters.minRating > 0) params.set("min_rating", String(filters.minRating));
+        if (filters.minPrice) params.set("min_price", filters.minPrice);
+        if (filters.maxPrice) params.set("max_price", filters.maxPrice);
 
         const data = await apiFetch<unknown>(`/sets?${params.toString()}`, { cache: "no-store" });
 

@@ -13,6 +13,8 @@ export type FilterValues = {
   minPieces: string;
   maxPieces: string;
   minRating: number; // 0 = unset, 1-5 = minimum stars
+  minPrice: string;
+  maxPrice: string;
 };
 
 export const EMPTY_FILTERS: FilterValues = {
@@ -22,6 +24,8 @@ export const EMPTY_FILTERS: FilterValues = {
   minPieces: "",
   maxPieces: "",
   minRating: 0,
+  minPrice: "",
+  maxPrice: "",
 };
 
 export function activeFilterCount(f: FilterValues): number {
@@ -30,6 +34,7 @@ export function activeFilterCount(f: FilterValues): number {
   if (f.minYear || f.maxYear) n++;
   if (f.minPieces || f.maxPieces) n++;
   if (f.minRating > 0) n++;
+  if (f.minPrice || f.maxPrice) n++;
   return n;
 }
 
@@ -272,6 +277,19 @@ export default function SearchFilters({ values, onChange, disabled }: Props) {
           maxPlaceholder="5000+"
           onMinChange={(v) => update({ minPieces: v })}
           onMaxChange={(v) => update({ maxPieces: v })}
+          disabled={disabled}
+        />
+      </FilterSection>
+
+      {/* Price range */}
+      <FilterSection label="Price ($)">
+        <RangeInputs
+          minVal={values.minPrice}
+          maxVal={values.maxPrice}
+          minPlaceholder="$0"
+          maxPlaceholder="$500+"
+          onMinChange={(v) => update({ minPrice: v })}
+          onMaxChange={(v) => update({ maxPrice: v })}
           disabled={disabled}
         />
       </FilterSection>
