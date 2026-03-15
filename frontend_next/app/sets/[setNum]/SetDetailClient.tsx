@@ -970,6 +970,27 @@ export default function SetDetailClient(props: Props) {
     }
   }
 
+  // Deal computation: compare best offer price to MSRP (must be before render guards to keep hooks stable)
+  const dealInfo = useMemo(() => {
+    if (!setDetail) return null;
+    const { retail_price, retail_currency } = setDetail;
+    if (!bestPrice || typeof bestPrice.price !== "number") return null;
+    if (typeof retail_price !== "number" || retail_price <= 0) return null;
+    if (bestPrice.price >= retail_price) return null;
+
+    const savings = Math.round((retail_price - bestPrice.price) * 100) / 100;
+    const discountPct = Math.round((1 - bestPrice.price / retail_price) * 100);
+    if (discountPct < 1) return null;
+
+    return {
+      retailPrice: retail_price,
+      salePrice: bestPrice.price,
+      currency: bestPrice.currency || retail_currency || "USD",
+      savings,
+      discountPct,
+    };
+  }, [bestPrice, setDetail]);
+
   // ---- Render guards ----
 
   if (!setNum) {
@@ -1038,25 +1059,6 @@ export default function SetDetailClient(props: Props) {
   const { name, year, theme, pieces, num_parts, image_url, description, retail_price, retail_currency } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
   const heroImgSrc = asTrimmedString(image_url);
-
-  // Deal computation: compare best offer price to MSRP
-  const dealInfo = useMemo(() => {
-    if (!bestPrice || typeof bestPrice.price !== "number") return null;
-    if (typeof retail_price !== "number" || retail_price <= 0) return null;
-    if (bestPrice.price >= retail_price) return null;
-
-    const savings = Math.round((retail_price - bestPrice.price) * 100) / 100;
-    const discountPct = Math.round((1 - bestPrice.price / retail_price) * 100);
-    if (discountPct < 1) return null;
-
-    return {
-      retailPrice: retail_price,
-      salePrice: bestPrice.price,
-      currency: bestPrice.currency || retail_currency || "USD",
-      savings,
-      discountPct,
-    };
-  }, [bestPrice, retail_price, retail_currency]);
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">

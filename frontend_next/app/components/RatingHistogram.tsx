@@ -1,7 +1,7 @@
 // frontend_next/app/components/RatingHistogram.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 
 const DEFAULT_BINS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
 
@@ -17,7 +17,6 @@ type Props = {
   height?: number;
   barWidth?: number;
   gap?: number;
-  showLabels?: boolean;
   maxWidth?: number;
   paddingY?: number;
   paddingX?: number;
@@ -43,11 +42,12 @@ export default function RatingHistogram({
   height = 120,
   barWidth = 44,
   gap = 12,
-  showLabels = true,
   maxWidth = 760,
   paddingY = 8,
   paddingX = 4,
 }: Props) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   const rows = useMemo(() => {
     return bins.map((b) => ({
       rating: b,
@@ -59,9 +59,7 @@ export default function RatingHistogram({
   const MIN_NONZERO_PX = 8;
 
   const maxCount = Math.max(1, ...rows.map((r) => Number(r.count || 0)));
-
-  const labelSpace = showLabels ? 18 : 0;
-  const chartHeight = Math.max(16, height - labelSpace);
+  const chartHeight = Math.max(16, height);
 
   function barPx(count: number) {
     const c = Number(count || 0);
@@ -76,27 +74,52 @@ export default function RatingHistogram({
         style={{
           width: "100%",
           maxWidth,
+          overflow: "hidden",
           display: "grid",
-          gridTemplateColumns: `repeat(${rows.length}, ${barWidth}px)`,
+          gridTemplateColumns: `repeat(${rows.length}, minmax(0, ${barWidth}px))`,
           justifyContent: "center",
           columnGap: gap,
           alignItems: "end",
           padding: `${paddingY}px ${paddingX}px`,
         }}
       >
-        {rows.map((r) => {
+        {rows.map((r, i) => {
           const barH = barPx(r.count);
           const isZero = Number(r.count || 0) === 0;
+          const isHovered = hoveredIdx === i;
 
           return (
             <div
               key={r.rating}
-              title={`${r.rating.toFixed(1)} ★ · ${r.count}`}
-              style={{ display: "grid", justifyItems: "center", gap: showLabels ? 8 : 0 }}
+              style={{ position: "relative", display: "grid", justifyItems: "center" }}
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
             >
+              {isHovered && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    marginBottom: 6,
+                    padding: "4px 8px",
+                    borderRadius: 8,
+                    background: "#18181b",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    zIndex: 10,
+                  }}
+                >
+                  {r.rating.toFixed(1)} ★ · {r.count} {r.count === 1 ? "rating" : "ratings"}
+                </div>
+              )}
               <div
                 style={{
-                  width: barWidth,
+                  width: "100%",
                   height: chartHeight,
                   display: "flex",
                   alignItems: "flex-end",
@@ -107,18 +130,13 @@ export default function RatingHistogram({
                     width: "100%",
                     height: barH,
                     borderRadius: 10,
-                    background: isZero ? "#e4e4e7" : "#f59e0b",
+                    background: isZero ? "#e4e4e7" : isHovered ? "#d97706" : "#f59e0b",
                     border: isZero ? "1px solid #d4d4d8" : "1px solid transparent",
-                    transition: "height 160ms ease",
+                    transition: "height 160ms ease, background 120ms ease",
+                    cursor: "default",
                   }}
                 />
               </div>
-
-              {showLabels ? (
-                <div style={{ fontSize: 12, color: "#71717a", fontWeight: 900 }}>
-                  {r.rating.toFixed(1)}
-                </div>
-              ) : null}
             </div>
           );
         })}

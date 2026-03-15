@@ -349,7 +349,7 @@ export default function MyReviewsClient() {
                     {statsErr ? (
                       <div className="text-sm text-red-600">Error loading</div>
                     ) : histogram ? (
-                      <RatingHistogram histogram={histogram} height={52} barWidth={18} gap={8} showLabels={false} maxWidth={420} />
+                      <RatingHistogram histogram={histogram} height={52} barWidth={18} gap={8} maxWidth={420} />
                     ) : (
                       <div className="animate-pulse"><div className="h-[52px] w-full max-w-[420px] rounded bg-zinc-100" /></div>
                     )}
