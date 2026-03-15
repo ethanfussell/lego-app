@@ -1,6 +1,4 @@
 # backend/app/routers/ratings.py
-from __future__ import annotations
-
 import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
