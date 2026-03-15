@@ -399,12 +399,12 @@ function FeaturedListsSection({ lists, limit = 6 }: { lists: PublicList[]; limit
    ═══════════════════════════════════════════════════════════════ */
 
 const DEFAULT_DISCOVERY_CARDS: QuickExploreCard[] = [
-  { label: "Under $30", href: "/search?max_price=30", icon: "💰", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
-  { label: "500+ Pieces", href: "/search?min_pieces=500", icon: "🧱", color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
-  { label: "Top Rated", href: "/search?sort=rating&order=desc", icon: "⭐", color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
-  { label: "Display Sets", href: "/themes/Icons", icon: "🏛️", color: "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300" },
-  { label: "For Kids", href: "/themes/City", icon: "👦", color: "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300" },
-  { label: "Most Pieces", href: "/pieces/most", icon: "🏗️", color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
+  { label: "Under $50", href: "/affordable?max=50", icon: "💰", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { label: "500+ Pieces", href: "/big-builds?min=500", icon: "🧱", color: "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300" },
+  { label: "Top Rated", href: "/top-rated", icon: "⭐", color: "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300" },
+  { label: "On Sale", href: "/sale", icon: "🏷️", color: "from-green-50 to-emerald-50 border-green-200 hover:border-green-300" },
+  { label: "Retiring Soon", href: "/retiring-soon", icon: "⏰", color: "from-rose-50 to-pink-50 border-rose-200 hover:border-rose-300" },
+  { label: "Most Pieces", href: "/pieces/most", icon: "🧩", color: "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300" },
 ];
 
 function DiscoveryCards({ cards }: { cards: QuickExploreCard[] }) {
@@ -419,6 +419,9 @@ function DiscoveryCards({ cards }: { cards: QuickExploreCard[] }) {
         >
           <span className="text-2xl">{card.icon}</span>
           <span className="text-sm font-bold text-zinc-800">{card.label}</span>
+          {card.count != null && card.count > 0 && (
+            <span className="text-[10px] text-zinc-500">{card.count.toLocaleString()} sets</span>
+          )}
         </Link>
       ))}
     </div>

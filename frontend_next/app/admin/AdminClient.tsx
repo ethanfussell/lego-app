@@ -1669,6 +1669,13 @@ function DiscoverControlsSection({ token }: { token: string }) {
                         >
                           Reset to defaults
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickExploreCards([])}
+                          className="mt-2 ml-4 text-sm text-zinc-400 hover:text-zinc-600 hover:underline"
+                        >
+                          Use auto-generated
+                        </button>
                       </div>
                     )}
 

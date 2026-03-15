@@ -176,6 +176,7 @@ export type QuickExploreCard = {
   href: string;
   icon: string;
   color: string;
+  count?: number;
 };
 
 async function fetchDiscoverConfig(): Promise<{ hiddenSections: string[]; sectionConfig: SectionConfig; quickExploreCards: QuickExploreCard[] | null }> {

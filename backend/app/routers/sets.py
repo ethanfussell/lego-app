@@ -1,6 +1,8 @@
 # backend/app/routers/sets.py
 from __future__ import annotations
 
+import json
+import math
 import os
 import time
 import threading
@@ -117,6 +119,8 @@ def _sort_key(sort: str):
         return lambda r: (r.get("pieces") or 0)
     if sort == "rating":
         return lambda r: (r.get("_avg_rating") or 0.0, r.get("_rating_count") or 0)
+    if sort == "price":
+        return lambda r: (r.get("retail_price") or 0.0)
     return lambda r: (r.get("name") or "").lower()
 
 
@@ -208,6 +212,10 @@ _RATINGS_TTL = 60  # seconds
 _review_counts_cache_lock = threading.Lock()
 _review_counts_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
 
+_price_cache_lock = threading.Lock()
+_price_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+_PRICE_TTL = 300  # 5 minutes
+
 
 def invalidate_ratings_cache() -> None:
     """Call after a review is created/updated/deleted to bust the cache."""
@@ -217,6 +225,25 @@ def invalidate_ratings_cache() -> None:
     with _review_counts_cache_lock:
         _review_counts_cache["ts"] = 0.0
         _review_counts_cache["val"] = None
+
+
+def _price_map(db: Session) -> Dict[str, float]:
+    """Map set_num -> retail_price from DB, with TTL cache."""
+    now = time.monotonic()
+    with _price_cache_lock:
+        if now - _price_cache["ts"] < _PRICE_TTL and _price_cache["val"] is not None:
+            return _price_cache["val"]
+
+    rows = db.execute(
+        select(SetModel.set_num, SetModel.retail_price)
+        .where(SetModel.retail_price.isnot(None), SetModel.retail_price > 0)
+    ).all()
+    result = {r.set_num: float(r.retail_price) for r in rows}
+
+    with _price_cache_lock:
+        _price_cache["ts"] = time.monotonic()
+        _price_cache["val"] = result
+    return result
 
 
 def _ratings_map(db: Session) -> Dict[str, Tuple[Optional[float], int]]:
@@ -487,6 +514,11 @@ def list_sets(
     theme: Optional[str] = Query(None),
     min_rating: Optional[float] = Query(None, ge=0, le=5),
 
+    min_price: Optional[float] = Query(None, ge=0),
+    max_price: Optional[float] = Query(None, ge=0),
+
+    availability: Optional[str] = Query(None),
+
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("relevance"),
@@ -546,8 +578,25 @@ def list_sets(
         tl = theme_clean.lower()
         sets = [s for s in sets if (s.get("theme") or "").strip().lower() == tl]
 
+    prices = _price_map(db) if (min_price is not None or max_price is not None) else {}
+    if min_price is not None:
+        sets = [s for s in sets if prices.get(s.get("set_num") or "", 0) >= min_price]
+    if max_price is not None:
+        sets = [s for s in sets if 0 < prices.get(s.get("set_num") or "", float("inf")) <= max_price]
+
+    if availability is not None:
+        allowed = set(v.strip().lower() for v in availability.split(",") if v.strip())
+        status_rows = db.execute(
+            select(SetModel.set_num, SetModel.retirement_status)
+            .where(SetModel.retirement_status.in_([v for v in allowed]))
+        ).all()
+        allowed_nums = {r.set_num for r in status_rows}
+        sets = [s for s in sets if (s.get("set_num") or "") in allowed_nums]
+
     ratings = _ratings_map(db)
     review_counts = _review_counts_map(db)
+    if not prices:
+        prices = _price_map(db)
 
     enriched: List[Dict[str, Any]] = []
     for s in sets:
@@ -556,6 +605,9 @@ def list_sets(
         rev_cnt = int(review_counts.get(canonical, 0))
 
         r = dict(s)
+        price = prices.get(canonical)
+        if price is not None:
+            r["retail_price"] = price
         r["_avg_rating"] = avg
         r["_rating_count"] = cnt
         r["_review_count"] = rev_cnt
@@ -565,7 +617,7 @@ def list_sets(
         mr = float(min_rating)
         enriched = [r for r in enriched if (r.get("_avg_rating") or 0.0) >= mr]
 
-    allowed_sorts = {"relevance", "name", "year", "pieces", "rating"}
+    allowed_sorts = {"relevance", "name", "year", "pieces", "rating", "price"}
     if sort not in allowed_sorts:
         raise HTTPException(status_code=400, detail=f"Invalid sort '{sort}'")
 
@@ -1390,9 +1442,169 @@ def homepage_data(
     }
 
 
+# ── Quick explore card auto-generation ──────────────────────────
+
+_CARD_COLORS = {
+    "green": "from-green-50 to-emerald-50 border-green-200 hover:border-green-300",
+    "blue": "from-blue-50 to-sky-50 border-blue-200 hover:border-blue-300",
+    "amber": "from-amber-50 to-yellow-50 border-amber-200 hover:border-amber-300",
+    "purple": "from-purple-50 to-violet-50 border-purple-200 hover:border-purple-300",
+    "orange": "from-orange-50 to-red-50 border-orange-200 hover:border-orange-300",
+    "teal": "from-teal-50 to-cyan-50 border-teal-200 hover:border-teal-300",
+    "rose": "from-rose-50 to-pink-50 border-rose-200 hover:border-rose-300",
+    "zinc": "from-zinc-50 to-slate-50 border-zinc-200 hover:border-zinc-300",
+}
+
+_explore_cache_lock = threading.Lock()
+_explore_cache: Dict[str, Any] = {"ts": 0.0, "val": None}
+_EXPLORE_TTL = 3600  # 1 hour
+
+
+def _generate_explore_cards(db: Session) -> List[Dict[str, str]]:
+    """Auto-generate quick explore cards from DB statistics."""
+    candidates: List[Dict[str, Any]] = []
+
+    # --- Price candidates ---
+    _active_statuses = ("available", "retiring_soon")
+    for max_p, label in [(30, "Under $30"), (50, "Under $50"), (100, "Under $100")]:
+        count = db.execute(
+            select(func.count()).select_from(SetModel)
+            .where(SetModel.retail_price > 0, SetModel.retail_price <= max_p,
+                   SetModel.retirement_status.in_(_active_statuses))
+        ).scalar_one()
+        if count >= 10:
+            candidates.append({
+                "label": label, "href": f"/affordable?max={max_p}",
+                "icon": "💰", "color": _CARD_COLORS["green"],
+                "category": "price", "priority": 10, "count": count,
+            })
+
+    # --- Pieces candidates ---
+    for min_p, label, icon in [
+        (500, "500+ Pieces", "🧱"),
+        (1000, "1000+ Pieces", "🏗️"),
+        (2000, "2000+ Pieces", "🏰"),
+    ]:
+        count = db.execute(
+            select(func.count()).select_from(SetModel)
+            .where(SetModel.pieces >= min_p)
+        ).scalar_one()
+        if count >= 10:
+            candidates.append({
+                "label": label, "href": f"/big-builds?min={min_p}",
+                "icon": icon, "color": _CARD_COLORS["blue"],
+                "category": "pieces", "priority": 8, "count": count,
+            })
+
+    # --- Top Rated ---
+    ratings = _ratings_map(db)
+    top_rated_count = sum(1 for avg, cnt in ratings.values() if avg is not None and avg >= 4.0 and cnt >= 2)
+    if top_rated_count >= 5:
+        candidates.append({
+            "label": "Top Rated", "href": "/top-rated",
+            "icon": "⭐", "color": _CARD_COLORS["amber"],
+            "category": "rating", "priority": 9, "count": top_rated_count,
+        })
+
+    # --- New this year ---
+    current_year = datetime.now().year
+    count_new = db.execute(
+        select(func.count()).select_from(SetModel)
+        .where(SetModel.year == current_year)
+    ).scalar_one()
+    if count_new >= 5:
+        candidates.append({
+            "label": f"New in {current_year}", "href": "/new",
+            "icon": "🆕", "color": _CARD_COLORS["purple"],
+            "category": "year", "priority": 7, "count": count_new,
+        })
+
+    # --- Retiring soon ---
+    count_retiring = db.execute(
+        select(func.count()).select_from(SetModel)
+        .where(SetModel.retirement_status == "retiring_soon")
+    ).scalar_one()
+    if count_retiring >= 3:
+        candidates.append({
+            "label": "Retiring Soon", "href": "/retiring-soon",
+            "icon": "⏰", "color": _CARD_COLORS["rose"],
+            "category": "special", "priority": 7, "count": count_retiring,
+        })
+
+    # --- On Sale ---
+    from ..models import Offer as OfferModel2
+    best_offer_sq = (
+        select(
+            OfferModel2.set_num,
+            func.min(OfferModel2.price).label("best_price"),
+        )
+        .where(OfferModel2.price > 0)
+        .group_by(OfferModel2.set_num)
+        .subquery()
+    )
+    deals_count = db.execute(
+        select(func.count()).select_from(SetModel)
+        .join(best_offer_sq, best_offer_sq.c.set_num == SetModel.set_num)
+        .where(
+            SetModel.retail_price.isnot(None),
+            SetModel.retail_price > 0,
+            best_offer_sq.c.best_price < SetModel.retail_price,
+        )
+    ).scalar_one()
+    if deals_count >= 3:
+        candidates.append({
+            "label": "On Sale", "href": "/sale",
+            "icon": "🏷️", "color": _CARD_COLORS["green"],
+            "category": "deals", "priority": 8, "count": deals_count,
+        })
+
+    # --- Most Pieces page ---
+    candidates.append({
+        "label": "Most Pieces", "href": "/pieces/most",
+        "icon": "🧩", "color": _CARD_COLORS["teal"],
+        "category": "misc", "priority": 5, "count": 60,
+    })
+
+    # --- Select best 6 with diversity (max 1 per category) ---
+    candidates.sort(key=lambda c: (c["priority"], math.log(max(c["count"], 1))), reverse=True)
+
+    selected: List[Dict[str, str]] = []
+    used_categories: Dict[str, int] = {}
+    for c in candidates:
+        cat = c["category"]
+        if used_categories.get(cat, 0) >= 1:
+            continue
+        selected.append({
+            "label": c["label"],
+            "href": c["href"],
+            "icon": c["icon"],
+            "color": c["color"],
+            "count": c["count"],
+        })
+        used_categories[cat] = used_categories.get(cat, 0) + 1
+        if len(selected) >= 6:
+            break
+
+    return selected
+
+
+def _get_cached_explore_cards(db: Session) -> List[Dict[str, str]]:
+    now = time.monotonic()
+    with _explore_cache_lock:
+        if now - _explore_cache["ts"] < _EXPLORE_TTL and _explore_cache["val"] is not None:
+            return _explore_cache["val"]
+
+    cards = _generate_explore_cards(db)
+
+    with _explore_cache_lock:
+        _explore_cache["ts"] = time.monotonic()
+        _explore_cache["val"] = cards
+    return cards
+
+
 @router.get("/discover-page-config")
 def discover_page_config(db: Session = Depends(get_db)):
-    """Return admin settings for the /discover page."""
+    """Return admin settings for the /discover page, with auto-generated cards fallback."""
     settings: Dict[str, Any] = {}
     rows = db.execute(
         select(AdminSetting).where(
@@ -1402,6 +1614,20 @@ def discover_page_config(db: Session = Depends(get_db)):
 
     for row in rows:
         settings[row.key] = row.value
+
+    # If no admin override, auto-generate cards from data
+    admin_cards = settings.get("quick_explore_cards")
+    has_admin_cards = False
+    if admin_cards:
+        try:
+            parsed = json.loads(admin_cards)
+            has_admin_cards = isinstance(parsed, list) and len(parsed) > 0
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if not has_admin_cards:
+        auto_cards = _get_cached_explore_cards(db)
+        settings["quick_explore_cards"] = json.dumps(auto_cards)
 
     return settings
 
