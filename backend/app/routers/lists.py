@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..core.auth import get_current_user, get_current_user_optional
 from ..core.limiter import limiter
+from ..core.sanitize import sanitize_oneline, sanitize_text
 from ..core.set_nums import base_set_num, resolve_set_num
 from ..data.lists import LISTS
 from ..db import get_db
@@ -276,20 +277,6 @@ def api_get_public_lists(
     rows = db.execute(q.order_by(ListModel.updated_at.desc(), ListModel.id.desc())).all()
     return [_summary_dict(lst, username, items_count=cnt) for (lst, username, cnt) in rows]
 
-    # ---- FALLBACK: LISTS (pytest only) ----
-    if not _is_pytest():
-        return []
-
-    mem_rows = [l for l in LISTS if l.get("is_public") is True]
-    if owner:
-        mem_rows = [l for l in mem_rows if (l.get("owner") or "") == owner]
-
-    def _ts(l: Dict[str, Any]) -> datetime:
-        return l.get("updated_at") or l.get("created_at") or datetime.min
-
-    mem_rows.sort(key=lambda l: (_ts(l), int(l.get("id") or 0)), reverse=True)
-    return [_list_summary_from_memory(l) for l in mem_rows]  # type: ignore[return-value]
-
 
 # ---------------- My lists (auth required) ----------------
 @router.get("/me", response_model=TypingList[ListSummary])
@@ -393,9 +380,11 @@ def api_create_list(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ListDetail:
-    title = (payload.title or "").strip()
+    title = sanitize_oneline(payload.title or "")
     if not title:
         raise HTTPException(status_code=422, detail="title_required")
+
+    description = sanitize_text(payload.description) if payload.description else None
 
     max_pos = db.execute(
         select(func.coalesce(func.max(ListModel.position), -1))
@@ -405,7 +394,7 @@ def api_create_list(
     new_list = ListModel(
         owner_id=current_user.id,
         title=title,
-        description=(payload.description.strip() if payload.description else None),
+        description=description,
         is_public=bool(payload.is_public),
         position=int(max_pos) + 1,
         is_system=False,
@@ -582,13 +571,13 @@ def api_update_list(
     _require_not_system_or_400(lst)
 
     if payload.title is not None:
-        title = (payload.title or "").strip()
+        title = sanitize_oneline(payload.title or "")
         if not title:
             raise HTTPException(status_code=422, detail="title_required")
         lst.title = title
 
     if payload.description is not None:
-        lst.description = (payload.description or "").strip() or None
+        lst.description = sanitize_text(payload.description) if payload.description else None
 
     if payload.is_public is not None:
         lst.is_public = bool(payload.is_public)

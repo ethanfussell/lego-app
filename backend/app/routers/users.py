@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List as TypingList
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.limiter import limiter
 from app.core.sanitize import sanitize_oneline, sanitize_text
 from app.db import get_db
 from app.models import User as UserModel
@@ -61,7 +62,9 @@ def me(user: UserModel = Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.patch("/me/profile", response_model=UserProfileRead)
+@limiter.limit("10/minute")
 def update_my_profile(
+    request: Request,
     payload: UserProfileUpdate,
     user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -78,7 +81,12 @@ def update_my_profile(
         user.bio = sanitize_text(v) if v else None
 
     if "avatar_url" in updates:
-        user.avatar_url = updates["avatar_url"] or None
+        url = (updates["avatar_url"] or "").strip()
+        if url:
+            # Only allow http/https URLs to prevent javascript: XSS and data: abuse
+            if not url.startswith(("https://", "http://")):
+                raise HTTPException(status_code=400, detail="avatar_url_must_be_http")
+        user.avatar_url = url or None
 
     if "location" in updates:
         v = updates["location"]
@@ -92,10 +100,12 @@ def update_my_profile(
 
 
 @router.get("")
-def list_users(limit: int = 20):
-    with next(get_db()) as db:
-        rows = db.execute(select(UserModel.username).limit(limit)).scalars().all()
-        return rows
+def list_users(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(select(UserModel.username).limit(limit)).scalars().all()
+    return rows
 
 
 @router.get("/{username}")
@@ -111,44 +121,43 @@ def get_user(username: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{username}/lists")
-def get_user_public_lists(username: str) -> TypingList[Dict[str, Any]]:
+def get_user_public_lists(username: str, db: Session = Depends(get_db)) -> TypingList[Dict[str, Any]]:
     """
     Public lists for a user (Explore can use this later).
     """
-    with next(get_db()) as db:
-        user = db.execute(
-            select(UserModel).where(UserModel.username == username).limit(1)
-        ).scalar_one_or_none()
+    user = db.execute(
+        select(UserModel).where(UserModel.username == username).limit(1)
+    ).scalar_one_or_none()
 
-        if not user:
-            raise HTTPException(status_code=404, detail="user_not_found")
+    if not user:
+        raise HTTPException(status_code=404, detail="user_not_found")
 
-        items_count = _items_count_expr()
+    items_count = _items_count_expr()
 
-        rows = db.execute(
-            select(ListModel, items_count.label("items_count"))
-            .where(ListModel.owner_id == user.id, ListModel.is_public.is_(True))
-            .order_by(
-                func.coalesce(ListModel.updated_at, ListModel.created_at).desc(),
-                ListModel.id.desc(),
-            )
-        ).all()
+    rows = db.execute(
+        select(ListModel, items_count.label("items_count"))
+        .where(ListModel.owner_id == user.id, ListModel.is_public.is_(True))
+        .order_by(
+            func.coalesce(ListModel.updated_at, ListModel.created_at).desc(),
+            ListModel.id.desc(),
+        )
+    ).all()
 
-        out: TypingList[Dict[str, Any]] = []
-        for (lst, count) in rows:
-            out.append(
-                {
-                    "id": int(lst.id),
-                    "title": lst.title,
-                    "description": lst.description,
-                    "is_public": bool(lst.is_public),
-                    "owner": username,
-                    "items_count": int(count),
-                    "position": int(lst.position or 0),
-                    "is_system": bool(lst.is_system),
-                    "system_key": lst.system_key,
-                    "created_at": lst.created_at,
-                    "updated_at": lst.updated_at,
-                }
-            )
-        return out
+    out: TypingList[Dict[str, Any]] = []
+    for (lst, count) in rows:
+        out.append(
+            {
+                "id": int(lst.id),
+                "title": lst.title,
+                "description": lst.description,
+                "is_public": bool(lst.is_public),
+                "owner": username,
+                "items_count": int(count),
+                "position": int(lst.position or 0),
+                "is_system": bool(lst.is_system),
+                "system_key": lst.system_key,
+                "created_at": lst.created_at,
+                "updated_at": lst.updated_at,
+            }
+        )
+    return out
