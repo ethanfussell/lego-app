@@ -3,14 +3,15 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_user_optional
-from app.core.sanitize import sanitize_text
+from app.core.limiter import limiter
+from app.core.sanitize import contains_profanity, sanitize_text
 from app.db import get_db
 from app.models import Comment, Follower, List as ListModel, ListItem as ListItemModel, Post, PostLike, User, Set as SetModel
 from app.routers.notifications import create_notification
@@ -111,7 +112,9 @@ def _comment_to_dict(comment: Comment) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/posts", status_code=201)
+@limiter.limit("20/minute")
 def create_post(
+    request: Request,
     body: PostCreate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -119,6 +122,9 @@ def create_post(
     text = sanitize_text(body.text) if body.text else None
     if not text and not body.linked_set_num:
         raise HTTPException(status_code=400, detail="post_must_have_text_or_set")
+
+    if text and contains_profanity(text):
+        raise HTTPException(status_code=400, detail="post_contains_inappropriate_language")
 
     # Validate linked set exists
     if body.linked_set_num:
@@ -157,7 +163,9 @@ def get_post(
 
 
 @router.patch("/posts/{post_id}")
+@limiter.limit("20/minute")
 def update_post(
+    request: Request,
     post_id: int,
     body: PostUpdate,
     user: User = Depends(get_current_user),
@@ -173,7 +181,10 @@ def update_post(
         raise HTTPException(status_code=403, detail="not_post_owner")
 
     if body.text is not None:
-        post.text = sanitize_text(body.text) if body.text else None
+        cleaned = sanitize_text(body.text) if body.text else None
+        if cleaned and contains_profanity(cleaned):
+            raise HTTPException(status_code=400, detail="post_contains_inappropriate_language")
+        post.text = cleaned
     post.updated_at = datetime.now(timezone.utc)
 
     db.commit()
@@ -182,7 +193,9 @@ def update_post(
 
 
 @router.delete("/posts/{post_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_post(
+    request: Request,
     post_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -205,7 +218,9 @@ def delete_post(
 # ---------------------------------------------------------------------------
 
 @router.post("/posts/{post_id}/like", status_code=201)
+@limiter.limit("60/minute")
 def like_post(
+    request: Request,
     post_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -235,7 +250,9 @@ def like_post(
 
 
 @router.delete("/posts/{post_id}/like")
+@limiter.limit("60/minute")
 def unlike_post(
+    request: Request,
     post_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -288,7 +305,9 @@ def get_comments(
 
 
 @router.post("/posts/{post_id}/comments", status_code=201)
+@limiter.limit("30/minute")
 def create_comment(
+    request: Request,
     post_id: int,
     body: CommentCreate,
     user: User = Depends(get_current_user),
@@ -301,6 +320,9 @@ def create_comment(
     text = sanitize_text(body.text)
     if not text:
         raise HTTPException(status_code=400, detail="comment_text_required")
+
+    if contains_profanity(text):
+        raise HTTPException(status_code=400, detail="comment_contains_inappropriate_language")
 
     comment = Comment(post_id=post_id, user_id=user.id, text=text)
     db.add(comment)

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func, case
 from sqlalchemy.exc import IntegrityError
@@ -172,8 +172,8 @@ class VoteCreate(BaseModel):
 # GET /sets/reviews/me
 @router.get("/reviews/me", response_model=List[MyReviewItem])
 def list_my_reviews(
-    limit: int = 200,
-    offset: int = 0,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
@@ -182,8 +182,8 @@ def list_my_reviews(
         .outerjoin(ReviewModel.set)  # relationship join
         .where(ReviewModel.user_id == current_user.id)
         .order_by(func.coalesce(ReviewModel.updated_at, ReviewModel.created_at).desc())
-        .offset(int(offset))
-        .limit(int(limit))
+        .offset(offset)
+        .limit(limit)
     ).all()
 
     out: List[Dict[str, Any]] = []
@@ -206,7 +206,7 @@ def list_my_reviews(
 @router.get("/{set_num}/reviews", response_model=List[Review])
 def list_reviews_for_set(
     set_num: str,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     current_user: Optional[UserModel] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:

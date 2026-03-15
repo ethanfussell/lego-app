@@ -3,12 +3,13 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_user_optional
+from app.core.limiter import limiter
 from app.db import get_db
 from app.models import Follower, User
 from app.routers.notifications import create_notification
@@ -17,7 +18,9 @@ router = APIRouter(prefix="/users", tags=["follows"])
 
 
 @router.post("/{username}/follow", status_code=201)
+@limiter.limit("30/minute")
 def follow_user(
+    request: Request,
     username: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -54,7 +57,9 @@ def follow_user(
 
 
 @router.delete("/{username}/follow")
+@limiter.limit("30/minute")
 def unfollow_user(
+    request: Request,
     username: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

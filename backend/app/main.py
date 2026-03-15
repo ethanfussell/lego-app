@@ -1,7 +1,6 @@
 # backend/app/main.py
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import socket
@@ -88,8 +87,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BrickTrack API", lifespan=lifespan)
 
 # Reject weak SECRET_KEY in production
-_is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
-if _is_production:
+_is_prod_env = (
+    os.getenv("RENDER") is not None
+    or os.getenv("ENVIRONMENT", "").lower() == "production"
+    or os.getenv("NODE_ENV", "").lower() == "production"
+)
+if _is_prod_env:
     _secret = os.getenv("SECRET_KEY", "")
     if not _secret or _secret == "change-me-in-production" or len(_secret) < 16:
         raise RuntimeError("SECRET_KEY must be set to a strong value in production (min 16 chars)")
@@ -104,7 +107,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ---------------------------
 # Security + debug headers
 # ---------------------------
-_is_production = os.getenv("RENDER") is not None  # Render sets this automatically
+# Unified production detection — used for all prod/dev branching
+_is_production = (
+    os.getenv("RENDER") is not None
+    or os.getenv("ENVIRONMENT", "").lower() == "production"
+    or os.getenv("NODE_ENV", "").lower() == "production"
+)
 
 
 @app.middleware("http")
@@ -116,6 +124,7 @@ async def add_headers(request: Request, call_next):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-XSS-Protection"] = "1; mode=block"
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
     resp.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://cdn.clerk.com; "
@@ -126,6 +135,7 @@ async def add_headers(request: Request, call_next):
         "base-uri 'self'; "
         "form-action 'self'"
     )
+    resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
     # Cache headers for read-only GET endpoints
     # Skip auth-sensitive routes, admin, and user-specific endpoints
@@ -150,11 +160,8 @@ async def add_headers(request: Request, call_next):
                     "public, max-age=300, s-maxage=300, stale-while-revalidate=3600"
                 )
 
-    # Debug headers (only in dev, not production)
+    # Debug headers (only in dev, never in production)
     if not _is_production:
-        secret = (os.getenv("SECRET_KEY") or "").encode("utf-8")
-        kid = hashlib.sha256(secret).hexdigest()[:8] if secret else "none"
-        resp.headers["x-secret-kid"] = kid
         resp.headers["x-host"] = socket.gethostname()
         resp.headers["x-git-sha"] = (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
 
