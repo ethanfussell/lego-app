@@ -854,7 +854,7 @@ export default function AccountClient() {
                           height={40}
                           barWidth={16}
                           gap={10}
-                          showLabels={false}
+
                           maxWidth={420}
                           paddingY={0}
                           paddingX={0}
