@@ -62,53 +62,70 @@ function currentMonthKey(): string {
 function HeroSpotlight({ set }: { set: SetLite }) {
   const sn = String(set.set_num || "").trim();
   const imgSrc = isSafeNextImageSrc(set.image_url) ? set.image_url!.trim() : null;
-  const pieces = typeof set.pieces === "number" ? set.pieces : null;
-  const price =
-    typeof set.original_price === "number"
-      ? set.original_price
-      : typeof set.retail_price === "number"
-        ? set.retail_price
-        : null;
+  const title = set.name || set.set_num;
 
   return (
     <Link
-      href={`/sets/${sn}`}
+      href={`/sets/${encodeURIComponent(sn)}`}
       prefetch={false}
-      className="mt-6 flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white shadow-sm transition-colors hover:border-zinc-300 sm:flex-row"
+      className="group mt-6 block overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 transition-shadow hover:shadow-lg"
     >
-      <div className="relative aspect-[4/3] w-full shrink-0 bg-white sm:aspect-square sm:w-[280px]">
-        {imgSrc ? (
-          <Image
-            src={imgSrc}
-            alt={set.name || "Set image"}
-            fill
-            sizes="(max-width: 640px) 100vw, 280px"
-            className="object-contain p-6"
-            quality={80}
-            loading="eager"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-zinc-300">No image</div>
-        )}
-      </div>
-
-      <div className="flex flex-1 flex-col justify-center px-6 py-5 sm:py-8">
-        <div className="text-xs font-semibold uppercase tracking-wider text-amber-600">Spotlight</div>
-        <h2 className="mt-1 text-xl font-semibold text-zinc-900 sm:text-2xl">{set.name}</h2>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
-          {set.theme ? <span>{set.theme}</span> : null}
-          {pieces ? <span>{pieces.toLocaleString()} pieces</span> : null}
-          {price ? (
-            <span className="font-semibold text-zinc-900">{formatPrice(price, "USD")}</span>
-          ) : null}
-        </div>
-
-        {set.launch_date ? (
-          <div className="mt-2 text-xs text-zinc-400">
-            Launched {formatMonthYear(set.launch_date.slice(0, 7))}
+      <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:p-8">
+        {/* Image */}
+        {imgSrc && (
+          <div className="relative mx-auto aspect-square w-full max-w-[220px] shrink-0 sm:mx-0 sm:w-[200px]">
+            <Image
+              src={imgSrc}
+              alt={title}
+              fill
+              sizes="220px"
+              className="object-contain drop-shadow-md"
+              priority
+            />
           </div>
-        ) : null}
+        )}
+
+        {/* Info */}
+        <div className="flex-1">
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-800">
+            Spotlight
+          </span>
+          <h2 className="mt-2 text-2xl font-extrabold text-zinc-900 group-hover:text-amber-700 transition-colors sm:text-3xl">
+            {title}
+          </h2>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
+            {set.year && <span>{set.year}</span>}
+            {set.pieces && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{set.pieces.toLocaleString()} pieces</span>
+              </>
+            )}
+            {set.theme && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{set.theme}</span>
+              </>
+            )}
+          </div>
+          {(set.original_price || set.sale_price) && (
+            <div className="mt-3 flex items-baseline gap-2">
+              {typeof set.sale_price === "number" && typeof set.original_price === "number" && set.sale_price < set.original_price ? (
+                <>
+                  <span className="text-xl font-bold text-green-700">{formatPrice(set.sale_price, "USD")}</span>
+                  <span className="text-sm text-zinc-400 line-through">{formatPrice(set.original_price, "USD")}</span>
+                </>
+              ) : typeof set.original_price === "number" ? (
+                <span className="text-xl font-bold text-zinc-900">{formatPrice(set.original_price, "USD")}</span>
+              ) : typeof set.retail_price === "number" ? (
+                <span className="text-xl font-bold text-zinc-900">{formatPrice(set.retail_price, "USD")}</span>
+              ) : null}
+            </div>
+          )}
+          <div className="mt-4 inline-flex items-center rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white group-hover:bg-amber-600 transition-colors">
+            View set &rarr;
+          </div>
+        </div>
       </div>
     </Link>
   );
