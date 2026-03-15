@@ -215,18 +215,37 @@ export default function CollectionOwnedClient() {
   const [err, setErr] = useState<string | null>(null);
 
   const [sets, setSets] = useState<CollectionSet[]>([]);
+  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showBulkImport, setShowBulkImport] = useState(false);
 
-  const filters = useCollectionFilters(sets);
+  const setsWithRatings = sets.map((s) => ({
+    ...s,
+    user_rating: userRatings[s.set_num] ?? undefined,
+  }));
+
+  const filters = useCollectionFilters(setsWithRatings);
 
   const refresh = useCallback(async () => {
     if (!token) return;
 
-    const data = await apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" });
+    const [data, reviewsU] = await Promise.all([
+      apiFetch<unknown>("/collections/me/owned", { token, cache: "no-store" }),
+      apiFetch<unknown>("/sets/reviews/me?limit=500", { token, cache: "no-store" }).catch(() => []),
+    ]);
     const arr = asCollectionSetArray(data);
     setSets(arr);
+
+    const ratingsMap: Record<string, number> = {};
+    if (Array.isArray(reviewsU)) {
+      for (const r of reviewsU) {
+        if (isRecord(r) && typeof r.set_num === "string" && typeof r.rating === "number") {
+          ratingsMap[r.set_num] = r.rating;
+        }
+      }
+    }
+    setUserRatings(ratingsMap);
   }, [token]);
 
   const removeOwned = useCallback(

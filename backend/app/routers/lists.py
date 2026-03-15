@@ -1,5 +1,4 @@
 # backend/app/routers/lists.py
-from __future__ import annotations
 
 import os
 from datetime import datetime
