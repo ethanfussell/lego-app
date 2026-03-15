@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session, RelationshipProperty
+from sqlalchemy.orm import Session
 
 from ..core.auth import get_current_user
 from ..core.collections import move_wishlist_to_owned
@@ -28,26 +28,6 @@ class RatingIn(BaseModel):
     # Snap to nearest 0.5
     self.rating = round(self.rating * 2) / 2
 
-
-def _assign_review_user(review: ReviewModel, user: UserModel) -> None:
-  """
-  Works whether ReviewModel.user is:
-    - a relationship (Review.user -> UserModel), OR
-    - a string column (Review.user == "ethan")
-  """
-  user_attr = getattr(ReviewModel, "user", None) or getattr(ReviewModel, "username", None)
-  if user_attr is None:
-    raise RuntimeError("ReviewModel missing user field (expected .user or .username)")
-
-  prop = getattr(user_attr, "property", None)
-
-  if isinstance(prop, RelationshipProperty):
-    # Relationship: set the relationship directly
-    setattr(review, user_attr.key, user)
-    return
-
-  # Plain string column: store username
-  setattr(review, user_attr.key, user.username)
 
 
 @router.put("/{set_num}")
@@ -75,8 +55,7 @@ def put_rating(
     existing.rating = float(payload.rating)
     review = existing
   else:
-    review = ReviewModel(set_num=sn, rating=float(payload.rating))
-    _assign_review_user(review, user)
+    review = ReviewModel(set_num=sn, rating=float(payload.rating), user_id=user.id)
     db.add(review)
 
   db.commit()
