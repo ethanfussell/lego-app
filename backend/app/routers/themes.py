@@ -1,5 +1,4 @@
 # backend/app/routers/themes.py
-from __future__ import annotations
 
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple

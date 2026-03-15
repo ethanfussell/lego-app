@@ -1,6 +1,5 @@
 # backend/app/routers/notifications.py
 """Notification endpoints + helper to create notifications."""
-from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, update

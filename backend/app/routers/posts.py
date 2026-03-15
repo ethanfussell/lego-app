@@ -1,6 +1,5 @@
 # backend/app/routers/posts.py
 """Posts, comments, and likes endpoints."""
-from __future__ import annotations
 
 from datetime import datetime, timezone
 

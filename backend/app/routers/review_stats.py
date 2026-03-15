@@ -1,5 +1,4 @@
 # backend/app/routers/review_stats.py
-from __future__ import annotations
 
 from typing import Any, Dict
 

@@ -1,6 +1,5 @@
 # backend/app/routers/follows.py
 """Follow/unfollow endpoints. One-way follow system (like Instagram)."""
-from __future__ import annotations
 
 from typing import Any
 
