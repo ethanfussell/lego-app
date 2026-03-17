@@ -142,6 +142,7 @@ export default function TopNav() {
       });
 
       setShowSuggest(false);
+      if (tRef.current) window.clearTimeout(tRef.current);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       router.push(`/search?q=${encodeURIComponent(q)}`);
       setSearchText("");
@@ -162,6 +163,8 @@ export default function TopNav() {
       });
 
       setShowSuggest(false);
+      if (tRef.current) window.clearTimeout(tRef.current);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       router.push(`/sets/${encodeURIComponent(setNum)}`);
       setSearchText("");
     },
