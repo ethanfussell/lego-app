@@ -100,14 +100,12 @@ export default function ShopClient({ newSets, saleSets, retiringSets }: Props) {
           isOwnedByUser={isOwned(s.set_num)}
           userRatingOverride={getUserRating(s.set_num)}
           footer={
-            token ? (
-              <SetCardActions
-                token={token}
-                setNum={s.set_num}
-                isOwned={isOwned(s.set_num)}
-                isWishlist={isWishlist(s.set_num)}
-              />
-            ) : undefined
+            <SetCardActions
+              token={token ?? null}
+              setNum={s.set_num}
+              isOwned={isOwned(s.set_num)}
+              isWishlist={isWishlist(s.set_num)}
+            />
           }
         />
       </div>

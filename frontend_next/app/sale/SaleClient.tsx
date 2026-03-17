@@ -269,18 +269,12 @@ export default function SaleClient({ initialSets, totalDeals, themes }: Props) {
                       ) : null}
 
                       {/* Actions */}
-                      {hydrated && token ? (
-                        <SetCardActions
-                          token={token}
-                          setNum={set.set_num}
-                          isOwned={isOwned(set.set_num)}
-                          isWishlist={isWishlist(set.set_num)}
-                        />
-                      ) : (
-                        <div className="text-xs text-zinc-500">
-                          Log in to add to lists
-                        </div>
-                      )}
+                      <SetCardActions
+                        token={token ?? null}
+                        setNum={set.set_num}
+                        isOwned={isOwned(set.set_num)}
+                        isWishlist={isWishlist(set.set_num)}
+                      />
                     </div>
                   }
                 />

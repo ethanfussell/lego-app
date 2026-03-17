@@ -26,6 +26,19 @@ type LegoSet = {
   review_count?: number | null;
   retail_price?: number | null;
   retail_currency?: string | null;
+  // Brickset enrichment
+  subtheme?: string | null;
+  minifigs?: number | null;
+  age_min?: number | null;
+  age_max?: number | null;
+  dimensions?: { height?: number | null; width?: number | null; depth?: number | null } | null;
+  weight_kg?: number | null;
+  launch_date?: string | null;
+  exit_date?: string | null;
+  retirement_status?: string | null;
+  retirement_date?: string | null;
+  set_tag?: string | null;
+  ip?: string | null;
 };
 
 type ReviewLite = {
@@ -145,6 +158,12 @@ function buildProductJsonLd(setDetail: LegoSet, reviews: ReviewLite[] = []): Jso
       : []),
     ...(typeof setDetail.year === "number"
       ? [{ "@type": "PropertyValue", name: "Year", value: String(setDetail.year) }]
+      : []),
+    ...(typeof setDetail.minifigs === "number"
+      ? [{ "@type": "PropertyValue", name: "Minifigures", value: String(setDetail.minifigs) }]
+      : []),
+    ...(typeof setDetail.age_min === "number"
+      ? [{ "@type": "PropertyValue", name: "Minimum Age", value: String(setDetail.age_min) }]
       : []),
   ];
 

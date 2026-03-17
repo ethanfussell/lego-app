@@ -66,6 +66,19 @@ type SetDetail = {
   retired?: boolean;
   retail_price?: number | null;
   retail_currency?: string | null;
+  // Brickset enrichment fields
+  subtheme?: string | null;
+  minifigs?: number | null;
+  age_min?: number | null;
+  age_max?: number | null;
+  dimensions?: { height?: number | null; width?: number | null; depth?: number | null } | null;
+  weight_kg?: number | null;
+  launch_date?: string | null;
+  exit_date?: string | null;
+  retirement_status?: string | null;
+  retirement_date?: string | null;
+  set_tag?: string | null;
+  ip?: string | null;
 };
 
 
@@ -118,6 +131,58 @@ function formatPrice(price?: number, currency?: string): string | null {
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
+}
+
+function formatRetirementStatus(
+  status: string | null | undefined,
+): { label: string; color: string } | null {
+  switch (status) {
+    case "available":
+      return { label: "Available", color: "bg-emerald-100 text-emerald-700" };
+    case "retiring_soon":
+      return { label: "Retiring Soon", color: "bg-amber-100 text-amber-700" };
+    case "retired":
+      return { label: "Retired", color: "bg-zinc-200 text-zinc-600" };
+    case "coming_soon":
+      return { label: "Coming Soon", color: "bg-sky-100 text-sky-700" };
+    default:
+      return null;
+  }
+}
+
+function formatSpecDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length === 2) {
+    const d = new Date(`${dateStr}-01`);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short" }).format(d);
+  }
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(d);
+}
+
+function formatDimensions(
+  dims: { height?: number | null; width?: number | null; depth?: number | null } | null | undefined,
+): string | null {
+  if (!dims) return null;
+  const vals: string[] = [];
+  if (typeof dims.height === "number") vals.push(String(dims.height));
+  if (typeof dims.width === "number") vals.push(String(dims.width));
+  if (typeof dims.depth === "number") vals.push(String(dims.depth));
+  if (vals.length === 0) return null;
+  return `${vals.join(" x ")} cm`;
+}
+
+function formatAgeRange(
+  min: number | null | undefined,
+  max: number | null | undefined,
+): string | null {
+  if (typeof min === "number" && typeof max === "number") return `${min}\u2013${max}`;
+  if (typeof min === "number") return `${min}+`;
+  if (typeof max === "number") return `Up to ${max}`;
+  return null;
 }
 
 function formatReviewDate(value?: string | null) {
@@ -231,8 +296,7 @@ function HeroImage({
       <img
         src={src}
         alt={alt}
-        className="h-auto w-full object-contain"
-        style={{ width: "100%", height: "auto" }}
+        className="max-h-full max-w-full object-contain"
         loading="eager"
         decoding="async"
       />
@@ -249,8 +313,7 @@ function HeroImage({
       quality={quality}
       priority={priority}
       placeholder="empty"
-      className="h-auto w-full object-contain"
-      style={{ width: "100%", height: "auto" }}
+      className="max-h-full max-w-full object-contain"
       onError={() => setFailed(true)}
     />
   );
@@ -1056,9 +1119,44 @@ export default function SetDetailClient(props: Props) {
     );
   }
 
-  const { name, year, theme, pieces, num_parts, image_url, description, retail_price, retail_currency } = setDetail;
+  const { name, year, theme, pieces, num_parts, image_url, retail_price, retail_currency } = setDetail;
   const parts = typeof num_parts === "number" ? num_parts : pieces;
   const heroImgSrc = asTrimmedString(image_url);
+  const retirementBadge = formatRetirementStatus(setDetail.retirement_status);
+  const ageRange = formatAgeRange(setDetail.age_min, setDetail.age_max);
+  const dimensionsStr = formatDimensions(setDetail.dimensions);
+
+  // Build spec items array (only items with data)
+  type SpecItem = { label: string; value: string };
+  const specItems: SpecItem[] = [];
+  if (typeof parts === "number") {
+    specItems.push({ label: "Pieces", value: parts.toLocaleString() });
+  }
+  if (typeof setDetail.minifigs === "number" && setDetail.minifigs > 0) {
+    specItems.push({ label: "Minifigures", value: String(setDetail.minifigs) });
+  }
+  if (ageRange) {
+    specItems.push({ label: "Age Range", value: ageRange });
+  }
+  if (dimensionsStr) {
+    specItems.push({ label: "Box Dimensions", value: dimensionsStr });
+  }
+  if (typeof setDetail.weight_kg === "number") {
+    specItems.push({ label: "Weight", value: `${setDetail.weight_kg} kg` });
+  }
+  if (setDetail.subtheme) {
+    specItems.push({ label: "Subtheme", value: setDetail.subtheme });
+  }
+  if (setDetail.launch_date) {
+    specItems.push({ label: "Launch Date", value: formatSpecDate(setDetail.launch_date) || setDetail.launch_date });
+  }
+  if (setDetail.exit_date) {
+    specItems.push({ label: "Exit Date", value: formatSpecDate(setDetail.exit_date) || setDetail.exit_date });
+  }
+  if (setDetail.retirement_date && setDetail.retirement_status === "retired") {
+    specItems.push({ label: "Retired", value: formatSpecDate(setDetail.retirement_date) || setDetail.retirement_date });
+  }
+  const hasAnySpecs = specItems.length > 0;
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16">
@@ -1074,240 +1172,307 @@ export default function SetDetailClient(props: Props) {
       </div>
 
       {/* HERO */}
-      <section className="mt-8 grid gap-8 md:grid-cols-[360px_1fr]">
-        <div className="max-w-[360px]">
-          <div className="relative grid min-h-[260px] place-items-center rounded-2xl border border-zinc-200 bg-white p-5">
+      <section className="mt-6 grid gap-8 md:grid-cols-[minmax(280px,400px)_1fr] lg:grid-cols-[minmax(320px,480px)_1fr]">
+        {/* Image */}
+        <div>
+          <div className="relative grid aspect-square place-items-center rounded-2xl border border-zinc-200 bg-white p-6">
             {dealInfo ? (
               <div className="absolute left-3 top-3 z-10 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
                 SALE &minus;{dealInfo.discountPct}%
               </div>
             ) : null}
+            {retirementBadge ? (
+              <span className={`absolute right-3 top-3 z-10 rounded-full px-3 py-1 text-xs font-bold ${retirementBadge.color}`}>
+                {retirementBadge.label}
+              </span>
+            ) : null}
             {heroImgSrc ? (
               <HeroImage src={heroImgSrc} alt={name || setNum} sizes={heroImageSizes()} quality={IMAGE_QUALITY} />
             ) : (
-              <div className="grid w-full place-items-center rounded-xl bg-zinc-200 py-24 text-sm text-zinc-500">
+              <div className="grid w-full place-items-center rounded-xl bg-zinc-100 py-24 text-sm text-zinc-500">
                 No image available
               </div>
             )}
           </div>
         </div>
 
-        <div>
-          <h1 className="m-0 text-2xl font-semibold">{name || "Unknown set"}</h1>
-
-          {dealInfo ? (
-            <a href="#shop" className="mt-2 inline-flex flex-wrap items-center gap-2 hover:underline">
-              <span className="text-xl font-bold text-emerald-600">
-                {formatPrice(dealInfo.salePrice, dealInfo.currency)}
-              </span>
-              <span className="text-base text-zinc-400 line-through">
-                {formatPrice(dealInfo.retailPrice, dealInfo.currency)}
-              </span>
-              <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
-                {dealInfo.discountPct}% OFF
-              </span>
-              <span className="text-sm font-medium text-emerald-700">
-                Save {formatPrice(dealInfo.savings, dealInfo.currency)}
-              </span>
-            </a>
-          ) : bestPrice ? (
-            <a href="#shop" className="mt-1 inline-block text-xl font-bold text-amber-600 hover:underline">
-              From {formatPrice(bestPrice.price, bestPrice.currency)}
-            </a>
-          ) : typeof retail_price === "number" && retail_price > 0 ? (
-            <div className="mt-1 text-lg font-semibold text-zinc-700">
-              MSRP {formatPrice(retail_price, retail_currency || "USD")}
-            </div>
+        {/* Info */}
+        <div className="flex flex-col">
+          {/* Set tag */}
+          {setDetail.set_tag ? (
+            <span className="mb-2 inline-flex w-fit items-center rounded-full border border-purple-200 bg-purple-50 px-3 py-0.5 text-xs font-semibold text-purple-700">
+              {setDetail.set_tag}
+            </span>
           ) : null}
 
-          <p className="mt-2 text-sm text-zinc-500">
-            <span className="font-semibold text-zinc-800">{setNum}</span>
+          {/* Title */}
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">{name || "Unknown set"}</h1>
+
+          {/* Subtitle: set_num | year | theme / subtheme */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
+            <span className="font-medium text-zinc-700">{setNum}</span>
             {typeof year === "number" ? (
               <>
-                {" "}
-                •{" "}
-                <Link href={`/years/${year}`} prefetch={false} className="font-semibold hover:underline">
+                <span aria-hidden="true" className="text-zinc-300">|</span>
+                <Link href={`/years/${year}`} prefetch={false} className="hover:underline hover:text-amber-600 transition-colors">
                   {year}
                 </Link>
               </>
             ) : null}
-          </p>
-
-          {theme ? (
-            <p className="mt-1 text-sm text-zinc-500">
-              <span className="font-semibold text-zinc-500">Theme:</span>{" "}
-              <Link href={`/themes/${themeToSlug(theme)}`} prefetch={false} className="font-semibold hover:underline">
-                {theme}
-              </Link>
-            </p>
-          ) : null}
-
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            {typeof parts === "number" ? <span className="text-sm text-zinc-500">{parts.toLocaleString()} pieces</span> : null}
+            {theme ? (
+              <>
+                <span aria-hidden="true" className="text-zinc-300">|</span>
+                <Link href={`/themes/${themeToSlug(theme)}`} prefetch={false} className="hover:underline hover:text-amber-600 transition-colors">
+                  {theme}
+                </Link>
+              </>
+            ) : null}
+            {setDetail.subtheme ? (
+              <>
+                <span aria-hidden="true" className="text-zinc-300">/</span>
+                <span>{setDetail.subtheme}</span>
+              </>
+            ) : null}
           </div>
 
-          <p className="mt-3 text-sm text-zinc-600">
-            ⭐{" "}
+          {/* Price */}
+          <div className="mt-4">
+            {dealInfo ? (
+              <a href="#shop" className="inline-flex flex-wrap items-center gap-2 hover:underline">
+                <span className="text-2xl font-bold text-emerald-600">
+                  {formatPrice(dealInfo.salePrice, dealInfo.currency)}
+                </span>
+                <span className="text-base text-zinc-400 line-through">
+                  {formatPrice(dealInfo.retailPrice, dealInfo.currency)}
+                </span>
+                <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                  {dealInfo.discountPct}% OFF
+                </span>
+                <span className="text-sm font-medium text-emerald-700">
+                  Save {formatPrice(dealInfo.savings, dealInfo.currency)}
+                </span>
+              </a>
+            ) : bestPrice ? (
+              <a href="#shop" className="inline-block text-2xl font-bold text-amber-600 hover:underline">
+                From {formatPrice(bestPrice.price, bestPrice.currency)}
+              </a>
+            ) : typeof retail_price === "number" && retail_price > 0 ? (
+              <div className="text-xl font-semibold text-zinc-700">
+                MSRP {formatPrice(retail_price, retail_currency || "USD")}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Rating summary */}
+          <div className="mt-3 flex items-center gap-2 text-sm text-zinc-600">
             {ratingSummaryLoading ? (
-              <span className="inline-block h-4 w-10 animate-pulse rounded bg-zinc-200 align-middle" />
+              <span className="inline-block h-4 w-20 animate-pulse rounded bg-zinc-200" />
             ) : ratingSummaryError ? (
-              <>
-                <span className="font-semibold">—</span> <span className="text-red-600">(error loading ratings)</span>
-              </>
+              <span className="text-red-600">Error loading ratings</span>
             ) : ratingCount === 0 ? (
               <span className="text-zinc-500">No ratings yet</span>
             ) : (
               <>
-                <span className="font-semibold">{avgRating != null ? avgRating.toFixed(1) : "—"}</span>{" "}
+                <span className="text-amber-500">&#9733;</span>
+                <span className="font-semibold text-zinc-800">{avgRating != null ? avgRating.toFixed(1) : "\u2014"}</span>
                 <span className="text-zinc-500">
                   ({ratingCount} rating{ratingCount === 1 ? "" : "s"})
                 </span>
               </>
             )}
-          </p>
+          </div>
 
-          {/* Social stats display disabled (social features deferred) */}
-
-          <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="w-[220px]">
-                <AddToListMenu
-                  token={token || ""}
-                  setNum={setNum}
-                  initialOwnedSelected={isOwned(setNum)}
-                  initialWishlistSelected={isWishlist(setNum)}
-                  fullWidth
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-zinc-500">Your rating:</span>
-
-              <div
-                className="relative inline-block cursor-pointer select-none text-3xl leading-none"
-                style={{ opacity: savingRating ? 0.7 : 1 }}
-                onMouseMove={(e) => {
-                  if (!isLoggedIn || savingRating) return;
-                  setHoverRating(computeStarsFromPointer(e.currentTarget, e.clientX));
-                }}
-                onMouseLeave={() => setHoverRating(null)}
-                onClick={async (e) => {
-                  if (!isLoggedIn || savingRating) {
-                    router.push("/sign-in");
-                    return;
-                  }
-                  const value = computeStarsFromPointer(e.currentTarget, e.clientX);
-                  await handleStarClick(value);
-                }}
-              >
-                <div className="text-zinc-300">★★★★★</div>
-                <div
-                  className="pointer-events-none absolute left-0 top-0 overflow-hidden whitespace-nowrap text-amber-500"
-                  style={{ width: `${(((hoverRating ?? userRating) || 0) / 5) * 100}%` }}
-                >
-                  ★★★★★
-                </div>
-              </div>
-
-              {userRating != null ? <span className="text-sm text-zinc-500">{Number(userRating).toFixed(1)}</span> : null}
-              {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isLoggedIn) {
-                    router.push("/sign-in");
-                    return;
-                  }
-                  if (!showReviewForm && myReview) startEditMyReview();
-                  else setShowReviewForm((v) => !v);
-                }}
-                className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
-              >
-                {showReviewForm ? "Cancel review" : myReview ? "✏️ Edit your review" : "✍️ Leave a review"}
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const url = window.location.href;
-                  const title = name || setNum;
-                  if (typeof navigator !== "undefined" && navigator.share) {
-                    try {
-                      await navigator.share({ title, url });
-                      gaEvent("share", { method: "native_share", content_type: "set", item_id: setNum });
-                    } catch { /* user cancelled */ }
-                  } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(url);
-                    setShareCopied(true);
-                    toast.push("Link copied!", { type: "success" });
-                    gaEvent("share", { method: "copy_link", content_type: "set", item_id: setNum });
-                    setTimeout(() => setShareCopied(false), 2000);
-                  }
-                }}
-                className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
-              >
-                {shareCopied ? "Copied!" : "Share"}
-              </button>
-
-              {!isLoggedIn ? <span className="text-sm text-zinc-500">Log in to rate or review this set.</span> : null}
-            </div>
-
-            {/* Review form — inline right under the button */}
-            {showReviewForm ? (
-              <form
-                onSubmit={handleReviewSubmit}
-                className="mt-3"
-              >
-                <textarea
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  placeholder="What did you think of this set?"
-                  className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
-                  rows={4}
-                  disabled={reviewSubmitting}
-                />
-
-                {reviewSubmitError ? <p className="mt-2 text-sm text-red-600">{reviewSubmitError}</p> : null}
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button
-                    type="submit"
-                    disabled={reviewSubmitting}
-                    className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {reviewSubmitting ? "Saving…" : myReview ? "Save changes" : "Post review"}
-                  </button>
-
-                  {myReview ? (
-                    <button
-                      type="button"
-                      onClick={deleteMyReview}
-                      disabled={reviewSubmitting || savingRating}
-                      className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
-                    >
-                      Delete review
-                    </button>
-                  ) : null}
-                </div>
-              </form>
+          {/* Quick stats pills */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {typeof parts === "number" ? (
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700">
+                {parts.toLocaleString()} pieces
+              </span>
             ) : null}
+            {typeof setDetail.minifigs === "number" && setDetail.minifigs > 0 ? (
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700">
+                {setDetail.minifigs} minifig{setDetail.minifigs === 1 ? "" : "s"}
+              </span>
+            ) : null}
+            {ageRange ? (
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700">
+                Ages {ageRange}
+              </span>
+            ) : null}
+          </div>
 
-            {ratingError ? <p className="mt-2 text-sm text-red-600">{ratingError}</p> : null}
-          </section>
+          {/* Action card */}
+          <div className="mt-auto pt-5">
+            <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="w-[220px]">
+                  <AddToListMenu
+                    token={token || ""}
+                    setNum={setNum}
+                    initialOwnedSelected={isOwned(setNum)}
+                    initialWishlistSelected={isWishlist(setNum)}
+                    fullWidth
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <span className="text-sm text-zinc-500">Your rating:</span>
+
+                <div
+                  className="relative inline-block cursor-pointer select-none text-3xl leading-none"
+                  style={{ opacity: savingRating ? 0.7 : 1 }}
+                  onMouseMove={(e) => {
+                    if (!isLoggedIn || savingRating) return;
+                    setHoverRating(computeStarsFromPointer(e.currentTarget, e.clientX));
+                  }}
+                  onMouseLeave={() => setHoverRating(null)}
+                  onClick={async (e) => {
+                    if (!isLoggedIn || savingRating) {
+                      router.push("/sign-in");
+                      return;
+                    }
+                    const value = computeStarsFromPointer(e.currentTarget, e.clientX);
+                    await handleStarClick(value);
+                  }}
+                >
+                  <div className="text-zinc-300">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+                  <div
+                    className="pointer-events-none absolute left-0 top-0 overflow-hidden whitespace-nowrap text-amber-500"
+                    style={{ width: `${(((hoverRating ?? userRating) || 0) / 5) * 100}%` }}
+                  >
+                    &#9733;&#9733;&#9733;&#9733;&#9733;
+                  </div>
+                </div>
+
+                {userRating != null ? <span className="text-sm text-zinc-500">{Number(userRating).toFixed(1)}</span> : null}
+                {ratingError ? <span className="text-sm text-red-600">{ratingError}</span> : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isLoggedIn) {
+                      router.push("/sign-in");
+                      return;
+                    }
+                    if (!showReviewForm && myReview) startEditMyReview();
+                    else setShowReviewForm((v) => !v);
+                  }}
+                  className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
+                >
+                  {showReviewForm ? "Cancel review" : myReview ? "Edit your review" : "Leave a review"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const url = window.location.href;
+                    const title = name || setNum;
+                    if (typeof navigator !== "undefined" && navigator.share) {
+                      try {
+                        await navigator.share({ title, url });
+                        gaEvent("share", { method: "native_share", content_type: "set", item_id: setNum });
+                      } catch { /* user cancelled */ }
+                    } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                      await navigator.clipboard.writeText(url);
+                      setShareCopied(true);
+                      toast.push("Link copied!", { type: "success" });
+                      gaEvent("share", { method: "copy_link", content_type: "set", item_id: setNum });
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }
+                  }}
+                  className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 transition-colors"
+                >
+                  {shareCopied ? "Copied!" : "Share"}
+                </button>
+
+                {!isLoggedIn ? <span className="text-sm text-zinc-500">Log in to rate or review this set.</span> : null}
+              </div>
+
+              {/* Review form */}
+              {showReviewForm ? (
+                <form
+                  onSubmit={handleReviewSubmit}
+                  className="mt-3"
+                >
+                  <textarea
+                    value={reviewText}
+                    onChange={(e) => setReviewText(e.target.value)}
+                    placeholder="What did you think of this set?"
+                    className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-amber-500/20"
+                    rows={4}
+                    disabled={reviewSubmitting}
+                  />
+
+                  {reviewSubmitError ? <p className="mt-2 text-sm text-red-600">{reviewSubmitError}</p> : null}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={reviewSubmitting}
+                      className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {reviewSubmitting ? "Saving\u2026" : myReview ? "Save changes" : "Post review"}
+                    </button>
+
+                    {myReview ? (
+                      <button
+                        type="button"
+                        onClick={deleteMyReview}
+                        disabled={reviewSubmitting || savingRating}
+                        className="rounded-full border border-red-200 bg-transparent px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
+                      >
+                        Delete review
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              ) : null}
+
+              {ratingError ? <p className="mt-2 text-sm text-red-600">{ratingError}</p> : null}
+            </section>
+          </div>
         </div>
       </section>
+
+      {/* SPECIFICATIONS */}
+      {hasAnySpecs ? (
+        <section className="mt-12">
+          <h2 className="text-lg font-semibold text-zinc-900">Specifications</h2>
+          <dl className="mt-4 max-w-lg overflow-hidden rounded-2xl border border-zinc-200">
+            {specItems.map((item, i) => (
+              <div
+                key={item.label}
+                className={`flex items-baseline justify-between gap-4 bg-white px-5 py-3.5${
+                  i < specItems.length - 1 ? " border-b border-zinc-100" : ""
+                }`}
+              >
+                <dt className="shrink-0 text-sm text-zinc-500">{item.label}</dt>
+                <dd className="text-right text-sm font-medium text-zinc-900">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
 
       {/* SHOP */}
       <section id="shop" className="mt-12 scroll-mt-24">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Offers &amp; availability</h2>
-            <p className="mt-1 text-sm text-zinc-500">Compare retailers and find the best price.</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              {retirementBadge?.label === "Retired"
+                ? "This set is retired. Check secondary market for availability."
+                : "Compare retailers and find the best price."}
+            </p>
           </div>
+          {retirementBadge ? (
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${retirementBadge.color}`}>
+              {retirementBadge.label}
+            </span>
+          ) : null}
         </div>
 
         {/* Deal banner */}
@@ -1678,7 +1843,7 @@ export default function SetDetailClient(props: Props) {
                 <ul className="m-0 flex list-none gap-3 p-0">
                   {similarSets.map((s) => (
                     <li key={s.set_num} className="w-[220px] shrink-0">
-                      <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
+                      <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={<SetCardActions token={token ?? null} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} />} />
                     </li>
                   ))}
                 </ul>

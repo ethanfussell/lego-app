@@ -348,9 +348,7 @@ function RetirementWindowSection({
           const footer = (
             <div className="space-y-2">
               <UrgencyBadge dateStr={retireDate} />
-              {token ? (
-                <SetCardActions token={token} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
-              ) : null}
+              <SetCardActions token={token ?? null} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
             </div>
           );
 

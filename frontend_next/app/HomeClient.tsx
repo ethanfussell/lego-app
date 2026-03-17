@@ -430,7 +430,7 @@ export default function HomeClient({ newSets, popularSets, lists, topDeal, forma
                   key={s.set_num}
                   className="w-[220px] shrink-0 snap-start sm:w-[240px]"
                 >
-                  <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
+                  <SetCard set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={<SetCardActions token={token ?? null} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} />} />
                 </div>
               ))}
             </div>
@@ -456,7 +456,7 @@ export default function HomeClient({ newSets, popularSets, lists, topDeal, forma
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {popularSets.map((s) => (
-              <SetCard key={s.set_num} set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} /> : undefined} />
+              <SetCard key={s.set_num} set={s} token={token ?? undefined} isOwnedByUser={isOwned(s.set_num)} userRatingOverride={getUserRating(s.set_num)} footer={<SetCardActions token={token ?? null} setNum={s.set_num} isOwned={isOwned(s.set_num)} isWishlist={isWishlist(s.set_num)} />} />
             ))}
           </div>
         </section>

@@ -239,14 +239,12 @@ export default function ThemeDetailClient(props: {
                     isOwnedByUser={isOwned(original.set_num)}
                     userRatingOverride={getUserRating(original.set_num)}
                     footer={
-                      token ? (
-                        <SetCardActions
-                          token={token}
-                          setNum={original.set_num}
-                          isOwned={isOwned(original.set_num)}
-                          isWishlist={isWishlist(original.set_num)}
-                        />
-                      ) : undefined
+                      <SetCardActions
+                        token={token ?? null}
+                        setNum={original.set_num}
+                        isOwned={isOwned(original.set_num)}
+                        isWishlist={isWishlist(original.set_num)}
+                      />
                     }
                   />
                 </div>

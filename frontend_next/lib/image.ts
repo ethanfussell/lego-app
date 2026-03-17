@@ -13,8 +13,8 @@ export function cardImageSizes(): string {
   }
   
   export function heroImageSizes(): string {
-    // set detail hero: full width on mobile, ~360px column on desktop
-    return "(max-width: 768px) 92vw, 360px";
+    // set detail hero: full width on mobile, responsive column on desktop
+    return "(max-width: 768px) 92vw, 480px";
   }
   
   export const IMAGE_QUALITY = 75 as const;

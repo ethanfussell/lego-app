@@ -12,6 +12,7 @@ import AnalyticsClient from "@/app/components/AnalyticsClient";
 import { siteBase, SITE_NAME } from "@/lib/url";
 import WebVitals from "@/app/components/WebVitals";
 import CookieConsent from "@/app/components/CookieConsent";
+import ScrollToTop from "@/app/components/ScrollToTop";
 
 
 export const metadata: Metadata = {
@@ -90,6 +91,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   Skip to content
                 </a>
                 <TopNav />
+                <ScrollToTop />
                 <AnalyticsClient />
                 <WebVitals />
                 <main id="main-content" className="mx-auto w-full max-w-5xl px-6 pb-20 md:pb-16">{children}</main>

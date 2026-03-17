@@ -283,14 +283,12 @@ function FeaturedThemesSection({
                     isOwnedByUser={isOwn}
                     userRatingOverride={getUserRating(sn)}
                     footer={
-                      token ? (
-                        <SetCardActions
-                          token={token}
-                          setNum={sn}
-                          isOwned={isOwn}
-                          isWishlist={isWish}
-                        />
-                      ) : undefined
+                      <SetCardActions
+                        token={token ?? null}
+                        setNum={sn}
+                        isOwned={isOwn}
+                        isWishlist={isWish}
+                      />
                     }
                   />
                 </div>
@@ -420,14 +418,12 @@ function MonthlyReleaseSection({
                 isOwnedByUser={isOwn}
                 userRatingOverride={getUserRating(sn)}
                 footer={
-                  token ? (
-                    <SetCardActions
-                      token={token}
-                      setNum={sn}
-                      isOwned={isOwn}
-                      isWishlist={isWish}
-                    />
-                  ) : undefined
+                  <SetCardActions
+                    token={token ?? null}
+                    setNum={sn}
+                    isOwned={isOwn}
+                    isWishlist={isWish}
+                  />
                 }
               />
             </div>

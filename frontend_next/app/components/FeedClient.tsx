@@ -156,9 +156,7 @@ export default function FeedClient({
                   isOwnedByUser={isOwned(sn)}
                   userRatingOverride={getUserRating(sn)}
                   footer={
-                    token ? (
-                      <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} />
-                    ) : null
+                    <SetCardActions token={token ?? null} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} />
                   }
                 />
               </li>

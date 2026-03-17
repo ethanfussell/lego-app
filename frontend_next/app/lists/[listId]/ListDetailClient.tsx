@@ -457,7 +457,7 @@ export default function ListDetailClient(props: {
                     userRatingOverride={getUserRating(sn)}
                     footer={
                       <div className="space-y-2">
-                        {token ? <SetCardActions token={token} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} /> : null}
+                        <SetCardActions token={token ?? null} setNum={sn} isOwned={isOwned(sn)} isWishlist={isWishlist(sn)} />
 
                         <button
                           type="button"

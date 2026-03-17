@@ -177,13 +177,13 @@ function InteractiveStars({
             aria-label={`Rate ${n} stars`}
             title={hover != null ? `${hover}` : `${n}`}
           >
-            <span className="relative inline-block h-5 w-5">
-              <StarIcon className="absolute inset-0 h-5 w-5 text-zinc-300" />
+            <span className="relative inline-block h-6 w-6">
+              <StarIcon className="absolute inset-0 h-6 w-6 text-zinc-300" />
               {full ? (
-                <StarIcon className="absolute inset-0 h-5 w-5 text-amber-500 transition-colors" />
+                <StarIcon className="absolute inset-0 h-6 w-6 text-amber-500 transition-colors" />
               ) : half ? (
                 <span className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
-                  <StarIcon className="h-5 w-5 text-amber-500 transition-colors" />
+                  <StarIcon className="h-6 w-6 text-amber-500 transition-colors" />
                 </span>
               ) : null}
             </span>
@@ -377,7 +377,7 @@ export default function SetCard({ set, variant = "default", footer, token, isOwn
       </Link>
 
       {isOwned ? (
-        <div className="border-t border-zinc-200 px-4 py-2.5">
+        <div className="border-t border-zinc-200 px-4 py-3">
           <div className="flex flex-col items-center gap-1">
             <InteractiveStars value={userRating} disabled={savingRate} onPick={submitRating} />
             {justSaved ? (
