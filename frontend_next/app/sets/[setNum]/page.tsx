@@ -347,9 +347,24 @@ const fetchOffers = cache(async (setNum: string): Promise<UiOffer[]> => {
     .filter(isUiOffer);
 });
 
-// Keep reviews disabled for now (still returns stable cached value)
-const fetchTopTextReviews = cache(async (_setNum: string, _limit = 10): Promise<ReviewLite[]> => {
-  return [];
+const fetchTopTextReviews = cache(async (setNum: string, limit = 10): Promise<ReviewLite[]> => {
+  const s = String(setNum ?? "").trim();
+  if (!s) return [];
+
+  const url = `${apiBase()}/sets/${encodeURIComponent(s)}/reviews?limit=${limit}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 },
+  });
+
+  if (!res.ok) return [];
+
+  const data: unknown = await res.json().catch(() => null);
+  const arr = Array.isArray(data) ? data : [];
+
+  return arr.filter(isReviewLite).filter((r) => typeof r.text === "string" && r.text.trim().length > 0);
 });
 
 // ---- Metadata ----
