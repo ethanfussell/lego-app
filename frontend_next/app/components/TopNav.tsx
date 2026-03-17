@@ -142,6 +142,7 @@ export default function TopNav() {
       });
 
       setShowSuggest(false);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       router.push(`/search?q=${encodeURIComponent(q)}`);
       setSearchText("");
     },
@@ -166,6 +167,12 @@ export default function TopNav() {
     },
     [searchText, router]
   );
+
+  // Close suggestions on route change
+  useEffect(() => {
+    setShowSuggest(false);
+    setSearchText("");
+  }, [pathname]);
 
   // Escape closes suggestions
   useEffect(() => {
