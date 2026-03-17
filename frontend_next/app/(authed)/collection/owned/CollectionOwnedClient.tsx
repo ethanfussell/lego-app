@@ -426,7 +426,7 @@ export default function CollectionOwnedClient() {
             const plain = toPlain(s.set_num);
             return (
               <li key={s.set_num} className="group relative">
-                <SetCard set={s} variant="owned" footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned /> : null} />
+                <SetCard set={s} variant="owned" token={token ?? undefined} footer={token ? <SetCardActions token={token} setNum={s.set_num} isOwned /> : null} />
 
                 {/* Hover-reveal trash button */}
                 <button
