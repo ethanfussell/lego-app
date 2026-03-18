@@ -142,10 +142,11 @@ export default function TopNav() {
       });
 
       setShowSuggest(false);
+      setSuggestions([]);
       if (tRef.current) window.clearTimeout(tRef.current);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      router.push(`/search?q=${encodeURIComponent(q)}`);
       setSearchText("");
+      router.push(`/search?q=${encodeURIComponent(q)}`);
     },
     [searchText, router]
   );
@@ -163,10 +164,11 @@ export default function TopNav() {
       });
 
       setShowSuggest(false);
+      setSuggestions([]);
       if (tRef.current) window.clearTimeout(tRef.current);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      router.push(`/sets/${encodeURIComponent(setNum)}`);
       setSearchText("");
+      router.push(`/sets/${encodeURIComponent(setNum)}`);
     },
     [searchText, router]
   );
@@ -174,7 +176,9 @@ export default function TopNav() {
   // Close suggestions on route change
   useEffect(() => {
     setShowSuggest(false);
+    setSuggestions([]);
     setSearchText("");
+    if (tRef.current) window.clearTimeout(tRef.current);
   }, [pathname]);
 
   // Escape closes suggestions
