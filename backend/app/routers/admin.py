@@ -1,6 +1,7 @@
 # backend/app/routers/admin.py
 
 import importlib
+import threading
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -142,8 +143,15 @@ def trigger_pipeline(
 
     module_path, func_name = _PIPELINES[pipeline_name].rsplit(".", 1)
     mod = importlib.import_module(module_path)
-    func = getattr(mod, func_name)
-    result = func()
+    fn = getattr(mod, func_name)
+
+    # Long-running pipelines (like bricklink_prices) run in background
+    _LONG_RUNNING = {"bricklink_prices"}
+    if pipeline_name in _LONG_RUNNING:
+        threading.Thread(target=fn, daemon=True).start()
+        return {"ok": True, "pipeline": pipeline_name, "status": "started_in_background"}
+
+    result = fn()
     return {"ok": True, "pipeline": pipeline_name, "result": result}
 
 
