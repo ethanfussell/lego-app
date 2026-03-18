@@ -103,6 +103,8 @@ export default function TopNav() {
       return;
     }
 
+    const controller = new AbortController();
+
     if (tRef.current) window.clearTimeout(tRef.current);
 
     tRef.current = window.setTimeout(async () => {
@@ -110,23 +112,29 @@ export default function TopNav() {
         setLoading(true);
         setSuggestErr(null);
 
-        const resp = await fetch(`/api/sets/suggest?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        const resp = await fetch(`/api/sets/suggest?q=${encodeURIComponent(q)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!resp.ok) throw new Error(`Suggest failed (${resp.status})`);
 
         const data: unknown = await resp.json();
+        if (controller.signal.aborted) return;
         setSuggestions(isSuggestionArray(data) ? data : []);
         setShowSuggest(true);
       } catch (e: unknown) {
+        if (controller.signal.aborted) return;
         setSuggestErr(errorMessage(e));
         setSuggestions([]);
         setShowSuggest(false);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 250);
 
     return () => {
       if (tRef.current) window.clearTimeout(tRef.current);
+      controller.abort();
     };
   }, [searchText]);
 
