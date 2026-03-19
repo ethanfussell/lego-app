@@ -91,6 +91,11 @@ export default function AddToListMenu({
     placement: "down",
   });
 
+  const [creatingList, setCreatingList] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [creatingLoading, setCreatingLoading] = useState(false);
+  const newListInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => setMounted(true), []);
   useEffect(() => setOwnedSelected(initialOwnedSelected), [initialOwnedSelected]);
   useEffect(() => setWishlistSelected(initialWishlistSelected), [initialWishlistSelected]);
@@ -172,6 +177,8 @@ export default function AddToListMenu({
       if (menu && menu.contains(t)) return;
 
       setOpen(false);
+      setCreatingList(false);
+      setNewListName("");
     }
 
     document.addEventListener("keydown", onKey);
@@ -319,7 +326,7 @@ export default function AddToListMenu({
     }
   }
 
-  const label = customLabel ?? (ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add");
+  const label = customLabel ?? (ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add to list");
   const disableButtons = loading || !token;
 
   const menu = (
@@ -418,6 +425,87 @@ export default function AddToListMenu({
             );
           })}
         </div>
+      )}
+
+      {enableCustomLists && (
+        <>
+          <div className="my-1 h-px bg-zinc-200" />
+          {creatingList ? (
+            <form
+              className="flex items-center gap-2 px-3 py-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const name = newListName.trim();
+                if (!name || creatingLoading) return;
+                setCreatingLoading(true);
+                try {
+                  const created = await apiFetch<ListDetail>("/lists", {
+                    token,
+                    method: "POST",
+                    body: { title: name },
+                  });
+                  toast.push(`Created "${name}"`, { type: "success" });
+                  setNewListName("");
+                  setCreatingList(false);
+                  // Add the new list to state and toggle it for this set
+                  setLists((prev) => [...prev, { id: created.id, title: created.title, is_system: false }]);
+                  setDetailById((prev) => ({
+                    ...prev,
+                    [String(created.id)]: { ...created, items: [] },
+                  }));
+                  // Auto-add the set to the new list
+                  await apiFetch<unknown>(`/lists/${encodeURIComponent(String(created.id))}/items`, {
+                    token,
+                    method: "POST",
+                    body: { set_num: setNum },
+                  });
+                  setDetailById((prev) => ({
+                    ...prev,
+                    [String(created.id)]: { ...created, items: [{ set_num: setNum }] },
+                  }));
+                  toast.push(`Added to "${name}"`, { type: "success" });
+                  setOpen(false);
+                } catch (e: unknown) {
+                  setErr(errorMessage(e));
+                } finally {
+                  setCreatingLoading(false);
+                }
+              }}
+            >
+              <input
+                ref={newListInputRef}
+                type="text"
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                placeholder="List name"
+                className="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 text-sm outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+                autoFocus
+                disabled={creatingLoading}
+              />
+              <button
+                type="submit"
+                disabled={!newListName.trim() || creatingLoading}
+                className="h-8 rounded-lg bg-amber-500 px-3 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {creatingLoading ? "..." : "Add"}
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setCreatingList(true);
+                setTimeout(() => newListInputRef.current?.focus(), 50);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-amber-600 hover:bg-zinc-100"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+              Create custom list
+            </button>
+          )}
+        </>
       )}
     </div>
   );
