@@ -35,32 +35,32 @@ export default function CollectionStats({ setNum }: { setNum: string }) {
   const maxCount = Math.max(1, ...BARS.map((b) => stats[b.key]));
 
   return (
-    <section className="mt-10">
-      <h2 className="text-lg font-bold text-zinc-900">Community</h2>
-      <p className="mt-1 text-sm text-zinc-500">
+    <section className="mt-5">
+      <h2 className="text-sm font-semibold text-zinc-900">Community</h2>
+      <p className="mt-0.5 text-xs text-zinc-500">
         {total.toLocaleString()} {total === 1 ? "collector has" : "collectors have"} this set
       </p>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-2.5 space-y-2">
         {BARS.map((bar) => {
           const count = stats[bar.key];
           const pct = maxCount > 0 ? (count / maxCount) * 100 : 0;
 
           return (
-            <div key={bar.key} className="flex items-center gap-3">
-              <span className="w-16 shrink-0 text-right text-sm font-medium text-zinc-600">
+            <div key={bar.key} className="flex items-center gap-2">
+              <span className="w-14 shrink-0 text-right text-xs font-medium text-zinc-600">
                 {bar.label}
               </span>
-              <div className="relative h-8 flex-1 overflow-hidden rounded-lg bg-zinc-100">
+              <div className="relative h-6 flex-1 overflow-hidden rounded-md bg-zinc-100">
                 <div
-                  className="h-full rounded-lg transition-all duration-300 ease-out"
+                  className="h-full rounded-md transition-all duration-300 ease-out"
                   style={{
                     width: `${Math.max(pct, count > 0 ? 3 : 0)}%`,
                     backgroundColor: bar.color,
                   }}
                 />
               </div>
-              <span className="w-10 shrink-0 text-sm font-semibold text-zinc-700">
+              <span className="w-8 shrink-0 text-xs font-semibold text-zinc-700">
                 {count.toLocaleString()}
               </span>
             </div>

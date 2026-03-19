@@ -1157,6 +1157,9 @@ export default function SetDetailClient(props: Props) {
             ) : null}
           </div>
 
+          {/* Community collection stats */}
+          <CollectionStats setNum={setNum} />
+
           {/* Action card */}
           <div className="mt-auto pt-5">
             <section className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -1313,8 +1316,6 @@ export default function SetDetailClient(props: Props) {
         </section>
       ) : null}
 
-      {/* COMMUNITY STATS */}
-      <CollectionStats setNum={setNum} />
 
       {/* SHOP */}
       <ShopSection
