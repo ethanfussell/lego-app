@@ -28,6 +28,7 @@ import { variantFromKey, variantFromQuery, type Variant } from "@/lib/ab";
 import ReviewsSection, { type ReviewItem } from "./ReviewsSection";
 import SimilarSetsSection from "./SimilarSetsSection";
 import ShopSection from "./ShopSection";
+import CollectionStats from "./CollectionStats";
 
 function normalizeUsername(raw: unknown): string | null {
   return asTrimmedString(raw);
@@ -1311,6 +1312,9 @@ export default function SetDetailClient(props: Props) {
           </dl>
         </section>
       ) : null}
+
+      {/* COMMUNITY STATS */}
+      <CollectionStats setNum={setNum} />
 
       {/* SHOP */}
       <ShopSection

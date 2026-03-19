@@ -27,6 +27,7 @@ from ..models import Review as ReviewModel
 from ..models import Set as SetModel
 from ..models import User as UserModel
 from ..models import AdminSetting
+from ..models import List as ListModel, ListItem as ListItemModel
 
 router = APIRouter()
 
@@ -1685,6 +1686,35 @@ def get_set(
 
 
 # ---------------------------------------------------------------------------
+# Collection stats (public aggregate)
+# ---------------------------------------------------------------------------
+
+@router.get("/{set_num}/collection-stats")
+def collection_stats(set_num: str, db: Session = Depends(get_db)):
+    """Public aggregate counts: how many users own / wishlist / have this set in custom lists."""
+    # Strip the "-1" suffix if present for matching
+    plain = set_num.split("-")[0] if "-" in set_num else set_num
+
+    def _count(system_key: Optional[str] = None, is_system: bool = True) -> int:
+        q = (
+            select(func.count(func.distinct(ListModel.owner_id)))
+            .select_from(ListItemModel)
+            .join(ListModel, ListModel.id == ListItemModel.list_id)
+            .where(ListItemModel.set_num == plain)
+        )
+        if is_system and system_key:
+            q = q.where(ListModel.is_system.is_(True), ListModel.system_key == system_key)
+        elif not is_system:
+            q = q.where(ListModel.is_system.is_(False))
+        return db.execute(q).scalar() or 0
+
+    return {
+        "owned_count": _count("owned"),
+        "wishlist_count": _count("wishlist"),
+        "custom_list_count": _count(is_system=False),
+    }
+
+
 # Public site stats (for home page)
 # ---------------------------------------------------------------------------
 
