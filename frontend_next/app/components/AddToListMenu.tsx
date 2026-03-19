@@ -54,6 +54,8 @@ export default function AddToListMenu({
   enableCustomLists = true,
   fullWidth = false,
   buttonClassName = "",
+  customLabel,
+  customListsOnly = false,
 }: {
   token: string;
   setNum: string;
@@ -62,6 +64,8 @@ export default function AddToListMenu({
   enableCustomLists?: boolean;
   fullWidth?: boolean;
   buttonClassName?: string;
+  customLabel?: string;
+  customListsOnly?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -315,7 +319,7 @@ export default function AddToListMenu({
     }
   }
 
-  const label = ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add";
+  const label = customLabel ?? (ownedSelected ? "Owned" : wishlistSelected ? "Wishlist" : "Add");
   const disableButtons = loading || !token;
 
   const menu = (
@@ -331,50 +335,54 @@ export default function AddToListMenu({
       }}
     >
       <div className="px-4 py-2 text-xs font-semibold text-zinc-500">
-        {loading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-zinc-200" /> : err ? `Error: ${err}` : "Choose lists"}
+        {loading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-zinc-200" /> : err ? `Error: ${err}` : customListsOnly ? "Your lists" : "Choose lists"}
       </div>
 
-      <button
-        type="button"
-        disabled={disableButtons}
-        onClick={async () => {
-          try {
-            const wasSelected = ownedSelected;
-            await toggleOwned();
-            notifyCollectionChanged();
-            toast.push(wasSelected ? "Removed from Owned" : "Added to Owned", { type: "success" });
-            setOpen(false);
-          } catch (e: unknown) {
-            setErr(errorMessage(e));
-          }
-        }}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
-      >
-        <span>Owned</span>
-        <span className="text-xs font-semibold text-zinc-500">{ownedSelected ? "✓" : ""}</span>
-      </button>
+      {!customListsOnly && (
+        <>
+          <button
+            type="button"
+            disabled={disableButtons}
+            onClick={async () => {
+              try {
+                const wasSelected = ownedSelected;
+                await toggleOwned();
+                notifyCollectionChanged();
+                toast.push(wasSelected ? "Removed from Owned" : "Added to Owned", { type: "success" });
+                setOpen(false);
+              } catch (e: unknown) {
+                setErr(errorMessage(e));
+              }
+            }}
+            className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
+          >
+            <span>Owned</span>
+            <span className="text-xs font-semibold text-zinc-500">{ownedSelected ? "✓" : ""}</span>
+          </button>
 
-      <button
-        type="button"
-        disabled={disableButtons}
-        onClick={async () => {
-          try {
-            const wasSelected = wishlistSelected;
-            await toggleWishlist();
-            notifyCollectionChanged();
-            toast.push(wasSelected ? "Removed from Wishlist" : "Added to Wishlist", { type: "success" });
-            setOpen(false);
-          } catch (e: unknown) {
-            setErr(errorMessage(e));
-          }
-        }}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
-      >
-        <span>Wishlist</span>
-        <span className="text-xs font-semibold text-zinc-500">{wishlistSelected ? "✓" : ""}</span>
-      </button>
+          <button
+            type="button"
+            disabled={disableButtons}
+            onClick={async () => {
+              try {
+                const wasSelected = wishlistSelected;
+                await toggleWishlist();
+                notifyCollectionChanged();
+                toast.push(wasSelected ? "Removed from Wishlist" : "Added to Wishlist", { type: "success" });
+                setOpen(false);
+              } catch (e: unknown) {
+                setErr(errorMessage(e));
+              }
+            }}
+            className="flex w-full items-center justify-between px-4 py-3 text-sm hover:bg-zinc-100 disabled:opacity-60"
+          >
+            <span>Wishlist</span>
+            <span className="text-xs font-semibold text-zinc-500">{wishlistSelected ? "✓" : ""}</span>
+          </button>
 
-      <div className="my-1 h-px bg-zinc-200" />
+          <div className="my-1 h-px bg-zinc-200" />
+        </>
+      )}
 
       {!enableCustomLists ? (
         <div className="px-4 py-3 text-sm text-zinc-500">Custom lists coming soon.</div>
@@ -430,19 +438,21 @@ export default function AddToListMenu({
         className={[
           fullWidth ? "w-full" : "min-w-0",
           "inline-flex h-10 items-center justify-center whitespace-nowrap rounded-full border px-4 text-sm font-semibold disabled:opacity-60 transition-colors",
-          ownedSelected
-            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-            : wishlistSelected
-              ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-              : "border-zinc-200 bg-transparent text-zinc-600 hover:bg-zinc-100",
+          customLabel
+            ? "border-zinc-200 bg-transparent text-zinc-600 hover:bg-zinc-100"
+            : ownedSelected
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              : wishlistSelected
+                ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                : "border-zinc-200 bg-transparent text-zinc-600 hover:bg-zinc-100",
           buttonClassName,
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        {ownedSelected ? (
+        {!customLabel && ownedSelected ? (
           <svg className="mr-1.5 h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-        ) : wishlistSelected ? (
+        ) : !customLabel && wishlistSelected ? (
           <svg className="mr-1.5 h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
         ) : null}
         {label}

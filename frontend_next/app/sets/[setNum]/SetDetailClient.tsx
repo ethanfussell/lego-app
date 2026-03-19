@@ -1157,22 +1157,29 @@ export default function SetDetailClient(props: Props) {
             ) : null}
           </div>
 
-          {/* Community collection stats */}
+          {/* Community collection stats cards */}
           <CollectionStats setNum={setNum} />
 
           {/* Action card */}
           <div className="mt-auto pt-5">
             <section className="rounded-2xl border border-zinc-200 bg-white p-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="w-[220px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <AddToListMenu
+                  token={token || ""}
+                  setNum={setNum}
+                  initialOwnedSelected={isOwned(setNum)}
+                  initialWishlistSelected={isWishlist(setNum)}
+                />
+                {(isOwned(setNum) || isWishlist(setNum)) && (
                   <AddToListMenu
                     token={token || ""}
                     setNum={setNum}
                     initialOwnedSelected={isOwned(setNum)}
                     initialWishlistSelected={isWishlist(setNum)}
-                    fullWidth
+                    customLabel="Add to list"
+                    customListsOnly
                   />
-                </div>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-3">
