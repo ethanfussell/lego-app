@@ -1639,14 +1639,15 @@ def discover_page_config(db: Session = Depends(get_db)):
 @router.get("/{set_num}/collection-stats")
 def collection_stats(set_num: str, db: Session = Depends(get_db)):
     """Public aggregate counts: how many users own / wishlist / have this set in custom lists."""
-    plain = set_num.split("-")[0] if "-" in set_num else set_num
+    # Ensure we use the full set_num with suffix (e.g. "76456-1") to match ListItem.set_num
+    full = set_num if "-" in set_num else f"{set_num}-1"
 
     def _count(system_key: Optional[str] = None, is_system: bool = True) -> int:
         q = (
             select(func.count(func.distinct(ListModel.owner_id)))
             .select_from(ListItemModel)
             .join(ListModel, ListModel.id == ListItemModel.list_id)
-            .where(ListItemModel.set_num == plain)
+            .where(ListItemModel.set_num == full)
         )
         if is_system and system_key:
             q = q.where(ListModel.is_system.is_(True), ListModel.system_key == system_key)
