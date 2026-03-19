@@ -90,14 +90,13 @@ export default function ThemeDetailClient(props: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Active vs all: active = sets from the last 3 years
-  const [showAll, setShowAll] = useState(false);
-
   // Subtheme filtering
+  const initialSubtheme = searchParams.get("subtheme") || null;
   const [subthemes, setSubthemes] = useState<string[]>([]);
-  const [activeSubtheme, setActiveSubtheme] = useState<string | null>(
-    searchParams.get("subtheme") || null,
-  );
+  const [activeSubtheme, setActiveSubtheme] = useState<string | null>(initialSubtheme);
+
+  // Active vs all: default to "all" when arriving with a subtheme filter
+  const [showAll, setShowAll] = useState(!!initialSubtheme);
 
   // Fetch available subthemes on mount
   useEffect(() => {
