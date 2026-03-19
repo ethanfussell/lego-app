@@ -1085,13 +1085,7 @@ export default function SetDetailClient(props: Props) {
             {setDetail.subtheme && setDetail.subtheme !== theme ? (
               <>
                 <span aria-hidden="true" className="text-zinc-300">/</span>
-                <Link
-                  href={`/themes/${themeToSlug(theme)}?subtheme=${encodeURIComponent(setDetail.subtheme)}`}
-                  prefetch={false}
-                  className="hover:underline hover:text-amber-600 transition-colors"
-                >
-                  {setDetail.subtheme}
-                </Link>
+                <span>{setDetail.subtheme}</span>
               </>
             ) : null}
           </div>
