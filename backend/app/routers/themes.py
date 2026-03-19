@@ -6,12 +6,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.data.sets import load_cached_sets
 from app.data import offers as offers_data
 from app.db import get_db
-from app.models import AdminSetting
+from app.models import AdminSetting, Set as SetModel
 
 import json as _json
 import logging
@@ -192,6 +192,31 @@ def list_themes(
     ]
 
 
+@router.get("/{theme}/subthemes")
+def list_subthemes_for_theme(
+    theme: str,
+    db: Session = Depends(get_db),
+) -> List[str]:
+    """Return distinct subtheme values for a theme (from DB)."""
+    theme_raw = _norm(theme)
+    if not theme_raw:
+        raise HTTPException(status_code=404, detail="theme_not_found")
+
+    # Theme names stored in DB may differ in case; use case-insensitive match
+    rows = db.execute(
+        select(SetModel.subtheme)
+        .where(
+            func.lower(SetModel.theme) == theme_raw.lower(),
+            SetModel.subtheme.isnot(None),
+            SetModel.subtheme != "",
+        )
+        .distinct()
+        .order_by(SetModel.subtheme)
+    ).scalars().all()
+
+    return [r for r in rows if r]
+
+
 @router.get("/{theme}/sets")
 def list_sets_for_theme(
     theme: str,
@@ -202,6 +227,7 @@ def list_sets_for_theme(
     order: str = Query("desc"),
     q: Optional[str] = Query(None),
     min_year: Optional[int] = Query(None),
+    subtheme: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
@@ -242,6 +268,19 @@ def list_sets_for_theme(
             s for s in filtered
             if int(s.get("year") or 0) >= min_year
         ]
+
+    # optional subtheme filter (look up matching set_nums from DB)
+    if subtheme:
+        matching_nums = set(
+            db.execute(
+                select(SetModel.set_num)
+                .where(
+                    func.lower(SetModel.theme) == theme_raw.lower(),
+                    func.lower(SetModel.subtheme) == subtheme.lower(),
+                )
+            ).scalars().all()
+        )
+        filtered = [s for s in filtered if s.get("set_num") in matching_nums]
 
     # optional query within the theme page (search by name/set_num/theme)
     q_clean = _norm(q or "")

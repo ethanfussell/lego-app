@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { slugToTheme } from "@/lib/slug";
 import { isRecord } from "@/lib/types";
 import SetCard from "@/app/components/SetCard";
@@ -78,6 +79,7 @@ export default function ThemeDetailClient(props: {
   const { themeSlug, initialSets, initialTotal } = props;
   const { token } = useAuth();
   const { isOwned, isWishlist, getUserRating } = useCollectionStatus();
+  const searchParams = useSearchParams();
 
   const themeName = useMemo(() => slugToTheme(themeSlug), [themeSlug]);
 
@@ -91,10 +93,26 @@ export default function ThemeDetailClient(props: {
   // Active vs all: active = sets from the last 3 years
   const [showAll, setShowAll] = useState(false);
 
+  // Subtheme filtering
+  const [subthemes, setSubthemes] = useState<string[]>([]);
+  const [activeSubtheme, setActiveSubtheme] = useState<string | null>(
+    searchParams.get("subtheme") || null,
+  );
+
+  // Fetch available subthemes on mount
+  useEffect(() => {
+    fetch(`/api/themes/${themeSlug}/subthemes`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: unknown) => {
+        if (Array.isArray(data)) setSubthemes(data.filter((s): s is string => typeof s === "string"));
+      })
+      .catch(() => {});
+  }, [themeSlug]);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const reqKeyRef = useRef(0);
 
-  const fetchSets = useCallback(async (pg: number, sv: SortValue, all: boolean) => {
+  const fetchSets = useCallback(async (pg: number, sv: SortValue, all: boolean, sub: string | null = null) => {
     const reqId = ++reqKeyRef.current;
     setLoading(true);
     setError(null);
@@ -111,6 +129,10 @@ export default function ThemeDetailClient(props: {
         const currentYear = new Date().getFullYear();
         const minYear = currentYear - 2;
         qs.set("min_year", String(minYear));
+      }
+
+      if (sub) {
+        qs.set("subtheme", sub);
       }
 
       const url = `/api/themes/${themeSlug}/sets?${qs.toString()}`;
@@ -142,17 +164,16 @@ export default function ThemeDetailClient(props: {
     }
   }, [themeSlug]);
 
-  // Re-fetch when sort, page, or active/all changes (skip initial render)
+  // Re-fetch when sort, page, active/all, or subtheme changes
   const isFirstRender = useRef(true);
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
-      // On mount, fetch with default sort (year_desc) since server used "relevance"
-      fetchSets(1, "year_desc", false);
+      fetchSets(1, "year_desc", false, activeSubtheme);
       return;
     }
-    fetchSets(page, sortValue, showAll);
-  }, [page, sortValue, showAll, fetchSets]);
+    fetchSets(page, sortValue, showAll, activeSubtheme);
+  }, [page, sortValue, showAll, activeSubtheme, fetchSets]);
 
   function handleSortChange(v: SortValue) {
     setSortValue(v);
@@ -166,6 +187,11 @@ export default function ThemeDetailClient(props: {
 
   function handleToggleAll() {
     setShowAll(!showAll);
+    setPage(1);
+  }
+
+  function handleSubthemeChange(sub: string | null) {
+    setActiveSubtheme(sub);
     setPage(1);
   }
 
@@ -214,6 +240,37 @@ export default function ThemeDetailClient(props: {
           </label>
         </div>
       </div>
+
+      {/* Subtheme chips */}
+      {subthemes.length > 1 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => handleSubthemeChange(null)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeSubtheme === null
+                ? "border-amber-500 bg-amber-500 text-black"
+                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+            }`}
+          >
+            All
+          </button>
+          {subthemes.map((sub) => (
+            <button
+              key={sub}
+              type="button"
+              onClick={() => handleSubthemeChange(sub)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                activeSubtheme === sub
+                  ? "border-amber-500 bg-amber-500 text-black"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              {sub}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Loading */}
       {loading && <div className="mt-6"><SetGridSkeleton count={12} /></div>}

@@ -1,7 +1,7 @@
 // frontend_next/app/sets/[setNum]/SetDetailClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -253,33 +253,66 @@ function HeroImage({
   priority?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const [origin, setOrigin] = useState("50% 50%");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setOrigin(`${x}% ${y}%`);
+  }, []);
+
+  const zoomStyle: React.CSSProperties = {
+    transformOrigin: origin,
+    transform: zoomed ? "scale(2)" : "scale(1)",
+    transition: "transform 0.2s ease-out",
+  };
 
   if (failed) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src}
-        alt={alt}
-        className="max-h-full max-w-full object-contain"
-        loading="eager"
-        decoding="async"
-      />
+      <div
+        ref={containerRef}
+        className="absolute inset-0 cursor-zoom-in overflow-hidden"
+        onMouseEnter={() => setZoomed(true)}
+        onMouseLeave={() => setZoomed(false)}
+        onMouseMove={handleMouseMove}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          className="h-full w-full object-contain p-6"
+          loading="eager"
+          decoding="async"
+          style={zoomStyle}
+        />
+      </div>
     );
   }
 
   return (
-    <Image
-      src={src}
-      alt={alt}
-      width={720}
-      height={540}
-      sizes={sizes}
-      quality={quality}
-      priority={priority}
-      placeholder="empty"
-      className="max-h-full max-w-full object-contain"
-      onError={() => setFailed(true)}
-    />
+    <div
+      ref={containerRef}
+      className="absolute inset-0 cursor-zoom-in overflow-hidden"
+      onMouseEnter={() => setZoomed(true)}
+      onMouseLeave={() => setZoomed(false)}
+      onMouseMove={handleMouseMove}
+    >
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes={sizes}
+        quality={quality}
+        priority={priority}
+        placeholder="empty"
+        className="object-contain p-6"
+        style={zoomStyle}
+        onError={() => setFailed(true)}
+      />
+    </div>
   );
 }
 
@@ -997,7 +1030,7 @@ export default function SetDetailClient(props: Props) {
       <section className="mt-6 grid gap-8 md:grid-cols-[minmax(280px,400px)_1fr] lg:grid-cols-[minmax(320px,480px)_1fr]">
         {/* Image */}
         <div>
-          <div className="relative grid aspect-square place-items-center rounded-2xl border border-zinc-200 bg-white p-6">
+          <div className="relative grid h-[480px] place-items-center rounded-2xl border border-zinc-200 bg-white p-6">
             {dealInfo ? (
               <div className="absolute left-3 top-3 z-10 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
                 SALE &minus;{dealInfo.discountPct}%
@@ -1049,10 +1082,16 @@ export default function SetDetailClient(props: Props) {
                 </Link>
               </>
             ) : null}
-            {setDetail.subtheme ? (
+            {setDetail.subtheme && setDetail.subtheme !== theme ? (
               <>
                 <span aria-hidden="true" className="text-zinc-300">/</span>
-                <span>{setDetail.subtheme}</span>
+                <Link
+                  href={`/themes/${themeToSlug(theme)}?subtheme=${encodeURIComponent(setDetail.subtheme)}`}
+                  prefetch={false}
+                  className="hover:underline hover:text-amber-600 transition-colors"
+                >
+                  {setDetail.subtheme}
+                </Link>
               </>
             ) : null}
           </div>
