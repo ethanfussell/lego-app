@@ -168,7 +168,7 @@ export default function ThemeDetailClient(props: {
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
-      fetchSets(1, "year_desc", false, activeSubtheme);
+      fetchSets(1, "year_desc", showAll, activeSubtheme);
       return;
     }
     fetchSets(page, sortValue, showAll, activeSubtheme);
