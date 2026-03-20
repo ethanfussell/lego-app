@@ -30,6 +30,9 @@ def register_jobs() -> None:
     from app.pipelines.retirement_scraper import run_retirement_scrape
     from app.pipelines.price_scraper import run_price_scrape
     from app.pipelines.bricklink_prices import run_bricklink_prices
+    from app.pipelines.bestbuy_prices import run_bestbuy_prices
+    from app.pipelines.walmart_prices import run_walmart_prices
+    from app.pipelines.target_prices import run_target_prices
 
     # Rebrickable sync: daily at 3 AM UTC
     scheduler.add_job(
@@ -72,6 +75,33 @@ def register_jobs() -> None:
         run_bricklink_prices,
         CronTrigger(hour=5, minute=0),
         id="bricklink_prices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # Best Buy prices: daily at 6 AM UTC
+    scheduler.add_job(
+        run_bestbuy_prices,
+        CronTrigger(hour=6, minute=0),
+        id="bestbuy_prices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # Walmart prices: daily at 6:30 AM UTC
+    scheduler.add_job(
+        run_walmart_prices,
+        CronTrigger(hour=6, minute=30),
+        id="walmart_prices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # Target prices: daily at 7 AM UTC
+    scheduler.add_job(
+        run_target_prices,
+        CronTrigger(hour=7, minute=0),
+        id="target_prices",
         replace_existing=True,
         misfire_grace_time=3600,
     )

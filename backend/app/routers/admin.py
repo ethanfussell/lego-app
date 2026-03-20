@@ -127,6 +127,9 @@ _PIPELINES = {
     "brickset_sync": "app.pipelines.brickset_sync.run_brickset_sync",
     "coming_soon_scrape": "app.pipelines.coming_soon_scraper.run_coming_soon_scrape",
     "bricklink_prices": "app.pipelines.bricklink_prices.run_bricklink_prices",
+    "bestbuy_prices": "app.pipelines.bestbuy_prices.run_bestbuy_prices",
+    "walmart_prices": "app.pipelines.walmart_prices.run_walmart_prices",
+    "target_prices": "app.pipelines.target_prices.run_target_prices",
 }
 
 
@@ -146,7 +149,7 @@ def trigger_pipeline(
     fn = getattr(mod, func_name)
 
     # Long-running pipelines (like bricklink_prices) run in background
-    _LONG_RUNNING = {"bricklink_prices"}
+    _LONG_RUNNING = {"bricklink_prices", "bestbuy_prices", "walmart_prices", "target_prices"}
     if pipeline_name in _LONG_RUNNING:
         threading.Thread(target=fn, daemon=True).start()
         return {"ok": True, "pipeline": pipeline_name, "status": "started_in_background"}
