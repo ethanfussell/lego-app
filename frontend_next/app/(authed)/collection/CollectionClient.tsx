@@ -262,9 +262,9 @@ function RetiringSoonAlert({ sets }: { sets: CollectionSet[] }) {
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {retiring.slice(0, 5).map((s) => (
-          <span key={s.set_num} className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          <a key={s.set_num} href={`/sets/${s.set_num}`} className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-200 transition-colors cursor-pointer">
             {s.name || s.set_num}
-          </span>
+          </a>
         ))}
         {retiring.length > 5 && (
           <span className="text-[11px] text-amber-600">+{retiring.length - 5} more</span>
