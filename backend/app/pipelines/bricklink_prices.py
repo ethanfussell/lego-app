@@ -46,7 +46,7 @@ def _get_credentials() -> dict:
     creds = {
         "consumer_key": os.getenv("BRICKLINK_CONSUMER_KEY", ""),
         "consumer_secret": os.getenv("BRICKLINK_CONSUMER_SECRET", ""),
-        "token": os.getenv("BRICKLINK_TOKEN_KEY", ""),
+        "token": os.getenv("BRICKLINK_TOKEN", ""),
         "token_secret": os.getenv("BRICKLINK_TOKEN_SECRET", ""),
     }
     missing = [k for k, v in creds.items() if not v]
