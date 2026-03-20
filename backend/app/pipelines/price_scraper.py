@@ -9,7 +9,6 @@ Only processes "active" sets (current year +/- 1). Rate-limited to be polite.
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -19,12 +18,12 @@ from urllib.parse import quote
 import os
 
 import httpx
-from bs4 import BeautifulSoup
 from sqlalchemy import select, and_
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Offer as OfferModel, Set as SetModel
+from app.pipelines._scraper_utils import extract_jsonld_product_offer, SCRAPER_HEADERS
 
 logger = logging.getLogger("bricktrack.pipeline.prices")
 
@@ -33,11 +32,7 @@ AMAZON_TAG = os.getenv("AMAZON_AFFILIATE_TAG", "bricktrack-20")
 WALMART_IMPACT_ID = os.getenv("WALMART_IMPACT_AFFILIATE_ID", "")
 TARGET_IMPACT_ID = os.getenv("TARGET_IMPACT_AFFILIATE_ID", "")
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Accept": "text/html,application/xhtml+xml",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+HEADERS = SCRAPER_HEADERS
 
 REQUEST_TIMEOUT = 20.0
 THROTTLE_SECONDS = 2.0
@@ -91,53 +86,10 @@ def scrape_lego_product_page(
         logger.debug("Failed to fetch LEGO.com page for %s", set_num_plain)
         return None
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            data = json.loads(script.string or "")
-        except (json.JSONDecodeError, TypeError):
-            continue
-
-        items = data if isinstance(data, list) else [data]
-
-        for item in items:
-            if not isinstance(item, dict) or item.get("@type") != "Product":
-                continue
-
-            offers = item.get("offers", {})
-            if isinstance(offers, list):
-                offers = offers[0] if offers else {}
-
-            price = None
-            currency = "USD"
-            in_stock = None
-
-            raw_price = offers.get("price")
-            if isinstance(raw_price, (int, float)):
-                price = float(raw_price)
-            elif isinstance(raw_price, str):
-                try:
-                    price = float(raw_price)
-                except ValueError:
-                    pass
-
-            if isinstance(offers.get("priceCurrency"), str):
-                currency = offers["priceCurrency"]
-
-            availability = str(offers.get("availability", ""))
-            if "InStock" in availability:
-                in_stock = True
-            elif "OutOfStock" in availability:
-                in_stock = False
-
-            if price is not None:
-                return {
-                    "price": price,
-                    "currency": currency,
-                    "in_stock": in_stock,
-                    "url": str(resp.url),
-                }
+    result = extract_jsonld_product_offer(resp.text)
+    if result:
+        result["url"] = str(resp.url)
+        return result
 
     return None
 

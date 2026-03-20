@@ -203,8 +203,7 @@ export default function OffersSection({
 
       return { href, storeLabel, price, currency, inStock, updatedAt, rank: i + 1 };
     })
-    .filter((x): x is NormalizedOffer => x !== null)
-    .filter((x) => typeof x.price === "number");
+    .filter((x): x is NormalizedOffer => x !== null);
 
   const sorted = useMemo(() => {
     return normalized.slice().sort((a, b) => {
