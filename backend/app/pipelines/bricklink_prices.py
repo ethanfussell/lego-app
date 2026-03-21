@@ -208,7 +208,7 @@ def _fetch_price_guide(
 
     meta = data.get("meta", {})
     if meta.get("code") != 200:
-        logger.debug("BrickLink non-200 meta for %s: %s", set_num_plain, meta)
+        logger.info("BrickLink non-200 meta for %s: %s", set_num_plain, meta)
         return None
 
     price_data = data.get("data", {})
@@ -219,7 +219,10 @@ def _fetch_price_guide(
         avg_price = None
 
     if not avg_price or avg_price <= 0:
+        logger.debug("BrickLink no avg_price for %s", set_num_plain)
         return None
+
+    logger.info("BrickLink price found for %s: $%.2f (qty_sold=%s)", set_num_plain, avg_price, price_data.get("unit_quantity", 0))
 
     try:
         min_price = float(price_data.get("min_price", 0)) or None
