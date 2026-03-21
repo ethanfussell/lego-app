@@ -414,8 +414,10 @@ export default function SetDetailClient(props: Props) {
   const uiOffers: UiOffer[] = useMemo(() => toUiOffers(offersData?.offers ?? []), [offersData?.offers]);
 
   const bestPrice = useMemo(() => {
+    // Exclude aftermarket sellers (BrickLink) from best price / deal calculations
+    const AFTERMARKET = new Set(["BrickLink"]);
     const priced = uiOffers
-      .filter((o) => typeof o.price === "number" && Number.isFinite(o.price))
+      .filter((o) => typeof o.price === "number" && Number.isFinite(o.price) && !AFTERMARKET.has(o.store))
       .sort((a, b) => (a.price as number) - (b.price as number));
     if (priced.length === 0) return null;
     return { price: priced[0].price as number, currency: priced[0].currency };
