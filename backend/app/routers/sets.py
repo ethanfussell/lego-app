@@ -1196,21 +1196,45 @@ def list_retiring_sets(
     return out
 
 
+_COMING_SOON_EXCLUDED_THEMES = {
+    "Promotional", "LEGO Brand Store", "Service Packs", "Key Chains",
+    "Magnets", "Gear", "Miscellaneous", "Books", "Bulk Bricks",
+    "FIRST LEGO League",
+}
+
+
 @router.get("/coming-soon")
 def list_coming_soon_sets(
     response: Response,
     page: int = Query(1, ge=1),
     limit: int = Query(60, ge=1, le=200),
+    min_pieces: int = Query(50, ge=0),
     db: Session = Depends(get_db),
 ):
     """
-    Sets explicitly marked as coming soon on LEGO.com (scraped by
-    the coming_soon_scraper pipeline). Only shows sets that LEGO
-    themselves have listed as upcoming — not inferred from launch dates.
+    Sets marked as coming_soon. Filters out small promotional sets
+    and junk themes by default.
     """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     base_q = (
         select(SetModel)
-        .where(SetModel.retirement_status == "coming_soon")
+        .where(
+            or_(
+                SetModel.launch_date > today,
+                SetModel.retirement_status == "coming_soon",
+            ),
+            # Exclude promo/junk themes
+            or_(
+                SetModel.theme.notin_(_COMING_SOON_EXCLUDED_THEMES),
+                SetModel.theme.is_(None),
+            ),
+            # Minimum piece count (keep NULLs — new sets may not have data yet)
+            or_(
+                SetModel.pieces >= min_pieces,
+                SetModel.pieces.is_(None),
+            ),
+        )
         .order_by(SetModel.launch_date.asc().nulls_last(), SetModel.name.asc())
     )
 

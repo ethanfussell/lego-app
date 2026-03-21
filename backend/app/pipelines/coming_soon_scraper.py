@@ -6,6 +6,9 @@ Strategy:
 2. For each set, scrape the product page JSON-LD for price/availability
 3. Mark matching DB sets as coming_soon with launch dates when available
 
+Uses curl_cffi to impersonate a real browser's TLS fingerprint,
+bypassing Cloudflare/bot detection that blocks plain httpx/requests.
+
 Sources:
   - LEGO.com "Coming Soon" category page
   - LEGO.com individual product pages (JSON-LD structured data)
@@ -19,7 +22,6 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,16 +37,47 @@ NEW_SETS_URL = "https://www.lego.com/en-us/categories/new-sets-and-products"
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
 REQUEST_TIMEOUT = 25.0
 THROTTLE_SECONDS = 2.0
+
+# Browser to impersonate for TLS fingerprinting
+BROWSER_IMPERSONATE = "chrome131"
+
+
+def _create_session():
+    """Create an HTTP session with browser TLS impersonation.
+
+    Uses curl_cffi to replicate a real Chrome browser's TLS handshake,
+    HTTP/2 settings, and cipher suite order. Falls back to httpx if
+    curl_cffi is not available.
+    """
+    try:
+        from curl_cffi.requests import Session as CurlSession  # noqa: I001
+
+        session = CurlSession(impersonate=BROWSER_IMPERSONATE, timeout=REQUEST_TIMEOUT)
+        session._is_curl = True
+        logger.info("Using curl_cffi with %s impersonation", BROWSER_IMPERSONATE)
+        return session
+    except ImportError:
+        import httpx
+
+        logger.warning("curl_cffi not installed, falling back to httpx (may get 403s)")
+        client = httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=True)
+        client._is_curl = False  # type: ignore[attr-defined]
+        return client
+
+
+def _safe_get(session, url: str, **kwargs):
+    """GET request that works with both curl_cffi and httpx sessions."""
+    is_curl = getattr(session, "_is_curl", False)
+    if is_curl:
+        return session.get(url, headers=HEADERS, allow_redirects=True, **kwargs)
+    else:
+        return session.get(url, headers=HEADERS, follow_redirects=True, **kwargs)
 
 
 def _extract_set_numbers_from_html(html: str) -> list[str]:
@@ -68,7 +101,7 @@ def _extract_set_numbers_from_html(html: str) -> list[str]:
                 seen.add(num)
                 set_nums.append(num)
 
-    # Also try JSON data embedded in script tags (Next.js page data)
+    # Try JSON data embedded in script tags (Next.js page data)
     for script in soup.find_all("script", type="application/json"):
         try:
             data = json.loads(script.string or "")
@@ -76,14 +109,31 @@ def _extract_set_numbers_from_html(html: str) -> list[str]:
         except (json.JSONDecodeError, TypeError):
             continue
 
+    # Check __NEXT_DATA__ and other embedded scripts
     for script in soup.find_all("script"):
+        sid = script.get("id", "")
         text = script.string or ""
-        # Look for set numbers in __NEXT_DATA__ or similar embedded JSON
+
+        # Next.js __NEXT_DATA__ contains page props
+        if sid == "__NEXT_DATA__":
+            try:
+                data = json.loads(text)
+                _extract_nums_from_json(data, seen, set_nums)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            continue
+
+        # Fallback: regex for product IDs in any script
         for num in re.findall(r'"productId"\s*:\s*"(\d{5,6})"', text):
             if num not in seen:
                 seen.add(num)
                 set_nums.append(num)
         for num in re.findall(r'"set_num(?:ber)?"\s*:\s*"(\d{5,6})"', text):
+            if num not in seen:
+                seen.add(num)
+                set_nums.append(num)
+        # Also catch product codes in embedded JSON
+        for num in re.findall(r'"productCode"\s*:\s*"(\d{5,6})"', text):
             if num not in seen:
                 seen.add(num)
                 set_nums.append(num)
@@ -95,7 +145,7 @@ def _extract_nums_from_json(obj: object, seen: set[str], out: list[str]) -> None
     """Recursively extract set numbers from embedded JSON data."""
     if isinstance(obj, dict):
         for key, val in obj.items():
-            if key in ("productId", "productCode", "setNumber") and isinstance(val, str):
+            if key in ("productId", "productCode", "setNumber", "variantId") and isinstance(val, str):
                 match = re.match(r"^(\d{5,6})$", val)
                 if match and val not in seen:
                     seen.add(val)
@@ -108,7 +158,7 @@ def _extract_nums_from_json(obj: object, seen: set[str], out: list[str]) -> None
 
 
 def _scrape_product_page(
-    client: httpx.Client,
+    session,
     set_num_plain: str,
 ) -> Optional[dict]:
     """
@@ -119,11 +169,16 @@ def _scrape_product_page(
     url = f"{LEGO_PRODUCT_URL}{set_num_plain}"
 
     try:
-        resp = client.get(url, headers=HEADERS, follow_redirects=True)
+        resp = _safe_get(session, url)
         if resp.status_code == 404:
             return None
-        resp.raise_for_status()
-    except httpx.HTTPError:
+        if resp.status_code == 403:
+            logger.warning("Got 403 from LEGO.com for set %s", set_num_plain)
+            return None
+        if resp.status_code != 200:
+            logger.warning("Got status %d from LEGO.com for set %s", resp.status_code, set_num_plain)
+            return None
+    except Exception:
         logger.debug("Failed to fetch LEGO.com page for %s", set_num_plain)
         return None
 
@@ -199,21 +254,21 @@ def _scrape_product_page(
     return result if len(result) > 2 else None
 
 
-def _fetch_coming_soon_page(client: httpx.Client) -> list[str]:
+def _fetch_coming_soon_page(session) -> list[str]:
     """Fetch LEGO.com coming-soon category page and extract set numbers."""
     set_nums: list[str] = []
 
     for url in [COMING_SOON_URL, NEW_SETS_URL]:
         try:
-            resp = client.get(url, headers=HEADERS, follow_redirects=True)
+            resp = _safe_get(session, url)
             if resp.status_code == 200:
                 nums = _extract_set_numbers_from_html(resp.text)
                 logger.info("Extracted %d set numbers from %s", len(nums), url)
                 set_nums.extend(nums)
             else:
                 logger.warning("Got status %d from %s", resp.status_code, url)
-        except httpx.HTTPError:
-            logger.warning("Failed to fetch %s", url)
+        except Exception:
+            logger.warning("Failed to fetch %s", url, exc_info=True)
 
         time.sleep(THROTTLE_SECONDS)
 
@@ -248,9 +303,10 @@ def run_coming_soon_scrape() -> dict:
     }
 
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+        session = _create_session()
+        try:
             # Phase 1: Get set numbers from the category page
-            category_nums = _fetch_coming_soon_page(client)
+            category_nums = _fetch_coming_soon_page(session)
             stats["page_sets_found"] = len(category_nums)
             logger.info("Found %d set numbers from category pages", len(category_nums))
 
@@ -274,7 +330,7 @@ def run_coming_soon_scrape() -> dict:
             # Phase 3: Scrape individual product pages
             for plain_num in all_nums:
                 stats["product_pages_checked"] += 1
-                product_data = _scrape_product_page(client, plain_num)
+                product_data = _scrape_product_page(session, plain_num)
 
                 if not product_data:
                     time.sleep(THROTTLE_SECONDS)
@@ -332,6 +388,10 @@ def run_coming_soon_scrape() -> dict:
 
                 db.commit()
                 time.sleep(THROTTLE_SECONDS)
+
+        finally:
+            if hasattr(session, "close"):
+                session.close()
 
         stats["elapsed_seconds"] = round(time.time() - t0, 1)
         stats["completed_at"] = datetime.now(timezone.utc).isoformat()

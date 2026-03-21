@@ -2,15 +2,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
-import Image from "next/image";
 import SetCard from "@/app/components/SetCard";
 import SetCardActions from "@/app/components/SetCardActions";
 import { useAuth } from "@/app/providers";
 import { useCollectionStatus } from "@/lib/useCollectionStatus";
-import { formatPrice } from "@/lib/format";
 import type { SetLite } from "@/lib/types";
-import AdSlot from "@/app/components/AdSlot";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,178 +26,19 @@ function toSetCardSet(s: SetLite): SetCardSet {
   return { ...(s as unknown as SetCardSet), image_url: safeImage };
 }
 
-function getLaunchDate(s: SetLite): string | null {
-  return s.launch_date ?? null;
-}
-
-function parseDate(raw: string | null | undefined): Date | null {
-  if (!raw) return null;
-  try {
-    const d = new Date(raw + "T00:00:00");
-    return Number.isFinite(d.getTime()) ? d : null;
-  } catch {
-    return null;
-  }
-}
-
-function formatMonthYear(raw: string): string {
-  try {
-    const [y, m] = raw.split("-");
-    const yn = Number(y);
-    const mn = Number(m);
-    if (!Number.isFinite(yn) || !Number.isFinite(mn)) return raw;
-    const d = new Date(yn, mn - 1, 1);
-    if (!Number.isFinite(d.getTime())) return raw;
-    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  } catch {
-    return raw;
-  }
-}
-
-function daysUntilLaunch(dateStr: string | null | undefined): number | null {
-  const d = parseDate(dateStr);
-  if (!d) return null;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-type LaunchTiming = "this-month" | "soon" | "later" | "unknown";
-
-function getLaunchTiming(dateStr: string | null | undefined): LaunchTiming {
-  const days = daysUntilLaunch(dateStr);
-  if (days === null) return "unknown";
-  if (days <= 0) return "this-month"; // Already launched or launching today
-  if (days <= 30) return "this-month";
-  if (days <= 90) return "soon";
-  return "later";
-}
-
-const timingConfig: Record<LaunchTiming, { label: string; bg: string; text: string; dot: string }> = {
-  "this-month": { label: "Launching this month", bg: "bg-sky-50", text: "text-sky-700", dot: "bg-sky-500" },
-  soon: { label: "Launching soon", bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
-  later: { label: "Coming later", bg: "bg-zinc-50", text: "text-zinc-600", dot: "bg-zinc-400" },
-  unknown: { label: "Date TBD", bg: "bg-zinc-50", text: "text-zinc-500", dot: "bg-zinc-300" },
-};
-
 function getPieces(s: SetLite): number {
   return typeof s.pieces === "number" ? s.pieces : typeof s.num_parts === "number" ? s.num_parts : 0;
 }
 
-// ---------------------------------------------------------------------------
-// Launch Badge
-// ---------------------------------------------------------------------------
-
-function LaunchBadge({ dateStr }: { dateStr: string | null | undefined }) {
-  const days = daysUntilLaunch(dateStr);
-  const timing = getLaunchTiming(dateStr);
-  const cfg = timingConfig[timing];
-
-  if (timing === "unknown") return null;
-
-  const label =
-    days !== null && days <= 0
-      ? "Available now"
-      : days !== null && days === 1
-        ? "Launches tomorrow"
-        : days !== null && days <= 7
-          ? `Launches in ${days} days`
-          : days !== null && days <= 60
-            ? `Launches in ${days} days`
-            : null;
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${cfg.bg} ${cfg.text}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {label ?? cfg.label}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Stats Bar
-// ---------------------------------------------------------------------------
-
-function StatsBar({ sets }: { sets: SetLite[] }) {
-  const thisMonthCount = useMemo(() => {
-    const now = new Date();
-    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    return sets.filter((s) => (getLaunchDate(s) || "").startsWith(key)).length;
-  }, [sets]);
-
-  const nextMonthCount = useMemo(() => {
-    const now = new Date();
-    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const key = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
-    return sets.filter((s) => (getLaunchDate(s) || "").startsWith(key)).length;
-  }, [sets]);
-
-  const biggestSet = useMemo(() => {
-    let best: SetLite | null = null;
-    let bestPieces = -1;
-    for (const s of sets) {
-      const p = getPieces(s);
-      if (p > bestPieces) {
-        bestPieces = p;
-        best = s;
-      }
-    }
-    return best;
-  }, [sets]);
-
-  const biggestPieces = biggestSet ? getPieces(biggestSet) : 0;
-  const biggestImg = biggestSet && isSafeNextImageSrc(biggestSet.image_url) ? biggestSet.image_url!.trim() : null;
-  const biggestPrice = biggestSet && typeof biggestSet.retail_price === "number" ? biggestSet.retail_price : null;
-
-  const nowMonth = new Date().toLocaleDateString("en-US", { month: "long" });
-  const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString("en-US", { month: "long" });
-
-  return (
-    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{thisMonthCount}</span>
-        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Launching {nowMonth}</div>
-      </div>
-
-      <div className="flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-        <span className="text-2xl font-extrabold tracking-tight text-zinc-900">{nextMonthCount}</span>
-        <div className="mt-0.5 text-[11px] font-medium text-zinc-500">Launching {nextMonth}</div>
-      </div>
-
-      {biggestSet ? (
-        <Link
-          href={`/sets/${biggestSet.set_num}`}
-          prefetch={false}
-          className="col-span-2 flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-zinc-300"
-        >
-          {biggestImg ? (
-            <div className="relative h-16 w-16 shrink-0">
-              <Image
-                src={biggestImg}
-                alt={biggestSet.name || "Set image"}
-                fill
-                sizes="64px"
-                className="object-contain"
-                quality={75}
-              />
-            </div>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-zinc-500">Biggest upcoming set</div>
-            <div className="mt-0.5 truncate text-sm font-bold text-zinc-900">{biggestSet.name}</div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
-              <span>{biggestPieces.toLocaleString()} pieces</span>
-              {biggestPrice ? <span className="font-semibold text-zinc-700">{formatPrice(biggestPrice, "USD")}</span> : null}
-            </div>
-          </div>
-        </Link>
-      ) : (
-        <div className="col-span-2 flex flex-col justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-          <span className="text-sm text-zinc-400">No set data</span>
-        </div>
-      )}
-    </div>
-  );
+function formatLaunchDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const d = new Date(raw + "T00:00:00");
+    if (!Number.isFinite(d.getTime())) return raw;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return raw;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -287,86 +124,6 @@ function sortSets(sets: SetLite[], key: SortKey): SetLite[] {
 }
 
 // ---------------------------------------------------------------------------
-// Launch Window Section (grouped by month)
-// ---------------------------------------------------------------------------
-
-function LaunchWindowSection({
-  monthKey,
-  sets,
-  owned,
-  wish,
-  token,
-  getUserRating,
-}: {
-  monthKey: string;
-  sets: SetLite[];
-  owned: Set<string>;
-  wish: Set<string>;
-  token: string | null;
-  getUserRating: (s: string) => number | null;
-}) {
-  const [sectionSort, setSectionSort] = useState<SortKey>("default");
-
-  const timing = useMemo(() => {
-    const timings = sets.map((s) => getLaunchTiming(getLaunchDate(s)));
-    if (timings.includes("this-month")) return "this-month";
-    if (timings.includes("soon")) return "soon";
-    return "later";
-  }, [sets]);
-
-  const cfg = timingConfig[timing];
-  const sorted = useMemo(() => sortSets(sets, sectionSort), [sets, sectionSort]);
-
-  return (
-    <div>
-      <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <h3 className="m-0 text-xl font-bold text-zinc-900">{formatMonthYear(monthKey)}</h3>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-            {sets.length} {sets.length === 1 ? "set" : "sets"}
-          </span>
-        </div>
-
-        <select
-          value={sectionSort}
-          onChange={(e) => setSectionSort(e.target.value as SortKey)}
-          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm sm:w-auto"
-        >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
-        {sorted.map((s) => {
-          const sn = String(s.set_num || "").trim();
-          if (!sn) return null;
-
-          const isOwn = owned.has(sn);
-          const isWish = !isOwn && wish.has(sn);
-          const launchDate = getLaunchDate(s);
-
-          const footer = (
-            <div className="space-y-2">
-              <LaunchBadge dateStr={launchDate} />
-              <SetCardActions token={token ?? null} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
-            </div>
-          );
-
-          return (
-            <div key={sn} className="w-[220px]">
-              <SetCard set={toSetCardSet(s)} token={token ?? undefined} isOwnedByUser={isOwn} userRatingOverride={getUserRating(sn)} footer={footer} />
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -380,6 +137,7 @@ export default function ComingSoonClient({
   const { token } = useAuth();
   const { ownedSetNums, wishlistSetNums, getUserRating } = useCollectionStatus();
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("default");
 
   const allSets = useMemo(() => (Array.isArray(initialSets) ? initialSets : []), [initialSets]);
 
@@ -388,6 +146,9 @@ export default function ComingSoonClient({
     if (!activeTheme) return allSets;
     return allSets.filter((s) => s.theme === activeTheme);
   }, [allSets, activeTheme]);
+
+  // Sort
+  const sortedSets = useMemo(() => sortSets(filteredSets, sortKey), [filteredSets, sortKey]);
 
   // Top themes for pills
   const topThemes = useMemo(() => {
@@ -403,29 +164,13 @@ export default function ComingSoonClient({
       .map(([name]) => name);
   }, [allSets]);
 
-  // Group by launch month
-  const launchWindows = useMemo(() => {
-    const map = new Map<string, SetLite[]>();
-    for (const s of filteredSets) {
-      const launchDate = getLaunchDate(s);
-      const monthKey = launchDate ? launchDate.slice(0, 7) : "Unknown";
-      if (!map.has(monthKey)) map.set(monthKey, []);
-      map.get(monthKey)!.push(s);
-    }
-    return [...map.entries()].sort((a, b) => {
-      if (a[0] === "Unknown") return 1;
-      if (b[0] === "Unknown") return -1;
-      return a[0].localeCompare(b[0]);
-    });
-  }, [filteredSets]);
-
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-16">
       {/* Header */}
       <section className="mt-10">
         <h1 className="m-0 text-2xl font-semibold">Coming Soon</h1>
         <p className="mt-2 max-w-[640px] text-sm text-zinc-500">
-          Upcoming LEGO sets and new releases. Browse what&apos;s launching soon, see prices and launch dates, and add sets to your wishlist so you don&apos;t miss out.
+          Upcoming LEGO sets that haven&apos;t been released yet. Add them to your wishlist so you don&apos;t miss out.
         </p>
 
         {initialError ? <p className="mt-4 text-sm text-red-600">Error: {initialError}</p> : null}
@@ -436,46 +181,70 @@ export default function ComingSoonClient({
       ) : null}
 
       {!initialError && allSets.length > 0 ? (
-        <>
-          {/* Stats */}
-          <StatsBar sets={allSets} />
-
-          <AdSlot slot="coming_soon_mid" format="horizontal" className="mt-8" />
-
-          {/* Browse Section */}
-          <section className="mt-10">
-            <h2 className="m-0 text-lg font-semibold text-zinc-900">Browse by theme</h2>
-
-            <div className="mt-3">
+        <section className="mt-8">
+          {/* Theme filter pills */}
+          {topThemes.length > 1 ? (
+            <div className="mb-4">
               <FilterPills items={topThemes} active={activeTheme} onChange={setActiveTheme} allLabel="All themes" />
             </div>
+          ) : null}
 
-            {/* Result count */}
-            <div className="mt-4 text-sm text-zinc-500">
-              {filteredSets.length} {filteredSets.length === 1 ? "set" : "sets"}
+          {/* Sort + count */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-zinc-500">
+              {sortedSets.length} {sortedSets.length === 1 ? "set" : "sets"}
               {activeTheme ? ` in ${activeTheme}` : ""}
             </div>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm sm:w-auto"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
 
-            {/* Launch windows with per-section sort */}
-            <div className="mt-6 space-y-12">
-              {launchWindows.length === 0 ? (
-                <div className="py-10 text-center text-sm text-zinc-400">No sets match your filters.</div>
-              ) : (
-                launchWindows.map(([monthKey, windowSets]) => (
-                  <LaunchWindowSection
-                    key={monthKey}
-                    monthKey={monthKey}
-                    sets={windowSets}
-                    owned={ownedSetNums}
-                    wish={wishlistSetNums}
-                    token={token ?? null}
-                    getUserRating={getUserRating}
-                  />
-                ))
-              )}
-            </div>
-          </section>
-        </>
+          {/* Grid */}
+          <div className="mt-4 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+            {sortedSets.length === 0 ? (
+              <div className="col-span-full py-10 text-center text-sm text-zinc-400">No sets match your filters.</div>
+            ) : (
+              sortedSets.map((s) => {
+                const sn = String(s.set_num || "").trim();
+                if (!sn) return null;
+
+                const isOwn = ownedSetNums.has(sn);
+                const isWish = !isOwn && wishlistSetNums.has(sn);
+                const launchLabel = formatLaunchDate(s.launch_date);
+
+                const footer = (
+                  <div className="space-y-2">
+                    {launchLabel ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                        {launchLabel}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
+                        Date TBD
+                      </span>
+                    )}
+                    <SetCardActions token={token ?? null} setNum={sn} isOwned={isOwn} isWishlist={isWish} />
+                  </div>
+                );
+
+                return (
+                  <div key={sn} className="w-[220px]">
+                    <SetCard set={toSetCardSet(s)} token={token ?? undefined} isOwnedByUser={isOwn} userRatingOverride={getUserRating(sn)} footer={footer} />
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
       ) : null}
     </div>
   );

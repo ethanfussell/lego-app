@@ -10,13 +10,13 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Coming Soon",
   description:
-    "Browse upcoming LEGO sets and new releases. See launch dates, prices, and be first to know when new sets drop.",
+    "Upcoming LEGO sets — browse new releases before they hit shelves.",
   metadataBase: new URL(siteBase()),
   alternates: { canonical: "/coming-soon" },
   openGraph: {
     title: "Coming Soon",
     description:
-      "Browse upcoming LEGO sets and new releases. See launch dates, prices, and be first to know when new sets drop.",
+      "Upcoming LEGO sets — browse new releases before they hit shelves.",
     url: "/coming-soon",
     type: "website",
   },
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Coming Soon",
     description:
-      "Browse upcoming LEGO sets and new releases.",
+      "Upcoming LEGO sets — browse new releases before they hit shelves.",
   },
 };
 
@@ -40,7 +40,6 @@ async function fetchComingSoonSets(): Promise<SetLite[]> {
   const raw = await apiFetch<unknown>("/sets/coming-soon?limit=200", {
     cache: "no-store",
   });
-
   if (Array.isArray(raw)) return toSetLiteArray(raw);
   if (isRecord(raw) && Array.isArray(raw.results))
     return toSetLiteArray(raw.results);
