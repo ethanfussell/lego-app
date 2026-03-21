@@ -81,7 +81,7 @@ export default function ShopSection({
     // Exclude aftermarket sellers (BrickLink) from best price / deal calculations
     const AFTERMARKET = new Set(["BrickLink"]);
     const priced = uiOffers
-      .filter((o) => typeof o.price === "number" && Number.isFinite(o.price) && !AFTERMARKET.has(o.store))
+      .filter((o) => typeof o.price === "number" && Number.isFinite(o.price) && !AFTERMARKET.has(o.store ?? ""))
       .sort((a, b) => (a.price as number) - (b.price as number));
     if (priced.length === 0) return null;
     return { price: priced[0].price as number, currency: priced[0].currency };
