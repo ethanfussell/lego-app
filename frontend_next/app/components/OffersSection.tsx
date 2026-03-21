@@ -125,11 +125,17 @@ function stockRank(v: boolean | null) {
   return v === true ? 0 : v === null ? 1 : 2;
 }
 
+/** Aftermarket stores excluded from "Best price" badge and deal calculations. */
+const AFTERMARKET_STORES = new Set(["BrickLink"]);
+
 function pickBestIndex(sorted: NormalizedOffer[]): number | null {
-  // Best = cheapest among offers that have a numeric price
+  // Best = cheapest among retail offers that have a numeric price
+  // Excludes aftermarket sellers (BrickLink) since prices aren't directly comparable
   const priced = sorted
-    .map((o, idx) => ({ idx, price: typeof o.price === "number" ? o.price : null }))
-    .filter((x): x is { idx: number; price: number } => typeof x.price === "number");
+    .map((o, idx) => ({ idx, price: typeof o.price === "number" ? o.price : null, store: o.storeLabel }))
+    .filter((x): x is { idx: number; price: number; store: string } =>
+      typeof x.price === "number" && !AFTERMARKET_STORES.has(x.store)
+    );
 
   if (priced.length === 0) return null;
 
@@ -147,7 +153,7 @@ function Badge({
   tone,
 }: {
   children: React.ReactNode;
-  tone: "in" | "out" | "unknown" | "best";
+  tone: "in" | "out" | "unknown" | "best" | "marketplace";
 }) {
   const cls =
     tone === "in"
@@ -156,6 +162,8 @@ function Badge({
       ? "bg-zinc-500/10 text-zinc-700"
       : tone === "best"
       ? "bg-indigo-500/10 text-indigo-700"
+      : tone === "marketplace"
+      ? "bg-amber-500/10 text-amber-700"
       : "bg-zinc-500/10 text-zinc-700";
 
   return (
@@ -263,6 +271,7 @@ export default function OffersSection({
           const hasPrice = typeof o.price === "number";
           const priceLabel = hasPrice ? formatPrice(o.price, o.currency) ?? "Price unavailable" : null;
 
+          const isAftermarket = AFTERMARKET_STORES.has(o.storeLabel);
           const stockTone = o.inStock === true ? "in" : o.inStock === false ? "out" : "unknown";
           const stockText = o.inStock === true ? "In stock" : o.inStock === false ? "Out of stock" : null;
 
@@ -277,7 +286,11 @@ export default function OffersSection({
                     {o.storeLabel}
                   </div>
 
-                  {stockText ? <Badge tone={stockTone}>{stockText}</Badge> : null}
+                  {isAftermarket ? (
+                    <Badge tone="marketplace">Marketplace</Badge>
+                  ) : stockText ? (
+                    <Badge tone={stockTone}>{stockText}</Badge>
+                  ) : null}
 
                   {isBest ? <Badge tone="best">Best price</Badge> : null}
                 </div>
@@ -330,6 +343,12 @@ export default function OffersSection({
       {anyAffiliateLinks ? (
         <div className="text-[11px] text-zinc-500">
           Some links may be affiliate links. If you buy through them, we may earn a commission at no extra cost to you.
+        </div>
+      ) : null}
+
+      {sorted.some((o) => AFTERMARKET_STORES.has(o.storeLabel)) ? (
+        <div className="text-[11px] text-zinc-500">
+          Marketplace prices are from third-party sellers and may vary. Verify condition, seller rating, and return policy before purchasing.
         </div>
       ) : null}
     </div>

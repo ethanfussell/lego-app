@@ -28,10 +28,16 @@ function safeDateLabel(iso?: string | null): string | null {
   return d.toLocaleString();
 }
 
+/** Aftermarket stores excluded from "Best price" — not directly comparable to retail. */
+const AFTERMARKET_STORES = new Set(["BrickLink"]);
+
 function pickBestOffer(offers: BestPriceOffer[]): BestPriceOffer | null {
   const stockRank = (v: boolean | null | undefined) => (v === true ? 0 : v == null ? 1 : 2);
 
-  const sorted = [...offers].sort((a, b) => {
+  // Exclude aftermarket sellers from best price calculation
+  const retailOffers = offers.filter((o) => !AFTERMARKET_STORES.has(String(o.store ?? "").trim()));
+
+  const sorted = [...retailOffers].sort((a, b) => {
     const sa = stockRank(a.in_stock);
     const sb = stockRank(b.in_stock);
     if (sa !== sb) return sa - sb;

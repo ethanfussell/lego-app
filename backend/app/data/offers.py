@@ -106,6 +106,8 @@ def best_prices_for_sets(
             OfferModel.price.isnot(None),
             # Include in-stock (True) and unknown (None), exclude out-of-stock (False)
             sa_func.coalesce(OfferModel.in_stock, True).is_(True),
+            # Exclude aftermarket sellers (BrickLink) from deal/sale calculations
+            OfferModel.store != "BrickLink",
         )
         .group_by(OfferModel.set_num)
     ).all()
