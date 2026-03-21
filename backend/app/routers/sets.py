@@ -997,6 +997,7 @@ def list_deals(
     Returns sets enriched with discount_pct, savings, sale_price, original_price.
     """
     # Subquery: best (cheapest) in-stock offer per set
+    # Exclude aftermarket sellers (BrickLink) — not comparable to retail deals
     best_offer_sq = (
         select(
             OfferModel.set_num,
@@ -1005,6 +1006,7 @@ def list_deals(
         .where(
             OfferModel.price.isnot(None),
             func.coalesce(OfferModel.in_stock, True).is_(True),
+            OfferModel.store != "BrickLink",
         )
         .group_by(OfferModel.set_num)
         .subquery()
@@ -1372,6 +1374,7 @@ def homepage_data(
         .where(
             OfferModel.price.isnot(None),
             func.coalesce(OfferModel.in_stock, True).is_(True),
+            OfferModel.store != "BrickLink",
         )
         .group_by(OfferModel.set_num)
         .subquery()
