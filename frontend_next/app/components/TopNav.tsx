@@ -58,7 +58,7 @@ export default function TopNav() {
       { href: "/", label: "Home", active: pathname === "/" },
       { href: "/discover", label: "Discover", active: pathname.startsWith("/discover") },
       { href: "/themes", label: "Themes", active: pathname.startsWith("/themes") },
-      { href: "/shop", label: "Shop", active: pathname.startsWith("/shop") || pathname.startsWith("/new") || pathname.startsWith("/sale") || pathname.startsWith("/retiring-soon") },
+      { href: "/shop", label: "Shop", active: pathname.startsWith("/shop") || pathname.startsWith("/new") || pathname.startsWith("/sale") || pathname.startsWith("/retiring-soon") || pathname.startsWith("/coming-soon") },
       { href: "/blog", label: "Blog", active: pathname.startsWith("/blog") },
       // Feed link disabled (social features deferred)
       // ...(isAuthed ? [{ href: "/feed", label: "Feed", active: pathname.startsWith("/feed") }] : []),
@@ -330,16 +330,16 @@ export default function TopNav() {
                       >
                         Retiring Soon
                       </Link>
-                      <div
+                      <Link
+                        href="/coming-soon"
                         role="menuitem"
-                        aria-disabled="true"
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-zinc-400 cursor-default"
+                        className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+                        onClick={() => { setShopOpen(false); trackNavClick({ href: "/coming-soon", label: "Coming Soon", placement: "topnav_dropdown" }); }}
+                        onFocus={openShop}
+                        onBlur={closeShop}
                       >
-                        Upcoming
-                        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
-                          Soon
-                        </span>
-                      </div>
+                        Coming Soon
+                      </Link>
                     </div>
                   )}
                 </div>
