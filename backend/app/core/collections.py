@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def move_wishlist_to_owned(db: Session, user_id: int, set_num: str) -> bool:
-    """If the set is on the user's wishlist, move it to owned. Returns True if moved."""
+    """Ensure the set is in the user's owned list. Also removes from wishlist if present."""
     # Find both system lists in a single query
     system_lists = db.execute(
         select(ListModel).where(
@@ -33,23 +33,18 @@ def move_wishlist_to_owned(db: Session, user_id: int, set_num: str) -> bool:
         elif lst.system_key == "owned":
             owned_list = lst
 
-    if not wishlist:
-        return False
+    # Remove from wishlist if present
+    if wishlist:
+        base = base_set_num(set_num)
+        item = db.execute(
+            select(ListItemModel).where(
+                ListItemModel.list_id == int(wishlist.id),
+                ListItemModel.set_num.in_([set_num, base, f"{base}-1"]),
+            ).limit(1)
+        ).scalar_one_or_none()
 
-    # Check if set is on the wishlist (exact or base match)
-    base = base_set_num(set_num)
-    item = db.execute(
-        select(ListItemModel).where(
-            ListItemModel.list_id == int(wishlist.id),
-            ListItemModel.set_num.in_([set_num, base, f"{base}-1"]),
-        ).limit(1)
-    ).scalar_one_or_none()
-
-    if not item:
-        return False
-
-    # Remove from wishlist
-    db.delete(item)
+        if item:
+            db.delete(item)
 
     # Create owned list if needed
     if not owned_list:

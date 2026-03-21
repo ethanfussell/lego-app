@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.limiter import limiter
 from app.core.sanitize import sanitize_oneline, sanitize_text
+from app.data.sets import get_set_by_num
 from app.db import get_db
 from app.models import User as UserModel
 from app.models import List as ListModel
@@ -38,6 +39,42 @@ def _follow_counts(db: Session, user_id: int) -> tuple[int, int]:
     return followers, following
 
 
+def _collection_counts(db: Session, user_id: int) -> dict[str, int]:
+    """Return owned_count, wishlist_count, and total_pieces for a user."""
+    system_lists = db.execute(
+        select(ListModel.id, ListModel.system_key).where(
+            ListModel.owner_id == user_id,
+            ListModel.is_system.is_(True),
+            ListModel.system_key.in_(["owned", "wishlist"]),
+        )
+    ).all()
+
+    counts: dict[str, int] = {"owned_count": 0, "wishlist_count": 0, "total_pieces": 0}
+    for list_id, system_key in system_lists:
+        item_count = db.execute(
+            select(func.count(ListItemModel.set_num))
+            .where(ListItemModel.list_id == int(list_id))
+        ).scalar() or 0
+
+        if system_key == "owned":
+            counts["owned_count"] = item_count
+            # Sum pieces for owned sets
+            set_nums = db.execute(
+                select(ListItemModel.set_num)
+                .where(ListItemModel.list_id == int(list_id))
+            ).scalars().all()
+            total = 0
+            for sn in set_nums:
+                s = get_set_by_num(sn)
+                if s and s.get("pieces"):
+                    total += s["pieces"]
+            counts["total_pieces"] = total
+        elif system_key == "wishlist":
+            counts["wishlist_count"] = item_count
+
+    return counts
+
+
 def _user_to_profile_read(user: UserModel, db: Session | None = None) -> dict[str, Any]:
     data: dict[str, Any] = {
         "id": int(user.id),
@@ -52,6 +89,7 @@ def _user_to_profile_read(user: UserModel, db: Session | None = None) -> dict[st
         fc, fg = _follow_counts(db, user.id)
         data["followers_count"] = fc
         data["following_count"] = fg
+        data.update(_collection_counts(db, user.id))
     return data
 
 

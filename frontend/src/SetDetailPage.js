@@ -490,8 +490,7 @@ function SetDetailPage({
 
       setUserRating(numericRating);
 
-      // (optional) auto-owned
-      if (!isOwned) onMarkOwned?.(setNum);
+      // Auto-add to owned when rating
       onEnsureOwned?.(setNum);
     } catch (err) {
       console.error("Error saving rating:", err);
@@ -578,7 +577,7 @@ function SetDetailPage({
       setReviewText("");
       setShowReviewForm(false);
 
-      if (!isOwned) onMarkOwned?.(setNum);
+      // Auto-add to owned when reviewing
       onEnsureOwned?.(setNum);
     } catch (err) {
       console.error("Error submitting review:", err);
