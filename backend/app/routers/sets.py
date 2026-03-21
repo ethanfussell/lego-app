@@ -1204,19 +1204,13 @@ def list_coming_soon_sets(
     db: Session = Depends(get_db),
 ):
     """
-    Sets not yet available: either have a future launch_date, or are
-    marked as coming_soon by the Brickset sync (released=false).
+    Sets explicitly marked as coming soon on LEGO.com (scraped by
+    the coming_soon_scraper pipeline). Only shows sets that LEGO
+    themselves have listed as upcoming — not inferred from launch dates.
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     base_q = (
         select(SetModel)
-        .where(
-            or_(
-                SetModel.launch_date > today,
-                SetModel.retirement_status == "coming_soon",
-            ),
-        )
+        .where(SetModel.retirement_status == "coming_soon")
         .order_by(SetModel.launch_date.asc().nulls_last(), SetModel.name.asc())
     )
 
