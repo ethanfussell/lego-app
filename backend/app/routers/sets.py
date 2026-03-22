@@ -451,6 +451,27 @@ def _try_on_demand_scrape(
     return offers_data.get_offers_for_set(db, plain)
 
 
+def _ensure_retailer_urls(
+    db: Session,
+    plain: str,
+    name: str,
+) -> List[Dict[str, Any]]:
+    """Create retailer search URLs for a set that already has a LEGO offer but is missing retailer links."""
+    from app.pipelines.price_scraper import (
+        build_amazon_url,
+        build_target_url,
+        build_walmart_url,
+    )
+
+    now = datetime.now(timezone.utc)
+    _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
+    _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
+    _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
+    db.commit()
+    _od_logger.info("Backfilled retailer URLs for %s", plain)
+    return offers_data.get_offers_for_set(db, plain)
+
+
 def _upsert_on_demand_offer(
     db: Session,
     set_num_plain: str,
@@ -759,6 +780,11 @@ def get_set_offers(set_num: str, db: Session = Depends(get_db)):
     has_lego_offer = any(o.get("store") == "LEGO" for o in offers)
     if not has_lego_offer:
         offers = _try_on_demand_scrape(db, canonical, plain, name)
+    else:
+        # Ensure retailer search URLs exist even if LEGO offer was created by batch pipeline
+        has_retailer_urls = any(o.get("store") in ("Amazon", "Target", "Walmart") for o in offers)
+        if not has_retailer_urls:
+            offers = _ensure_retailer_urls(db, plain, name)
 
     # summary.updated_at = newest offer updated_at (ISO strings compare lexicographically)
     updated_at: Optional[str] = None
