@@ -44,23 +44,35 @@ HEADERS = {
 REQUEST_TIMEOUT = 25.0
 THROTTLE_SECONDS = 2.0
 
-# Browser to impersonate for TLS fingerprinting
-BROWSER_IMPERSONATE = "chrome120"
+# Browser versions to try for TLS fingerprinting (in order of preference)
+BROWSER_IMPERSONATE_OPTIONS = ["chrome120", "chrome116", "chrome110", "chrome107", "chrome"]
 
 
 def _create_session():
     """Create an HTTP session with browser TLS impersonation.
 
     Uses curl_cffi to replicate a real Chrome browser's TLS handshake,
-    HTTP/2 settings, and cipher suite order. Falls back to httpx if
-    curl_cffi is not available.
+    HTTP/2 settings, and cipher suite order. Tries multiple browser
+    versions for compatibility. Falls back to httpx if curl_cffi
+    is not available.
     """
     try:
         from curl_cffi.requests import Session as CurlSession  # noqa: I001
 
-        session = CurlSession(impersonate=BROWSER_IMPERSONATE, timeout=REQUEST_TIMEOUT)
+        for browser in BROWSER_IMPERSONATE_OPTIONS:
+            try:
+                session = CurlSession(impersonate=browser, timeout=REQUEST_TIMEOUT)
+                session._is_curl = True
+                logger.info("Using curl_cffi with %s impersonation", browser)
+                return session
+            except Exception:
+                logger.debug("curl_cffi: %s not supported, trying next", browser)
+                continue
+
+        # If no impersonation works, use curl_cffi without impersonation
+        logger.warning("No supported browser impersonation found, using curl_cffi without impersonation")
+        session = CurlSession(timeout=REQUEST_TIMEOUT)
         session._is_curl = True
-        logger.info("Using curl_cffi with %s impersonation", BROWSER_IMPERSONATE)
         return session
     except ImportError:
         import httpx
