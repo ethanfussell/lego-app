@@ -339,7 +339,7 @@ function LaunchWindowSection({
         </select>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map((s) => {
           const sn = String(s.set_num || "").trim();
           if (!sn) return null;

@@ -236,7 +236,7 @@ export default function SaleClient({ initialSets, totalDeals, themes }: Props) {
       ) : null}
 
       {!loading && sets.length > 0 ? (
-        <div className="mt-6 grid grid-cols-[repeat(auto-fill,220px)] justify-start gap-3">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((set) => {
             const hasDeal =
               typeof set.discount_pct === "number" && set.discount_pct > 0;
