@@ -1204,13 +1204,12 @@ def list_coming_soon_sets(
     db: Session = Depends(get_db),
 ):
     """
-    Sets explicitly marked as coming soon on LEGO.com (scraped by
-    the coming_soon_scraper pipeline). Only shows sets that LEGO
-    themselves have listed as upcoming — not inferred from launch dates.
+    Sets found on LEGO.com's coming-soon page (scraped by coming_soon_scraper).
+    Only returns sets explicitly listed by LEGO as upcoming.
     """
     base_q = (
         select(SetModel)
-        .where(SetModel.retirement_status == "coming_soon")
+        .where(SetModel.lego_com_coming_soon.is_(True))
         .order_by(SetModel.launch_date.asc().nulls_last(), SetModel.name.asc())
     )
 

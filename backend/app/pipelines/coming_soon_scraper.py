@@ -6,6 +6,9 @@ Strategy:
 2. For each set, scrape the product page JSON-LD for price/availability
 3. Mark matching DB sets as coming_soon with launch dates when available
 
+Uses curl_cffi to impersonate a real browser's TLS fingerprint,
+bypassing Cloudflare/bot detection that blocks plain httpx/requests.
+
 Sources:
   - LEGO.com "Coming Soon" category page
   - LEGO.com individual product pages (JSON-LD structured data)
@@ -19,7 +22,6 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,22 +31,64 @@ from app.models import Set as SetModel, get_locked_fields
 
 logger = logging.getLogger("bricktrack.pipeline.coming_soon")
 
-# LEGO.com URLs
+# LEGO.com URLs — only the coming-soon page (NOT new-sets which has already-released sets)
 COMING_SOON_URL = "https://www.lego.com/en-us/categories/coming-soon"
-NEW_SETS_URL = "https://www.lego.com/en-us/categories/new-sets-and-products"
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
 REQUEST_TIMEOUT = 25.0
 THROTTLE_SECONDS = 2.0
+
+# Browser versions to try for TLS fingerprinting (in order of preference)
+BROWSER_IMPERSONATE_OPTIONS = ["chrome120", "chrome116", "chrome110", "chrome107", "chrome"]
+
+
+def _create_session():
+    """Create an HTTP session with browser TLS impersonation.
+
+    Uses curl_cffi to replicate a real Chrome browser's TLS handshake,
+    HTTP/2 settings, and cipher suite order. Tries multiple browser
+    versions for compatibility. Falls back to httpx if curl_cffi
+    is not available.
+    """
+    try:
+        from curl_cffi.requests import Session as CurlSession  # noqa: I001
+
+        for browser in BROWSER_IMPERSONATE_OPTIONS:
+            try:
+                session = CurlSession(impersonate=browser, timeout=REQUEST_TIMEOUT)
+                session._is_curl = True
+                logger.info("Using curl_cffi with %s impersonation", browser)
+                return session
+            except Exception:
+                logger.debug("curl_cffi: %s not supported, trying next", browser)
+                continue
+
+        # If no impersonation works, use curl_cffi without impersonation
+        logger.warning("No supported browser impersonation found, using curl_cffi without impersonation")
+        session = CurlSession(timeout=REQUEST_TIMEOUT)
+        session._is_curl = True
+        return session
+    except ImportError:
+        import httpx
+
+        logger.warning("curl_cffi not installed, falling back to httpx (may get 403s)")
+        client = httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=True)
+        client._is_curl = False  # type: ignore[attr-defined]
+        return client
+
+
+def _safe_get(session, url: str, **kwargs):
+    """GET request that works with both curl_cffi and httpx sessions."""
+    is_curl = getattr(session, "_is_curl", False)
+    if is_curl:
+        return session.get(url, headers=HEADERS, allow_redirects=True, **kwargs)
+    else:
+        return session.get(url, headers=HEADERS, follow_redirects=True, **kwargs)
 
 
 def _extract_set_numbers_from_html(html: str) -> list[str]:
@@ -68,7 +112,7 @@ def _extract_set_numbers_from_html(html: str) -> list[str]:
                 seen.add(num)
                 set_nums.append(num)
 
-    # Also try JSON data embedded in script tags (Next.js page data)
+    # Try JSON data embedded in script tags (Next.js page data)
     for script in soup.find_all("script", type="application/json"):
         try:
             data = json.loads(script.string or "")
@@ -76,14 +120,31 @@ def _extract_set_numbers_from_html(html: str) -> list[str]:
         except (json.JSONDecodeError, TypeError):
             continue
 
+    # Check __NEXT_DATA__ and other embedded scripts
     for script in soup.find_all("script"):
+        sid = script.get("id", "")
         text = script.string or ""
-        # Look for set numbers in __NEXT_DATA__ or similar embedded JSON
+
+        # Next.js __NEXT_DATA__ contains page props
+        if sid == "__NEXT_DATA__":
+            try:
+                data = json.loads(text)
+                _extract_nums_from_json(data, seen, set_nums)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            continue
+
+        # Fallback: regex for product IDs in any script
         for num in re.findall(r'"productId"\s*:\s*"(\d{5,6})"', text):
             if num not in seen:
                 seen.add(num)
                 set_nums.append(num)
         for num in re.findall(r'"set_num(?:ber)?"\s*:\s*"(\d{5,6})"', text):
+            if num not in seen:
+                seen.add(num)
+                set_nums.append(num)
+        # Also catch product codes in embedded JSON
+        for num in re.findall(r'"productCode"\s*:\s*"(\d{5,6})"', text):
             if num not in seen:
                 seen.add(num)
                 set_nums.append(num)
@@ -95,7 +156,7 @@ def _extract_nums_from_json(obj: object, seen: set[str], out: list[str]) -> None
     """Recursively extract set numbers from embedded JSON data."""
     if isinstance(obj, dict):
         for key, val in obj.items():
-            if key in ("productId", "productCode", "setNumber") and isinstance(val, str):
+            if key in ("productId", "productCode", "setNumber", "variantId") and isinstance(val, str):
                 match = re.match(r"^(\d{5,6})$", val)
                 if match and val not in seen:
                     seen.add(val)
@@ -108,7 +169,7 @@ def _extract_nums_from_json(obj: object, seen: set[str], out: list[str]) -> None
 
 
 def _scrape_product_page(
-    client: httpx.Client,
+    session,
     set_num_plain: str,
 ) -> Optional[dict]:
     """
@@ -119,11 +180,16 @@ def _scrape_product_page(
     url = f"{LEGO_PRODUCT_URL}{set_num_plain}"
 
     try:
-        resp = client.get(url, headers=HEADERS, follow_redirects=True)
+        resp = _safe_get(session, url)
         if resp.status_code == 404:
             return None
-        resp.raise_for_status()
-    except httpx.HTTPError:
+        if resp.status_code == 403:
+            logger.warning("Got 403 from LEGO.com for set %s", set_num_plain)
+            return None
+        if resp.status_code != 200:
+            logger.warning("Got status %d from LEGO.com for set %s", resp.status_code, set_num_plain)
+            return None
+    except Exception:
         logger.debug("Failed to fetch LEGO.com page for %s", set_num_plain)
         return None
 
@@ -143,6 +209,13 @@ def _scrape_product_page(
                 continue
 
             result["name"] = item.get("name")
+
+            # Image URL
+            img = item.get("image")
+            if isinstance(img, str) and img.startswith("http"):
+                result["image_url"] = img
+            elif isinstance(img, list) and img:
+                result["image_url"] = img[0] if isinstance(img[0], str) else None
 
             offers = item.get("offers", {})
             if isinstance(offers, list):
@@ -199,29 +272,28 @@ def _scrape_product_page(
     return result if len(result) > 2 else None
 
 
-def _fetch_coming_soon_page(client: httpx.Client) -> list[str]:
+def _fetch_coming_soon_page(session) -> list[str]:
     """Fetch LEGO.com coming-soon category page and extract set numbers."""
     set_nums: list[str] = []
 
-    for url in [COMING_SOON_URL, NEW_SETS_URL]:
-        try:
-            resp = client.get(url, headers=HEADERS, follow_redirects=True)
-            if resp.status_code == 200:
-                nums = _extract_set_numbers_from_html(resp.text)
-                logger.info("Extracted %d set numbers from %s", len(nums), url)
-                set_nums.extend(nums)
-            else:
-                logger.warning("Got status %d from %s", resp.status_code, url)
-        except httpx.HTTPError:
-            logger.warning("Failed to fetch %s", url)
+    try:
+        resp = _safe_get(session, COMING_SOON_URL)
+        if resp.status_code == 200:
+            nums = _extract_set_numbers_from_html(resp.text)
+            logger.info("Extracted %d set numbers from %s", len(nums), COMING_SOON_URL)
+            set_nums.extend(nums)
+        else:
+            logger.warning("Got status %d from %s", resp.status_code, COMING_SOON_URL)
+    except Exception:
+        logger.warning("Failed to fetch %s", COMING_SOON_URL, exc_info=True)
 
-        time.sleep(THROTTLE_SECONDS)
+    time.sleep(THROTTLE_SECONDS)
 
-    # Deduplicate
+    # Deduplicate and filter out invalid numbers (leading zeros, too short)
     seen: set[str] = set()
     deduped: list[str] = []
     for n in set_nums:
-        if n not in seen:
+        if n not in seen and not n.startswith("0") and len(n) >= 4:
             seen.add(n)
             deduped.append(n)
 
@@ -248,17 +320,21 @@ def run_coming_soon_scrape() -> dict:
     }
 
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
-            # Phase 1: Get set numbers from the category page
-            category_nums = _fetch_coming_soon_page(client)
+        session = _create_session()
+        try:
+            # Phase 1: Get set numbers from the LEGO.com coming-soon page
+            category_nums = _fetch_coming_soon_page(session)
             stats["page_sets_found"] = len(category_nums)
             logger.info("Found %d set numbers from category pages", len(category_nums))
 
-            # Phase 2: Also check sets already tagged as coming_soon in DB
+            # Track which DB set_nums we flag as coming soon this run
+            flagged_set_nums: set[str] = set()
+
+            # Phase 2: Also check sets already flagged in DB
             # (to update their status if they've launched)
             db_coming = db.execute(
                 select(SetModel.set_num).where(
-                    SetModel.retirement_status == "coming_soon"
+                    SetModel.lego_com_coming_soon.is_(True)
                 )
             ).scalars().all()
 
@@ -271,10 +347,13 @@ def run_coming_soon_scrape() -> dict:
             all_nums = list(dict.fromkeys(category_nums + list(db_nums_plain)))
             logger.info("Will check %d total set numbers", len(all_nums))
 
+            # Convert category_nums to a set for O(1) lookup
+            category_nums_set = set(category_nums)
+
             # Phase 3: Scrape individual product pages
             for plain_num in all_nums:
                 stats["product_pages_checked"] += 1
-                product_data = _scrape_product_page(client, plain_num)
+                product_data = _scrape_product_page(session, plain_num)
 
                 if not product_data:
                     time.sleep(THROTTLE_SECONDS)
@@ -289,7 +368,36 @@ def run_coming_soon_scrape() -> dict:
                     if row:
                         break
 
+                avail = product_data.get("availability", "")
+                is_truly_coming_soon = avail in ("pre_order", "coming_soon")
+                on_coming_soon_page = plain_num in category_nums_set
+
                 if not row:
+                    # Create a new DB entry only if actually coming soon (not in_stock)
+                    if on_coming_soon_page and is_truly_coming_soon and product_data.get("name"):
+                        set_num = f"{plain_num}-1"
+                        row = SetModel(
+                            set_num=set_num,
+                            name=product_data.get("name"),
+                            year=datetime.now(timezone.utc).year,
+                            theme=None,
+                            pieces=None,
+                            image_url=product_data.get("image_url"),
+                            retail_price=product_data.get("price"),
+                            retail_currency=product_data.get("currency", "USD"),
+                            retirement_status="coming_soon",
+                            lego_com_coming_soon=True,
+                            launch_date=product_data.get("launch_date"),
+                        )
+                        db.add(row)
+                        db.flush()
+                        flagged_set_nums.add(set_num)
+                        stats["sets_created"] = stats.get("sets_created", 0) + 1
+                        stats["coming_soon_found"] += 1
+                        logger.info("Created new set %s: %s (avail=%s)", set_num, product_data.get("name"), avail)
+                        db.commit()
+                    else:
+                        logger.debug("Skipping %s: not in DB, avail=%s", plain_num, avail)
                     time.sleep(THROTTLE_SECONDS)
                     continue
 
@@ -297,11 +405,19 @@ def run_coming_soon_scrape() -> dict:
                 locked = set(get_locked_fields(row))
                 changed = False
 
-                avail = product_data.get("availability", "")
+                # Only flag as coming soon if the product page confirms it's not yet available
+                if on_coming_soon_page and is_truly_coming_soon:
+                    if not row.lego_com_coming_soon:
+                        row.lego_com_coming_soon = True
+                        changed = True
+                    flagged_set_nums.add(row.set_num)
+                    stats["coming_soon_found"] += 1
+                elif on_coming_soon_page and avail == "in_stock":
+                    # LEGO.com still lists it as coming soon but it's already available
+                    logger.info("Set %s is on coming-soon page but already in_stock, skipping flag", plain_num)
 
                 # Mark as coming_soon if LEGO.com says pre_order or coming_soon
                 if avail in ("pre_order", "coming_soon"):
-                    stats["coming_soon_found"] += 1
                     if "retirement_status" not in locked and row.retirement_status != "coming_soon":
                         row.retirement_status = "coming_soon"
                         changed = True
@@ -332,6 +448,26 @@ def run_coming_soon_scrape() -> dict:
 
                 db.commit()
                 time.sleep(THROTTLE_SECONDS)
+
+            # Phase 4: Clear lego_com_coming_soon for sets no longer on the page
+            stale = db.execute(
+                select(SetModel).where(
+                    SetModel.lego_com_coming_soon.is_(True),
+                    SetModel.set_num.notin_(flagged_set_nums) if flagged_set_nums else True,
+                )
+            ).scalars().all()
+            cleared = 0
+            for row in stale:
+                row.lego_com_coming_soon = False
+                cleared += 1
+            if cleared:
+                db.commit()
+                logger.info("Cleared lego_com_coming_soon flag from %d sets", cleared)
+            stats["flags_cleared"] = cleared
+
+        finally:
+            if hasattr(session, "close"):
+                session.close()
 
         stats["elapsed_seconds"] = round(time.time() - t0, 1)
         stats["completed_at"] = datetime.now(timezone.utc).isoformat()
