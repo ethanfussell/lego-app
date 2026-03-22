@@ -16,6 +16,7 @@ from app.db import get_db
 from app.models import (
     User as UserModel,
     Set as SetModel,
+    Offer as OfferModel,
     EmailSignup,
     Review as ReviewModel,
     AffiliateClick,
@@ -385,3 +386,137 @@ def admin_update_setting(
 
     db.commit()
     return {"ok": True, "key": key, "value": payload.value}
+
+
+# ===================================================================
+# Admin ASIN Management (Amazon affiliate links)
+# ===================================================================
+
+class AdminAsinUpdate(BaseModel):
+    """Request body for adding/updating an Amazon ASIN for a set."""
+    asin: str
+
+    @field_validator("asin", mode="before")
+    @classmethod
+    def validate_asin(cls, v: str) -> str:
+        v = (v or "").strip().upper()
+        if not v or len(v) != 10:
+            raise ValueError("ASIN must be exactly 10 characters")
+        return v
+
+
+@router.put("/sets/{set_num}/asin")
+@limiter.limit("30/minute")
+def admin_set_asin(
+    set_num: str,
+    request: Request,
+    payload: AdminAsinUpdate = Body(...),
+    admin: UserModel = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Manually add or update an Amazon ASIN for a set, creating a direct product affiliate link."""
+    import os
+    from urllib.parse import quote
+    from datetime import datetime, timezone
+
+    plain = set_num.split("-")[0]
+    amazon_tag = os.getenv("AMAZON_AFFILIATE_TAG", "bricktrack-20")
+    direct_url = f"https://www.amazon.com/dp/{quote(payload.asin)}?tag={quote(amazon_tag)}"
+    now = datetime.now(timezone.utc)
+
+    existing = db.execute(
+        select(OfferModel).where(
+            OfferModel.set_num == plain,
+            OfferModel.store == "Amazon",
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.asin = payload.asin
+        existing.url = direct_url
+        existing.last_checked = now
+        action = "updated"
+    else:
+        db.add(OfferModel(
+            set_num=plain,
+            store="Amazon",
+            price=None,
+            currency="USD",
+            url=direct_url,
+            in_stock=None,
+            asin=payload.asin,
+            last_checked=now,
+        ))
+        action = "created"
+
+    db.commit()
+    return {"ok": True, "set_num": plain, "asin": payload.asin, "url": direct_url, "action": action}
+
+
+@router.delete("/sets/{set_num}/asin")
+@limiter.limit("30/minute")
+def admin_delete_asin(
+    set_num: str,
+    request: Request,
+    admin: UserModel = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Remove an Amazon ASIN/offer for a set."""
+    plain = set_num.split("-")[0]
+
+    existing = db.execute(
+        select(OfferModel).where(
+            OfferModel.set_num == plain,
+            OfferModel.store == "Amazon",
+        )
+    ).scalar_one_or_none()
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="no_amazon_offer")
+
+    db.delete(existing)
+    db.commit()
+    return {"ok": True, "set_num": plain, "action": "deleted"}
+
+
+@router.post("/offers/cleanup")
+@limiter.limit("5/minute")
+def admin_cleanup_search_offers(
+    request: Request,
+    admin: UserModel = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Remove old search-only retailer offers (no price AND no ASIN).
+
+    These were auto-generated as search URLs but we now only show
+    retailers when we have a direct product link (ASIN) or actual price.
+    """
+    from sqlalchemy import and_
+
+    # Delete Amazon offers with no ASIN and no price
+    amazon_deleted = db.execute(
+        OfferModel.__table__.delete().where(
+            and_(
+                OfferModel.store == "Amazon",
+                OfferModel.asin.is_(None),
+                OfferModel.price.is_(None),
+            )
+        )
+    ).rowcount
+
+    # Delete Target/Walmart offers with no price (we don't track these anymore)
+    other_deleted = db.execute(
+        OfferModel.__table__.delete().where(
+            and_(
+                OfferModel.store.in_(["Target", "Walmart"]),
+                OfferModel.price.is_(None),
+            )
+        )
+    ).rowcount
+
+    db.commit()
+    return {
+        "ok": True,
+        "amazon_search_offers_removed": amazon_deleted,
+        "target_walmart_search_offers_removed": other_deleted,
+    }

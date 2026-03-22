@@ -28,6 +28,10 @@ def get_offers_for_set(db: Session, plain_set_num: str) -> List[Dict[str, Any]]:
 
     offers: List[Dict[str, Any]] = []
     for o in rows:
+        # Skip retailer offers that have no price AND no ASIN (search-only links)
+        # We only show retailers when we have a direct product link (ASIN) or actual price
+        if o.store != "LEGO" and o.price is None and not getattr(o, "asin", None):
+            continue
         offers.append({
             "store": o.store,
             "price": o.price,

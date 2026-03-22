@@ -332,7 +332,7 @@ export default function OffersSection({
                 }}
                 className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors"
               >
-                {hasPrice ? "View offer" : `Search ${o.storeLabel}`} →
+                {hasPrice ? "View offer" : `View on ${o.storeLabel}`} →
               </a>
             </li>
           );

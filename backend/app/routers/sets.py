@@ -439,10 +439,20 @@ def _try_on_demand_scrape(
             set_row.retail_price = lego_data["price"]
             set_row.retail_currency = lego_data.get("currency", "USD")
 
-    # Always generate retailer search links (even if LEGO.com scrape failed)
-    _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
-    _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
-    _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
+    # Only create Amazon offer if we already have an ASIN for this set
+    existing_amazon = db.execute(
+        select(OfferModel).where(
+            OfferModel.set_num == plain,
+            OfferModel.store == "Amazon",
+            OfferModel.asin.isnot(None),
+        )
+    ).scalar_one_or_none()
+    if existing_amazon:
+        # Refresh the URL with current affiliate tag
+        _upsert_on_demand_offer(
+            db, plain, "Amazon", None, "USD",
+            build_amazon_url(plain, name, asin=existing_amazon.asin), None, now,
+        )
 
     db.commit()
     price_str = lego_data["price"] if lego_data and lego_data.get("price") else "N/A"
@@ -456,19 +466,27 @@ def _ensure_retailer_urls(
     plain: str,
     name: str,
 ) -> List[Dict[str, Any]]:
-    """Create retailer search URLs for a set that already has a LEGO offer but is missing retailer links."""
-    from app.pipelines.price_scraper import (
-        build_amazon_url,
-        build_target_url,
-        build_walmart_url,
-    )
+    """Create Amazon offer only if we have an ASIN for this set."""
+    from app.pipelines.price_scraper import build_amazon_url
 
     now = datetime.now(timezone.utc)
-    _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
-    _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
-    _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
-    db.commit()
-    _od_logger.info("Backfilled retailer URLs for %s", plain)
+
+    # Only create Amazon offer if we have an ASIN
+    existing_amazon = db.execute(
+        select(OfferModel).where(
+            OfferModel.set_num == plain,
+            OfferModel.store == "Amazon",
+            OfferModel.asin.isnot(None),
+        )
+    ).scalar_one_or_none()
+    if existing_amazon:
+        _upsert_on_demand_offer(
+            db, plain, "Amazon", None, "USD",
+            build_amazon_url(plain, name, asin=existing_amazon.asin), None, now,
+        )
+        db.commit()
+        _od_logger.info("Refreshed Amazon ASIN link for %s", plain)
+
     return offers_data.get_offers_for_set(db, plain)
 
 
