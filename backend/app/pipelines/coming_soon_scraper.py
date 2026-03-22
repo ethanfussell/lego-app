@@ -45,7 +45,7 @@ REQUEST_TIMEOUT = 25.0
 THROTTLE_SECONDS = 2.0
 
 # Browser to impersonate for TLS fingerprinting
-BROWSER_IMPERSONATE = "chrome131"
+BROWSER_IMPERSONATE = "chrome120"
 
 
 def _create_session():
