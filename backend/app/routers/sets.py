@@ -422,32 +422,31 @@ def _try_on_demand_scrape(
         _od_logger.debug("On-demand scrape failed for %s", plain)
         lego_data = None
 
-    if not lego_data or not lego_data.get("price"):
-        return offers_data.get_offers_for_set(db, plain)
+    # Upsert LEGO offer if scrape succeeded
+    if lego_data and lego_data.get("price"):
+        _upsert_on_demand_offer(
+            db, plain, "LEGO",
+            lego_data["price"], lego_data.get("currency", "USD"),
+            lego_data["url"], lego_data.get("in_stock"),
+            now,
+        )
 
-    # Upsert LEGO offer
-    _upsert_on_demand_offer(
-        db, plain, "LEGO",
-        lego_data["price"], lego_data.get("currency", "USD"),
-        lego_data["url"], lego_data.get("in_stock"),
-        now,
-    )
+        # Also update Set.retail_price
+        set_row = db.execute(
+            select(SetModel).where(SetModel.set_num == canonical_set_num)
+        ).scalar_one_or_none()
+        if set_row:
+            set_row.retail_price = lego_data["price"]
+            set_row.retail_currency = lego_data.get("currency", "USD")
 
-    # Also update Set.retail_price
-    set_row = db.execute(
-        select(SetModel).where(SetModel.set_num == canonical_set_num)
-    ).scalar_one_or_none()
-    if set_row:
-        set_row.retail_price = lego_data["price"]
-        set_row.retail_currency = lego_data.get("currency", "USD")
-
-    # Generate retailer search links
+    # Always generate retailer search links (even if LEGO.com scrape failed)
     _upsert_on_demand_offer(db, plain, "Amazon", None, "USD", build_amazon_url(plain, name), None, now)
     _upsert_on_demand_offer(db, plain, "Target", None, "USD", build_target_url(plain), None, now)
     _upsert_on_demand_offer(db, plain, "Walmart", None, "USD", build_walmart_url(plain), None, now)
 
     db.commit()
-    _od_logger.info("On-demand scrape created offers for %s ($%s)", plain, lego_data["price"])
+    price_str = lego_data["price"] if lego_data and lego_data.get("price") else "N/A"
+    _od_logger.info("On-demand scrape created offers for %s ($%s)", plain, price_str)
 
     return offers_data.get_offers_for_set(db, plain)
 
