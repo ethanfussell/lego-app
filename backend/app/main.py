@@ -94,8 +94,22 @@ async def lifespan(app: FastAPI):
             logging.getLogger("bricktrack.startup").exception("Startup Brickset sync failed")
             print(f"[STARTUP] Brickset sync FAILED: {e}", flush=True)
 
+    def _startup_coming_soon():
+        try:
+            from app.pipelines.coming_soon_scraper import run_coming_soon_scrape
+            logger = logging.getLogger("bricktrack.startup")
+            logger.info("Running coming-soon scraper on startup...")
+            print("[STARTUP] Running coming-soon scraper...", flush=True)
+            result = run_coming_soon_scrape()
+            logger.info("Startup coming-soon scrape result: %s", result)
+            print(f"[STARTUP] Coming-soon scrape done: {result}", flush=True)
+        except Exception as e:
+            logging.getLogger("bricktrack.startup").exception("Startup coming-soon scrape failed")
+            print(f"[STARTUP] Coming-soon scrape FAILED: {e}", flush=True)
+
     threading.Thread(target=_startup_scrape, daemon=True).start()
     threading.Thread(target=_startup_brickset_sync, daemon=True).start()
+    threading.Thread(target=_startup_coming_soon, daemon=True).start()
 
     yield
     shutdown_scheduler()
