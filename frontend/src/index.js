@@ -5,7 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
 import App from "./App";
 import { ToastProvider } from "./Toast";
-import { AuthProvider } from "./auth";
+import { AuthProvider, NoClerkAuthProvider } from "./auth";
 import "./index.css";
 
 const clerkPubKey = process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
@@ -21,13 +21,21 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
     <BrowserRouter>
-      <ClerkProvider publishableKey={clerkPubKey || ""}>
-        <AuthProvider>
+      {clerkPubKey ? (
+        <ClerkProvider publishableKey={clerkPubKey}>
+          <AuthProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </AuthProvider>
+        </ClerkProvider>
+      ) : (
+        <NoClerkAuthProvider>
           <ToastProvider>
             <App />
           </ToastProvider>
-        </AuthProvider>
-      </ClerkProvider>
+        </NoClerkAuthProvider>
+      )}
     </BrowserRouter>
   </React.StrictMode>
 );

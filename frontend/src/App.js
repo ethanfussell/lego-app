@@ -2,7 +2,7 @@
 // Main React app for LEGO tracker
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, Link, NavLink, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { apiFetch } from "./lib/api";
 import { useAuth } from "./auth";
 import RequireAuth from "./RequireAuth";
@@ -327,6 +327,40 @@ function HomePage({ ownedSetNums, wishlistSetNums, onMarkOwned, onAddWishlist })
         onAddWishlist={onAddWishlist}
       />
     </div>
+  );
+}
+
+/* -------------------------------------------------------
+   Bottom Tab Bar (mobile only, rendered via CSS)
+-------------------------------------------------------- */
+function BottomTabBar() {
+  const location = useLocation();
+  const path = location.pathname;
+
+  const tabs = [
+    { label: "Home", icon: "🏠", to: "/", match: (p) => p === "/" },
+    { label: "Discover", icon: "🔍", to: "/discover", match: (p) => p.startsWith("/discover") },
+    { label: "Shop", icon: "🛍️", to: "/themes", match: (p) => p.startsWith("/themes") },
+    { label: "Deals", icon: "🏷️", to: "/deals", match: (p) => p === "/deals" || p === "/sale" },
+    { label: "Collection", icon: "📦", to: "/collection", match: (p) => p.startsWith("/collection") },
+  ];
+
+  return (
+    <nav className="bottom-tab-bar">
+      {tabs.map((tab) => {
+        const active = tab.match(path);
+        return (
+          <NavLink
+            key={tab.label}
+            to={tab.to}
+            className={`bottom-tab${active ? " bottom-tab-active" : ""}`}
+          >
+            <span className="bottom-tab-icon">{tab.icon}</span>
+            <span className="bottom-tab-label">{tab.label}</span>
+          </NavLink>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -922,25 +956,16 @@ function App() {
   const totalPages = searchTotal > 0 ? Math.max(1, Math.ceil(searchTotal / searchLimit)) : 1;
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif" }} className="app-shell">
       {/* ========================== TOP NAV ========================== */}
-      <nav
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          background: "white",
+      <nav className="top-nav">
+        {/* Mobile brand (visible only on mobile) */}
+        <span className="mobile-brand" style={{ fontWeight: 700, fontSize: "1.1rem", color: "#111827" }}>
+          BrickTracker
+        </span>
 
-          display: "flex",
-          alignItems: "center",
-          padding: "1rem",
-          borderBottom: "1px solid #ddd",
-          marginBottom: "1.5rem",
-          gap: "1rem",
-        }}
-      >
-        {/* LEFT: main nav links */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        {/* LEFT: main nav links (hidden on mobile via CSS) */}
+        <div className="desktop-nav-links" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <NavLink to="/" style={getNavLinkStyle} end onClick={() => setPage("home")}>
             Home
           </NavLink>
@@ -1071,7 +1096,7 @@ function App() {
           </form>
   
           {!token ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="desktop-auth" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <Link to="/login" style={{ padding: "0.5rem 0.9rem", cursor: "pointer", textDecoration: "none", fontWeight: 600 }}>
                 Log in
               </Link>
@@ -1092,13 +1117,15 @@ function App() {
               </Link>
             </div>
           ) : (
-            <ProfileMenu me={me} clerkUser={clerkUser} onLogout={handleLogout} />
+            <span className="desktop-auth">
+              <ProfileMenu me={me} clerkUser={clerkUser} onLogout={handleLogout} />
+            </span>
           )}
         </div>
       </nav>
   
       {/* ========================== ROUTES ========================== */}
-      <div style={{ padding: "1.5rem" }}>
+      <div className="main-content">
         <Routes>
         {/* Home */}
         <Route
@@ -1316,6 +1343,9 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
             </div>
+
+      {/* ========================== BOTTOM TAB BAR (mobile) ========================== */}
+      <BottomTabBar />
           </div>
         );
       }

@@ -9,6 +9,20 @@ import { apiFetch } from "./lib/api";
 
 const AuthContext = createContext(null);
 
+// Fallback provider when Clerk is not configured
+export function NoClerkAuthProvider({ children }) {
+  const value = useMemo(() => ({
+    token: "",
+    me: null,
+    loadingMe: false,
+    isAuthed: false,
+    clerkUser: null,
+    logout: () => {},
+  }), []);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
 export function AuthProvider({ children }) {
   const { isLoaded: authLoaded, isSignedIn, getToken, signOut } = useClerkAuth();
   const { isLoaded: userLoaded, user: clerkUser } = useClerkUser();
