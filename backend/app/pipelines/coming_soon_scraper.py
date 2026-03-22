@@ -305,16 +305,19 @@ def run_coming_soon_scrape() -> dict:
     try:
         session = _create_session()
         try:
-            # Phase 1: Get set numbers from the category page
+            # Phase 1: Get set numbers from the LEGO.com coming-soon page
             category_nums = _fetch_coming_soon_page(session)
             stats["page_sets_found"] = len(category_nums)
             logger.info("Found %d set numbers from category pages", len(category_nums))
 
-            # Phase 2: Also check sets already tagged as coming_soon in DB
+            # Track which DB set_nums we flag as coming soon this run
+            flagged_set_nums: set[str] = set()
+
+            # Phase 2: Also check sets already flagged in DB
             # (to update their status if they've launched)
             db_coming = db.execute(
                 select(SetModel.set_num).where(
-                    SetModel.retirement_status == "coming_soon"
+                    SetModel.lego_com_coming_soon.is_(True)
                 )
             ).scalars().all()
 
@@ -326,6 +329,9 @@ def run_coming_soon_scrape() -> dict:
             # Combine both sources, deduplicate
             all_nums = list(dict.fromkeys(category_nums + list(db_nums_plain)))
             logger.info("Will check %d total set numbers", len(all_nums))
+
+            # Convert category_nums to a set for O(1) lookup
+            category_nums_set = set(category_nums)
 
             # Phase 3: Scrape individual product pages
             for plain_num in all_nums:
@@ -354,10 +360,18 @@ def run_coming_soon_scrape() -> dict:
                 changed = False
 
                 avail = product_data.get("availability", "")
+                on_coming_soon_page = plain_num in category_nums_set
+
+                # Set/clear the lego_com_coming_soon flag
+                if on_coming_soon_page:
+                    if not row.lego_com_coming_soon:
+                        row.lego_com_coming_soon = True
+                        changed = True
+                    flagged_set_nums.add(row.set_num)
+                    stats["coming_soon_found"] += 1
 
                 # Mark as coming_soon if LEGO.com says pre_order or coming_soon
                 if avail in ("pre_order", "coming_soon"):
-                    stats["coming_soon_found"] += 1
                     if "retirement_status" not in locked and row.retirement_status != "coming_soon":
                         row.retirement_status = "coming_soon"
                         changed = True
@@ -388,6 +402,22 @@ def run_coming_soon_scrape() -> dict:
 
                 db.commit()
                 time.sleep(THROTTLE_SECONDS)
+
+            # Phase 4: Clear lego_com_coming_soon for sets no longer on the page
+            stale = db.execute(
+                select(SetModel).where(
+                    SetModel.lego_com_coming_soon.is_(True),
+                    SetModel.set_num.notin_(flagged_set_nums) if flagged_set_nums else True,
+                )
+            ).scalars().all()
+            cleared = 0
+            for row in stale:
+                row.lego_com_coming_soon = False
+                cleared += 1
+            if cleared:
+                db.commit()
+                logger.info("Cleared lego_com_coming_soon flag from %d sets", cleared)
+            stats["flags_cleared"] = cleared
 
         finally:
             if hasattr(session, "close"):

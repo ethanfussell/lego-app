@@ -117,6 +117,9 @@ class Set(Base):
     retirement_status = Column(String, nullable=True)  # "coming_soon" | "available" | "retiring_soon" | "retired"
     retirement_date = Column(String, nullable=True)     # e.g. "2026-12"
 
+    # True when the set appears on LEGO.com's coming-soon category page
+    lego_com_coming_soon = Column(Boolean, nullable=False, server_default="false", default=False)
+
     # Custom tag (e.g. "GWP", "Insider Reward") — displayed instead of price
     set_tag = Column(String, nullable=True)
 

@@ -44,11 +44,28 @@ from app.routers import follows as follows_router
 from app.routers import posts as posts_router
 from app.routers import notifications as notifications_router
 
+def _ensure_columns():
+    """Add new columns to existing tables (poor-man's migration)."""
+    from app.db import engine
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE sets ADD COLUMN IF NOT EXISTS "
+                "lego_com_coming_soon BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+        except Exception:
+            logging.getLogger("bricktrack.startup").debug(
+                "Column lego_com_coming_soon may already exist", exc_info=True
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import threading
     from app.core.scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
+    _ensure_columns()
 
     # Run startup pipelines in background threads to not block the app
     def _startup_scrape():
