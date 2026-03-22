@@ -31,9 +31,8 @@ from app.models import Set as SetModel, get_locked_fields
 
 logger = logging.getLogger("bricktrack.pipeline.coming_soon")
 
-# LEGO.com URLs
+# LEGO.com URLs — only the coming-soon page (NOT new-sets which has already-released sets)
 COMING_SOON_URL = "https://www.lego.com/en-us/categories/coming-soon"
-NEW_SETS_URL = "https://www.lego.com/en-us/categories/new-sets-and-products"
 LEGO_PRODUCT_URL = "https://www.lego.com/en-us/product/"
 
 HEADERS = {
@@ -277,19 +276,18 @@ def _fetch_coming_soon_page(session) -> list[str]:
     """Fetch LEGO.com coming-soon category page and extract set numbers."""
     set_nums: list[str] = []
 
-    for url in [COMING_SOON_URL, NEW_SETS_URL]:
-        try:
-            resp = _safe_get(session, url)
-            if resp.status_code == 200:
-                nums = _extract_set_numbers_from_html(resp.text)
-                logger.info("Extracted %d set numbers from %s", len(nums), url)
-                set_nums.extend(nums)
-            else:
-                logger.warning("Got status %d from %s", resp.status_code, url)
-        except Exception:
-            logger.warning("Failed to fetch %s", url, exc_info=True)
+    try:
+        resp = _safe_get(session, COMING_SOON_URL)
+        if resp.status_code == 200:
+            nums = _extract_set_numbers_from_html(resp.text)
+            logger.info("Extracted %d set numbers from %s", len(nums), COMING_SOON_URL)
+            set_nums.extend(nums)
+        else:
+            logger.warning("Got status %d from %s", resp.status_code, COMING_SOON_URL)
+    except Exception:
+        logger.warning("Failed to fetch %s", COMING_SOON_URL, exc_info=True)
 
-        time.sleep(THROTTLE_SECONDS)
+    time.sleep(THROTTLE_SECONDS)
 
     # Deduplicate and filter out invalid numbers (leading zeros, too short)
     seen: set[str] = set()
@@ -370,9 +368,13 @@ def run_coming_soon_scrape() -> dict:
                     if row:
                         break
 
+                avail = product_data.get("availability", "")
+                is_truly_coming_soon = avail in ("pre_order", "coming_soon")
+                on_coming_soon_page = plain_num in category_nums_set
+
                 if not row:
-                    # Create a new DB entry if this set is on the coming-soon page
-                    if plain_num in category_nums_set and product_data.get("name"):
+                    # Create a new DB entry only if actually coming soon (not in_stock)
+                    if on_coming_soon_page and is_truly_coming_soon and product_data.get("name"):
                         set_num = f"{plain_num}-1"
                         row = SetModel(
                             set_num=set_num,
@@ -392,8 +394,10 @@ def run_coming_soon_scrape() -> dict:
                         flagged_set_nums.add(set_num)
                         stats["sets_created"] = stats.get("sets_created", 0) + 1
                         stats["coming_soon_found"] += 1
-                        logger.info("Created new set %s: %s", set_num, product_data.get("name"))
+                        logger.info("Created new set %s: %s (avail=%s)", set_num, product_data.get("name"), avail)
                         db.commit()
+                    else:
+                        logger.debug("Skipping %s: not in DB, avail=%s", plain_num, avail)
                     time.sleep(THROTTLE_SECONDS)
                     continue
 
@@ -401,16 +405,16 @@ def run_coming_soon_scrape() -> dict:
                 locked = set(get_locked_fields(row))
                 changed = False
 
-                avail = product_data.get("availability", "")
-                on_coming_soon_page = plain_num in category_nums_set
-
-                # Set/clear the lego_com_coming_soon flag
-                if on_coming_soon_page:
+                # Only flag as coming soon if the product page confirms it's not yet available
+                if on_coming_soon_page and is_truly_coming_soon:
                     if not row.lego_com_coming_soon:
                         row.lego_com_coming_soon = True
                         changed = True
                     flagged_set_nums.add(row.set_num)
                     stats["coming_soon_found"] += 1
+                elif on_coming_soon_page and avail == "in_stock":
+                    # LEGO.com still lists it as coming soon but it's already available
+                    logger.info("Set %s is on coming-soon page but already in_stock, skipping flag", plain_num)
 
                 # Mark as coming_soon if LEGO.com says pre_order or coming_soon
                 if avail in ("pre_order", "coming_soon"):
