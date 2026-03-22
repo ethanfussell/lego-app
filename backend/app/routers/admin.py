@@ -395,6 +395,8 @@ def admin_update_setting(
 class AdminAsinUpdate(BaseModel):
     """Request body for adding/updating an Amazon ASIN for a set."""
     asin: str
+    price: Optional[float] = None
+    in_stock: Optional[bool] = None
 
     @field_validator("asin", mode="before")
     @classmethod
@@ -435,15 +437,19 @@ def admin_set_asin(
         existing.asin = payload.asin
         existing.url = direct_url
         existing.last_checked = now
+        if payload.price is not None:
+            existing.price = payload.price
+        if payload.in_stock is not None:
+            existing.in_stock = payload.in_stock
         action = "updated"
     else:
         db.add(OfferModel(
             set_num=plain,
             store="Amazon",
-            price=None,
+            price=payload.price,
             currency="USD",
             url=direct_url,
-            in_stock=None,
+            in_stock=payload.in_stock,
             asin=payload.asin,
             last_checked=now,
         ))
