@@ -211,6 +211,13 @@ def _scrape_product_page(
 
             result["name"] = item.get("name")
 
+            # Image URL
+            img = item.get("image")
+            if isinstance(img, str) and img.startswith("http"):
+                result["image_url"] = img
+            elif isinstance(img, list) and img:
+                result["image_url"] = img[0] if isinstance(img[0], str) else None
+
             offers = item.get("offers", {})
             if isinstance(offers, list):
                 offers = offers[0] if offers else {}
@@ -284,11 +291,11 @@ def _fetch_coming_soon_page(session) -> list[str]:
 
         time.sleep(THROTTLE_SECONDS)
 
-    # Deduplicate
+    # Deduplicate and filter out invalid numbers (leading zeros, too short)
     seen: set[str] = set()
     deduped: list[str] = []
     for n in set_nums:
-        if n not in seen:
+        if n not in seen and not n.startswith("0") and len(n) >= 4:
             seen.add(n)
             deduped.append(n)
 
@@ -364,6 +371,29 @@ def run_coming_soon_scrape() -> dict:
                         break
 
                 if not row:
+                    # Create a new DB entry if this set is on the coming-soon page
+                    if plain_num in category_nums_set and product_data.get("name"):
+                        set_num = f"{plain_num}-1"
+                        row = SetModel(
+                            set_num=set_num,
+                            name=product_data.get("name"),
+                            year=datetime.now(timezone.utc).year,
+                            theme=None,
+                            pieces=None,
+                            image_url=product_data.get("image_url"),
+                            retail_price=product_data.get("price"),
+                            retail_currency=product_data.get("currency", "USD"),
+                            retirement_status="coming_soon",
+                            lego_com_coming_soon=True,
+                            launch_date=product_data.get("launch_date"),
+                        )
+                        db.add(row)
+                        db.flush()
+                        flagged_set_nums.add(set_num)
+                        stats["sets_created"] = stats.get("sets_created", 0) + 1
+                        stats["coming_soon_found"] += 1
+                        logger.info("Created new set %s: %s", set_num, product_data.get("name"))
+                        db.commit()
                     time.sleep(THROTTLE_SECONDS)
                     continue
 
